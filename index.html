@@ -660,7 +660,8 @@ joinRoomButton.addEventListener('click', async () => {
 
                     const cleanedPlayedCards = selectedCards.map(c => ({ suit: c.suit, number: c.number, uid: c.uid }));
                     
-                    let logEntries = [];
+                    let logEntries = [{ timestamp: Date.now(), message: `${me.name}が${cardsToString(selectedCards)}を出しました。` }];
+
                     let nextState = {
                         players: playersCopy, field: cleanedPlayedCards, passCount: 0,
                         lastPlayed: { player: me.id, cards: cleanedPlayedCards },
@@ -669,131 +670,54 @@ joinRoomButton.addEventListener('click', async () => {
                         discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
                         pendingAction: null
                     };
-
-                    const isPlayStair = isStair(selectedCards);
-
-                    if (isPlayStair) {
-                        logEntries.push({ timestamp: Date.now(), message: `${me.name}が階段 ${cardsToString(selectedCards)} を出しました。` });
-                        let tempState = { ...roomData, isJBackActive: nextState.isJBackActive };
-                        let processingList = selectedCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
-                        
-                        const jIndex = processingList.findIndex(c => c.number === 11);
-                        if (jIndex > -1) {
-                            tempState.isJBackActive = !tempState.isJBackActive;
-                            nextState.isJBackActive = tempState.isJBackActive;
-                            logEntries.push({ timestamp: Date.now(), message: `階段効果: Jバック`, effect: { card: "J", name: "Jバック" } });
-                            processingList.splice(jIndex, 1);
-                        }
-                        
-                        processingList.sort((a, b) => {
-                            if (a.number === 13) return -1;
-                            if (b.number === 13) return 1;
-                            return getCardValue(a, tempState) - getCardValue(b, tempState);
-                        });
-
-                        let interactiveActions = [];
-                        let clearFieldAtEnd = false;
-                        let skipCount = 0;
-
-                        for(const card of processingList) {
-                             const effectNameMap = {1:"A奪い", 4:"リバース", 5:"5スキップ", 7:"7渡し", 8:"8切り", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
-                             logEntries.push({ timestamp: Date.now(), message: `階段効果: ${numberToString(card.number)} - ${effectNameMap[card.number]}`, effect: {card:numberToString(card.number), name: effectNameMap[card.number]}});
-                             switch(card.number) {
-                                case 1: interactiveActions.push({ type: 'steal_select_player', actorId: me.id, count: 1 }); break;
-                                case 7: interactiveActions.push({ type: 'pass_select_player', actorId: me.id, count: 1 }); break;
-                                case 10: interactiveActions.push({ type: 'discard_select_cards', actorId: me.id, count: 1 }); break;
-                                case 12: interactiveActions.push({ type: 'bomber_select_rank', actorId: me.id, count: 1 }); break;
-                                case 13: interactiveActions.push({ type: 'collect_select_cards', actorId: me.id, count: 1 }); break;
-                                case 8: clearFieldAtEnd = true; break;
-                                case 4: nextState.turnDirection *= -1; break;
-                                case 5: skipCount += 1; break;
-                             }
-                        }
-
-                        for (let i = interactiveActions.length - 2; i >= 0; i--) {
-                            interactiveActions[i].nextAction = interactiveActions[i+1];
-                        }
-                        
-                        if (clearFieldAtEnd) {
-                             const finalAction = { type: 'eight_cut' };
-                             if (interactiveActions.length > 0) interactiveActions[interactiveActions.length - 1].nextAction = finalAction;
-                             else {
-                                 nextState.discardPile = [...nextState.discardPile, ...nextState.field];
-                                 nextState.field = [];
-                                 nextState.passCount = 0;
-                                 nextState.turnPlayerId = me.id; 
-                                 nextState.isJBackActive = false;
-                             }
-                        }
-
-                        if (interactiveActions.length > 0) {
-                            nextState.pendingAction = interactiveActions[0];
-                            nextState.turnPlayerId = me.id;
-                        } else if (!clearFieldAtEnd) {
-                             nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
-                        }
-
-                    } else {
-                        logEntries.push({ timestamp: Date.now(), message: `${me.name}が${cardsToString(selectedCards)}を出しました。` });
-                        const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
-                        const playedNumber = realCards.length > 0 ? realCards[0].number : null;
-                        
-                        let clearField = false, isFollowUpAction = false, skipCount = 0;
-                        
-                        if (selectedCards.length === 2 && selectedCards.every(c => c.suit === 'joker' && !c.mimics)) {
-                            clearField = true;
-                            logEntries.push({timestamp: Date.now(), message: "最強のJokerペア！場が流れます。"});
-                        }
-                        if (selectedCards.length >= 4) {
-                            nextState.isRevolution = !nextState.isRevolution;
-                            logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
-                        }
-                        
-                        if (playedNumber) {
-                            const effectMap = {1:"A奪い",/*3:"スペ3返し",*/4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
-                            const effectName = effectMap[playedNumber];
-                            if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
-                            switch(playedNumber) {
-                                case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
-                                case 5:
-                                    const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
-                                    if (activePlayersCount <= 1) break;
-                                    const skipAmount = (2 * selectedCards.length) - 1;
-                                    if (activePlayersCount > 1 && (2 * selectedCards.length) % activePlayersCount === 0) {
-                                        clearField = true;
-                                        logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
-                                    } else {
-                                        skipCount = skipAmount;
-                                    }
-                                    break;
-                                case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
-                                case 8: clearField = true; break;
-                                case 11: nextState.isJBackActive = !nextState.isJBackActive; break;
-                                case 3: 
-                                    if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
-                                         clearField = true;
-                                         logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}});
-                                    }
-                                    break;
-                                case 7: case 10: case 12: case 13: case 1:
-                                    isFollowUpAction = true;
-                                    const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
-                                    nextState.pendingAction = { type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length };
-                                    break;
-                            }
-                        }
-
-                        const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
-                        if (isFollowUpAction) {
-                            nextState.turnPlayerId = me.id;
-                        } else if (clearField || remainingPlayers <= 1) {
-                            nextState.discardPile = [...nextState.discardPile, ...nextState.field];
-                            nextState.field = [];
-                            nextState.passCount = 0;
-                            nextState.turnPlayerId = me.id; 
-                            nextState.isJBackActive = false; 
-                        } else {
-                            nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
+                    
+                    const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
+                    const playedNumber = realCards.length > 0 ? realCards[0].number : null;
+                    
+                    let clearField = false, isFollowUpAction = false, skipCount = 0;
+                    
+                    if (selectedCards.length === 2 && selectedCards.every(c => c.suit === 'joker' && !c.mimics)) {
+                        clearField = true;
+                        logEntries.push({timestamp: Date.now(), message: "最強のJokerペア！場が流れます。"});
+                    }
+                    if (selectedCards.length >= 4) {
+                        nextState.isRevolution = !nextState.isRevolution;
+                        logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
+                    }
+                    
+                    if (playedNumber) {
+                        const effectMap = {1:"A奪い",/*3:"スペ3返し",*/4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
+                        const effectName = effectMap[playedNumber];
+                        // ★修正(6): 3は特別扱いするため、汎用の効果ログから除外
+                        if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
+                        switch(playedNumber) {
+                            case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
+                            case 5:
+                                const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
+                                if (activePlayersCount <= 1) break;
+                                const skipAmount = (2 * selectedCards.length) - 1;
+                                if (activePlayersCount > 1 && (2 * selectedCards.length) % activePlayersCount === 0) {
+                                    clearField = true;
+                                    logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
+                                } else {
+                                    skipCount = skipAmount;
+                                }
+                                break;
+                            case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
+                            case 8: clearField = true; break;
+                            case 11: nextState.isJBackActive = !nextState.isJBackActive; break;
+                            case 3: 
+                                // ★修正(6): スペ3返しの条件と、専用のカットインログ
+                                if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
+                                     clearField = true;
+                                     logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}});
+                                }
+                                break;
+                            case 7: case 10: case 12: case 13: case 1:
+                                isFollowUpAction = true;
+                                const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
+                                nextState.pendingAction = { type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length };
+                                break;
                         }
                     }
 
@@ -801,6 +725,22 @@ joinRoomButton.addEventListener('click', async () => {
                         const { updatedPlayers,上がりLog } = handlePlayerFinish(nextState.players, me.id);
                         nextState.players = updatedPlayers;
                         logEntries.push(...上がりLog);
+                    }
+                    
+                    const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
+
+                    if (isFollowUpAction) {
+                        // Follow-up actionへ移行するため、ターンは動かさない
+                        nextState.turnPlayerId = me.id;
+                    } else if (clearField || remainingPlayers <= 1) {
+                         // ★修正(1): プレイヤーが上がって残り1人になった場合も場を流す
+                        nextState.discardPile = [...nextState.discardPile, ...nextState.field];
+                        nextState.field = [];
+                        nextState.passCount = 0;
+                        nextState.turnPlayerId = me.id; 
+                        nextState.isJBackActive = false; 
+                    } else {
+                        nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
                     }
                     
                     const finalState = checkGameEnd(nextState);
@@ -1085,7 +1025,7 @@ async function handleCardClick(card) {
             return true;
         }
         
-function isValidPlay(playCards, myHand, roomData) {
+        function isValidPlay(playCards, myHand, roomData) {
             if (roomData.field.length === 0 && roomData.lastPlayed.player === null &&
                 myHand.some(c => c.suit === 'diamond' && c.number === 3)) {
                 if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
@@ -1131,18 +1071,8 @@ function isValidPlay(playCards, myHand, roomData) {
             if(isPlayStair !== isFieldStair) return { valid: false, message: '場と同じ種類（通常 or 階段）で出してください。' };
             if (playCards.length !== roomData.field.length) return { valid: false, message: '場と同じ枚数のカードを出してください。' };
 
-            let playValue;
-            let fieldValue;
-
-            if (isPlayStair) {
-                const playBaseCard = playCards.sort((a,b) => getCardStrength(a) - getCardStrength(b))[0];
-                const fieldBaseCard = roomData.field.sort((a,b) => getCardStrength(a) - getCardStrength(b))[0];
-                playValue = getCardValue(playBaseCard, roomData);
-                fieldValue = getCardValue(fieldBaseCard, roomData);
-            } else {
-                playValue = getCardValue(playCards.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
-                fieldValue = getCardValue(roomData.field.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
-            }
+            const playValue = getCardValue(playCards.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
+            const fieldValue = getCardValue(roomData.field.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
 
             if (playValue <= fieldValue) return { valid: false, message: '場に出ているカードより強いカードを出してください。' };
             
@@ -1458,7 +1388,8 @@ function isValidPlay(playCards, myHand, roomData) {
             return state;
         }
 
-// --- Action Execution Functions ---
+
+        // --- Action Execution Functions ---
         async function executeAction(actionFn, logMessageFn) {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
@@ -1467,7 +1398,6 @@ function isValidPlay(playCards, myHand, roomData) {
                     if (!roomSnap.exists()) throw new Error("Room not found");
                     let roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
-                    const currentAction = roomData.pendingAction;
                     
                     let { players, discardPile, logContext } = await actionFn(roomData, me);
                     const logMessage = logMessageFn(logContext || {});
@@ -1479,32 +1409,15 @@ function isValidPlay(playCards, myHand, roomData) {
                          logEntries.push(...上がりLog);
                     }
                     
-                    let nextState = { ...roomData, players, discardPile: discardPile || roomData.discardPile };
-                    
-                    if (currentAction && currentAction.nextAction) {
-                        let nextActionInChain = currentAction.nextAction;
-                        if (nextActionInChain.type === 'eight_cut') {
-                            nextState.discardPile = [...(nextState.discardPile), ...nextState.field];
-                            nextState.field = [];
-                            nextState.passCount = 0;
-                            nextState.isJBackActive = false;
-                            nextState.pendingAction = nextActionInChain.nextAction || null;
-                             if (!nextState.pendingAction) {
-                                nextState.turnPlayerId = me.id;
-                            } else {
-                                nextState.turnPlayerId = me.id;
-                            }
-                        } else {
-                            nextState.pendingAction = nextActionInChain;
-                            nextState.turnPlayerId = me.id;
-                        }
-                    } else {
-                        nextState.pendingAction = null;
-                        nextState.turnPlayerId = getNextPlayerId(players, me.id, roomData.turnDirection, 0);
-                    }
+                    let nextState = {
+                        players: players,
+                        discardPile: discardPile || roomData.discardPile,
+                        pendingAction: null,
+                        turnPlayerId: getNextPlayerId(players, me.id, roomData.turnDirection, 0)
+                    };
                     
                     const finalState = checkGameEnd(nextState);
-                    transaction.update(roomRef, {...finalState, log: arrayUnion(...logEntries)});
+                    transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: arrayUnion(...logEntries)});
                 });
             } catch (e) {
                 showAlert(`エラー: ${e.message}`);
