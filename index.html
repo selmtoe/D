@@ -731,24 +731,39 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                         
                         if (playedNumber) {
-                            const effectMap = {1:"A奪い",/*3:"スペ3返し",*/4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
+                            const effectMap = {1:"A奪い",/*3:"スペ3返し",*/ 5:"5スキップ", 7:"7渡し", 8:"8切り", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
                             const effectName = effectMap[playedNumber];
                             if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
                             switch(playedNumber) {
-                                case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
+                                case 4: 
+                                    if (selectedCards.length % 2 !== 0) {
+                                        nextState.turnDirection *= -1;
+                                        logEntries.push({ timestamp: Date.now(), message: `効果発動: 4 - リバース`, effect: {card:"4", name: "リバース"}});
+                                    }
+                                    break;
                                 case 5:
                                     const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
                                     if (activePlayersCount <= 1) break;
                                     const skipAmount = (2 * selectedCards.length) - 1;
-                                    if (activePlayersCount > 1 && skipAmount % activePlayersCount === 0 && activePlayersCount > 0) {
+                                    const totalMoves = 1 + skipAmount;
+                                    if (activePlayersCount > 1 && totalMoves % activePlayersCount === 0) {
                                         clearField = true;
                                         logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
                                     } else {
-                                        skipCount = skipAmount % activePlayersCount;
+                                        skipCount = skipAmount;
                                     }
                                     break;
-                                case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
-                                case 8: clearField = true; break;
+                                case 6: case 9: 
+                                    if (selectedCards.length >= 2) {
+                                        clearField = true;
+                                        const specificEffectName = playedNumber === 6 ? "ろくろ首" : "救急車";
+                                        logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${specificEffectName}`, effect: {card:numberToString(playedNumber), name: specificEffectName}});
+                                    }
+                                    break;
+                                case 8: 
+                                    clearField = true;
+                                    logEntries.push({ timestamp: Date.now(), message: `効果発動: 8 - 8切り`, effect: {card:"8", name: "8切り"}});
+                                    break;
                                 case 11: nextState.isJBackActive = !nextState.isJBackActive; break;
                                 case 3: 
                                     if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
@@ -764,7 +779,7 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                     }
 
-                    if (newHand.length === 0) {
+                    if (newHand.length === 0 && nextState.pendingActions.length === 0) {
                         const { updatedPlayers,上がりLog } = handlePlayerFinish(nextState.players, me.id);
                         nextState.players = updatedPlayers;
                         logEntries.push(...上がりLog);
@@ -831,6 +846,7 @@ joinRoomButton.addEventListener('click', async () => {
                         discardPile: newDiscardPile, log: arrayUnion(...logEntries)
                     });
                 });
+                selectedCards = [];
              } catch (e) { showAlert("パスに失敗しました: " + e.message); }
         });
 
@@ -1157,13 +1173,8 @@ async function handleCardClick(card) {
                          });
                     break;
                 case 'pass_select_cards':
-                    showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true)
-                        .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive))
-                        .catch(() => {
-                            let newActions = [...roomData.pendingActions];
-                            newActions[0] = { ...action, type: 'pass_select_player', targetId: null };
-                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
-                        });
+                    showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true, false)
+                        .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive));
                     break;
                 case 'discard_select_cards':
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
