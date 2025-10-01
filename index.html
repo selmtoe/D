@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>オンライン大富豪 v4</title>
+    <title>オンライン大富豪 v5</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -16,7 +16,7 @@
             align-items: center;
             min-height: 100vh;
             box-sizing: border-box;
-            overflow: hidden; /* For positioning log and cut-in */
+            /* overflow: hidden; を削除してスクロールを有効化 */
         }
 
         .screen { display: none; }
@@ -96,6 +96,8 @@
         .players-container {
             display: flex;
             justify-content: space-around;
+            flex-wrap: wrap; /* プレイヤーが増えても改行されるように */
+            gap: 10px;
             margin-bottom: 20px;
             min-height: 120px;
         }
@@ -118,6 +120,10 @@
             box-shadow: 0 0 15px #80cbc4;
             font-weight: bold;
             transform: scale(1.05);
+        }
+        .player-box.finished {
+            opacity: 0.5;
+            border-style: dashed;
         }
         .other-player-cards {
             display: flex;
@@ -199,10 +205,19 @@
         .card .card-number { font-size: 1.2em; }
 
 
-        #room-info {
+        #room-info-container {
             margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
             font-size: 14px;
             color: #a0a0a0;
+        }
+        #copy-room-id-button {
+            padding: 5px 10px;
+            font-size: 14px;
+            min-width: 80px;
         }
         
         /* Modal Styles */
@@ -240,6 +255,19 @@
         }
         .modal-rank-selection button.selected {
             background-color: #004d40;
+        }
+
+        #results-table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+        #results-table th, #results-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        #results-table th {
+            background-color: #f2f2f2;
         }
 
 
@@ -365,7 +393,10 @@
              <button id="start-game-button" style="display: none; background-color: #28a745;">ゲーム開始</button>
         </div>
 
-        <div id="room-info"></div>
+        <div id="room-info-container">
+            <span id="room-info"></span>
+            <button id="copy-room-id-button" style="display: none;">IDコピー</button>
+        </div>
     </div>
 
     <div id="modal-overlay" class="hidden">
@@ -438,7 +469,8 @@
         const fieldDiv = document.getElementById('field');
         const turnInfoSpan = document.getElementById('turn-info');
         const lastPlayerInfoSpan = document.getElementById('last-player-info');
-        const roomInfoDiv = document.getElementById('room-info');
+        const roomInfoSpan = document.getElementById('room-info');
+        const copyRoomIdButton = document.getElementById('copy-room-id-button');
         const startGameButton = document.getElementById('start-game-button');
         const playButton = document.getElementById('play-button');
         const passButton = document.getElementById('pass-button');
@@ -487,7 +519,7 @@
             await setDoc(roomRef, {
                 id: currentRoomId,
                 players: [newPlayer],
-                gameState: 'waiting',
+                gameState: 'waiting', // waiting, playing, finished
                 field: [], discardPile: [],
                 lastPlayed: { player: null, cards: [] },
                 turnPlayerId: null, passCount: 0,
@@ -527,8 +559,11 @@
             if (unsubscribeRoom) unsubscribeRoom();
             unsubscribeRoom = onSnapshot(doc(db, 'rooms', currentRoomId), (doc) => {
                 if (doc.exists()) {
-                    renderGame(doc.data());
-                    handlePendingAction(doc.data());
+                    const roomData = doc.data();
+                    renderGame(roomData);
+                    if(roomData.gameState !== 'finished') {
+                       handlePendingAction(roomData);
+                    }
                 } else { 
                     showAlert('ルームが削除されました。'); 
                     location.reload(); 
@@ -536,6 +571,13 @@
             });
         }
         
+        copyRoomIdButton.addEventListener('click', () => {
+            navigator.clipboard.writeText(currentRoomId).then(() => {
+                copyRoomIdButton.textContent = 'コピー完了!';
+                setTimeout(() => { copyRoomIdButton.textContent = 'IDコピー'; }, 1500);
+            });
+        });
+
         // --- Game Start ---
         startGameButton.addEventListener('click', async () => {
             const roomRef = doc(db, 'rooms', currentRoomId);
@@ -599,59 +641,57 @@
                     const roomSnap = await transaction.get(roomRef);
                     if (!roomSnap.exists()) throw new Error("Room does not exist.");
                     const roomData = roomSnap.data();
-
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
                     const validation = isValidPlay(selectedCards, me.hand, roomData);
                     if (!validation.valid) throw new Error(validation.message);
 
                     const playedCardUids = new Set(selectedCards.map(c => c.uid));
                     const newHand = me.hand.filter(c => !playedCardUids.has(c.uid));
-                    const playersCopy = roomData.players.map(p => p.id === me.id ? { ...p, hand: newHand } : p);
+                    let playersCopy = roomData.players.map(p => p.id === me.id ? { ...p, hand: newHand } : p);
 
+                    // ★修正: 擬態Jokerを場に出す際に、擬態情報を解除して元のJokerに戻す
+                    const cleanedPlayedCards = selectedCards.map(c => ({ suit: c.suit, number: c.number, uid: c.uid }));
+                    
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}が${cardsToString(selectedCards)}を出しました。` }];
 
                     let nextState = {
-                        players: playersCopy, field: selectedCards, passCount: 0,
-                        lastPlayed: { player: me.id, cards: selectedCards },
+                        players: playersCopy, field: cleanedPlayedCards, passCount: 0,
+                        lastPlayed: { player: me.id, cards: cleanedPlayedCards },
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
                         turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
-                        discardPile: [...roomData.discardPile, ...roomData.field], pendingAction: null
+                        discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
+                        pendingAction: null
                     };
                     
                     const realCards = selectedCards.filter(c => c.suit !== 'joker' || c.mimics);
                     const playedNumber = realCards[0]?.mimics?.number || realCards[0]?.number;
                     
-                    // --- Card Effects ---
                     let clearField = false, isFollowUpAction = false, skipCount = 0;
                     
-                    // Joker-Joker pair
                     if (selectedCards.length === 2 && selectedCards.every(c => c.suit === 'joker' && !c.mimics)) {
                         clearField = true;
                         logEntries.push({timestamp: Date.now(), message: "最強のJokerペア！場が流れます。"});
                     }
-
-                    // Revolution
                     if (selectedCards.length >= 4) {
                         nextState.isRevolution = !nextState.isRevolution;
                         logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
                     }
                     
                     if (playedNumber) {
-                        const effectMap = {4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収", 1:"A奪い"};
+                         const effectMap = {1:"A奪い",3:"スペ3返し",4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
                         const effectName = effectMap[playedNumber];
                         if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
 
                         switch(playedNumber) {
                             case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
                             case 5:
-                                const activePlayersCount = roomData.players.filter(p => p.hand.length > 0 && p.rank === null).length;
+                                const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
+                                if (activePlayersCount <= 1) break;
                                 const skipAmount = 2 * selectedCards.length - 1;
-                                if (activePlayersCount > 1 && skipAmount % activePlayersCount === 0) {
+                                if (skipAmount > 0 && skipAmount % activePlayersCount === 0) {
                                     clearField = true;
                                     logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
-                                } else {
-                                    skipCount = skipAmount;
-                                }
+                                } else { skipCount = skipAmount; }
                                 break;
                             case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
                             case 8: clearField = true; break;
@@ -659,51 +699,34 @@
                             case 3: 
                                 if (selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) clearField = true;
                                 break;
-                            // Follow-up actions
-                            case 7: 
+                            case 7: case 10: case 12: case 13: case 1:
                                 isFollowUpAction = true;
-                                nextState.pendingAction = { type: 'pass_select_player', actorId: me.id, count: selectedCards.length };
-                                break;
-                            case 10:
-                                isFollowUpAction = true;
-                                nextState.pendingAction = { type: 'discard_select_cards', actorId: me.id, count: selectedCards.length };
-                                break;
-                            case 12: // Q
-                                isFollowUpAction = true;
-                                nextState.pendingAction = { type: 'bomber_select_rank', actorId: me.id, count: selectedCards.length };
-                                break;
-                            case 13: // K
-                                isFollowUpAction = true;
-                                nextState.pendingAction = { type: 'collect_select_cards', actorId: me.id, count: selectedCards.length };
-                                break;
-                            case 1: // A
-                                isFollowUpAction = true;
-                                nextState.pendingAction = { type: 'steal_select_player', actorId: me.id, count: selectedCards.length };
+                                const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
+                                nextState.pendingAction = { type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length };
                                 break;
                         }
                     }
 
+                    if (newHand.length === 0) {
+                        const { updatedPlayers,上がりLog } = handlePlayerFinish(nextState.players, me.id);
+                        nextState.players = updatedPlayers;
+                        logEntries.push(...上がりLog);
+                    }
+                    
                     if (isFollowUpAction) {
-                        // Just update state and wait for player input
+                        // Follow-up actionへ移行
                     } else if (clearField) {
-                        nextState.discardPile = [...nextState.discardPile, ...selectedCards];
+                        nextState.discardPile = [...nextState.discardPile, ...nextState.field];
                         nextState.field = [];
                         nextState.passCount = 0;
-                        nextState.turnPlayerId = me.id; // Turn goes to the person who cleared
-                        nextState.isJBackActive = false; // J-Back effect ends
+                        nextState.turnPlayerId = me.id; 
+                        nextState.isJBackActive = false; 
                     } else {
-                        nextState.turnPlayerId = getNextPlayerId(roomData.players, me.id, nextState.turnDirection, skipCount);
+                        nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
                     }
                     
-                    // Win condition check
-                    if (newHand.length === 0 && !isFollowUpAction) {
-                        logEntries.push({timestamp: Date.now(), message: `${me.name}が上がりました！`});
-                        const finishedPlayer = nextState.players.find(p => p.id === me.id);
-                        if (finishedPlayer) finishedPlayer.rank = 'finished'; // Simple win state
-                    }
-                    
-                    nextState.log = arrayUnion(...logEntries);
-                    transaction.update(roomRef, nextState);
+                    const finalState = checkGameEnd(nextState);
+                    transaction.update(roomRef, {...finalState, log: arrayUnion(...logEntries)});
                 });
                 selectedCards = [];
             } catch (error) { showAlert(error.message); }
@@ -720,18 +743,21 @@
                     
                     let newPassCount = roomData.passCount + 1;
                     let newTurnPlayerId = getNextPlayerId(roomData.players, currentPlayer.id, roomData.turnDirection, 0);
-                    let newField = roomData.field;
+                    let newField = roomData.field.map(c => cleanCard(c)); // clean cards on field
                     let newJBack = roomData.isJBackActive;
                     let newDiscardPile = roomData.discardPile;
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}がパスしました。` }];
                     
-                    const activePlayers = roomData.players.filter(p => p.hand.length > 0 && p.rank === null);
+                    const activePlayers = roomData.players.filter(p => p.rank === null);
                     if (newPassCount >= activePlayers.length - 1) {
                         newDiscardPile = [...newDiscardPile, ...newField];
-                        newField = []; // Clear field
+                        newField = [];
                         newPassCount = 0;
-                        newJBack = false; // J-Back effect ends
-                        newTurnPlayerId = roomData.lastPlayed.player; // Turn goes to last player
+                        newJBack = false;
+                        newTurnPlayerId = roomData.lastPlayed.player;
+                        if (roomData.players.find(p => p.id === newTurnPlayerId)?.rank !== null) {
+                            newTurnPlayerId = getNextPlayerId(roomData.players, newTurnPlayerId, roomData.turnDirection, 0);
+                        }
                         logEntries.push({ timestamp: Date.now(), message: `全員がパスしたため場が流れました。` });
                     }
                     
@@ -746,7 +772,13 @@
 
         // --- UI Rendering ---
         function renderGame(roomData) {
-            roomInfoDiv.textContent = `ルームID: ${currentRoomId}` + (roomData.gameState === 'waiting' ? ` | 参加を待っています...` : '');
+            roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
+            copyRoomIdButton.style.display = 'inline-block';
+
+            if (roomData.gameState === 'finished') {
+                showResultsModal(roomData.players);
+                return;
+            }
             
             const amIHost = roomData.players.find(p => p.id === currentPlayer.id)?.isHost;
             startGameButton.style.display = (amIHost && roomData.gameState === 'waiting') ? 'block' : 'none';
@@ -766,12 +798,14 @@
                     const playerDiv = document.createElement('div');
                     playerDiv.className = 'player-box';
                     if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
+                    if (player.rank !== null) playerDiv.classList.add('finished');
+                    
                     let cardBacksHTML = '';
                     if (player.hand && player.hand.length > 0) {
                        for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
                     }
-                    const status = player.rank ? '上がり' : `手札: ${player.hand ? player.hand.length : 0} 枚`;
-                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${status}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
+                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
+                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
                     playersContainerDiv.appendChild(playerDiv);
                 }
             });
@@ -787,7 +821,7 @@
             const lastPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
             lastPlayerInfoSpan.textContent = lastPlayer ? `最後に出した人: ${lastPlayer.name}` : "---";
 
-            const isMyTurn = roomData.turnPlayerId === me.id;
+            const isMyTurn = roomData.turnPlayerId === me.id && me.rank === null;
             playButton.disabled = !isMyTurn || roomData.pendingAction;
             passButton.disabled = !isMyTurn || roomData.field.length === 0 || roomData.pendingAction;
 
@@ -797,7 +831,7 @@
         function renderMyHand(me, roomData) {
             myHandDiv.innerHTML = '';
             cardUidsInHand.clear();
-            if(!me.hand) return;
+            if(!me.hand || me.rank !== null) return;
 
             me.hand.forEach(card => {
                 cardUidsInHand.add(card.uid);
@@ -820,28 +854,27 @@
         }
         
         async function handleCardClick(card, cardEl) {
-            const isSelected = selectedCards.some(c => c.uid === card.uid);
+            const index = selectedCards.findIndex(c => c.uid === card.uid);
             
-            if (isSelected) {
-                selectedCards = selectedCards.filter(c => c.uid !== card.uid);
+            if (index > -1) {
+                selectedCards.splice(index, 1);
             } else {
                 let newSelectedCards = [...selectedCards, card];
-                const jokers = newSelectedCards.filter(c => c.suit === 'joker');
+                const jokers = newSelectedCards.filter(c => c.suit === 'joker' && !c.mimics);
                 const others = newSelectedCards.filter(c => c.suit !== 'joker');
 
-                if (jokers.length > 0 && others.length > 0) { // Joker + other cards
+                if (jokers.length > 0 && others.length > 0) {
                     try {
                         const targetNumber = others[0].number;
-                        // Ask the last added joker to transform
                         const mimicData = await showJokerTransformModal(targetNumber);
-                        card.mimics = mimicData; // Add mimics data to the card object
-                        selectedCards.push(card);
-                    } catch (e) { return; } // User cancelled
+                        const jokerToTransform = selectedCards.find(c => c.uid === card.uid);
+                        if (jokerToTransform) jokerToTransform.mimics = mimicData;
+                        
+                    } catch (e) { return; } 
                 } else {
                     selectedCards.push(card);
                 }
             }
-             // Re-render hand to reflect selection and transformation state
              const roomData = (await getDoc(doc(db, 'rooms', currentRoomId))).data();
              const me = roomData.players.find(p => p.id === currentPlayer.id);
              renderMyHand(me, roomData);
@@ -866,18 +899,29 @@
         }
         
         function getNextPlayerId(players, currentId, direction, skipCount) {
-            const activePlayers = players.filter(p => p.hand.length > 0 && p.rank === null).sort((a,b) => a.order - b.order);
-            if (activePlayers.length === 0) return currentId;
-            const currentIndex = activePlayers.findIndex(p => p.id === currentId);
-            if (currentIndex === -1) return activePlayers[0]?.id;
+            const activePlayers = players.filter(p => p.rank === null).sort((a,b) => a.order - b.order);
+            if (activePlayers.length === 0) return null;
+            if (activePlayers.length === 1) return activePlayers[0].id;
+            
+            let currentIndex = activePlayers.findIndex(p => p.id === currentId);
+            if (currentIndex === -1) { // Current player might have finished, find their original spot
+                const originalPlayer = players.find(p => p.id === currentId);
+                const nextOrderedPlayer = activePlayers.find(p => p.order > originalPlayer.order);
+                currentIndex = nextOrderedPlayer ? activePlayers.indexOf(nextOrderedPlayer) -1 : activePlayers.length -1;
+            }
+            
             const totalMoves = 1 + skipCount;
-            const nextIndex = (currentIndex + (totalMoves * direction) % activePlayers.length + activePlayers.length) % activePlayers.length;
+            const nextIndex = (currentIndex + (totalMoves * direction) + activePlayers.length * totalMoves) % activePlayers.length;
             return activePlayers[nextIndex].id;
         }
 
         function numberToString(num) {
             const map = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K', 15: 'Joker' };
             return map[num] || String(num);
+        }
+
+        function cleanCard(card) {
+            return { suit: card.suit, number: card.number, uid: card.uid };
         }
         
         function cardsToString(cards) {
@@ -944,17 +988,15 @@
                 return { valid: false, message: '2 (または2とジョーカー)だけを出して上がることはできません。' };
             }
             
-            // Joker validation
             const jokers = playCards.filter(c => c.suit === 'joker');
             const others = playCards.filter(c => c.suit !== 'joker');
             if (jokers.length > 0 && others.length > 0) {
                 if (jokers.some(j => !j.mimics)) return { valid: false, message: '他のカードと出す場合、Jokerは必ず何かに擬態させてください。' };
             }
-            if (jokers.length > 1 && others.length === 0) { // joker only pair
+            if (jokers.length > 1 && others.length === 0) {
                  if (jokers.some(j => j.mimics)) return { valid: false, message: 'Joker同士で出す場合は擬態できません。' };
             }
 
-            // Cards must be same number or a stair
             const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
             const isPlayStair = isStair(cardsToEval);
             const realCards = cardsToEval.filter(c => c.suit !== 'joker');
@@ -965,13 +1007,11 @@
             
             if (roomData.field.length === 0) return { valid: true };
 
-            // Special Case: Spade 3 on single Joker
             if (playCards.length === 1 && playCards[0].suit === 'spade' && playCards[0].number === 3 &&
                 roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
                 return { valid: true };
             }
 
-            // Special Case: Joker x2 pair
             if (playCards.length === 2 && playCards.every(c => c.suit === 'joker' && !c.mimics)) {
                 return roomData.field.length === 2 ? { valid: true } : { valid: false, message: 'Jokerペアは2枚の場にしか出せません。' };
             }
@@ -992,45 +1032,53 @@
 
         function handlePendingAction(roomData) {
             const action = roomData.pendingAction;
-            if (!action || action.actorId !== currentPlayer.id) {
-                if (!modalOverlay.classList.contains('hidden')) closeModal();
+            if (!action || action.actorId !== currentPlayer.id || modalOverlay.classList.contains('visible-modal')) {
+                if (!action && !modalOverlay.classList.contains('hidden')) closeModal();
                 return;
             }
             const me = roomData.players.find(p => p.id === currentPlayer.id);
+            // ★修正: 対象プレイヤーは上がっていないプレイヤーのみ
+            const targetablePlayers = roomData.players.filter(p => p.id !== me.id && p.rank === null);
             switch(action.type) {
                 case 'pass_select_player':
-                    showPlayerSelectionModal('カードを渡す相手を選んでください', roomData.players.filter(p => p.id !== me.id), action.count)
+                    showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
                         .then(targetId => updateDoc(doc(db, 'rooms', currentRoomId), { pendingAction: { ...action, type: 'pass_select_cards', targetId: targetId } }))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                     break;
                 case 'pass_select_cards':
                     showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true)
                         .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                     break;
                  case 'discard_select_cards':
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true)
                         .then(cardsToDiscard => executeDiscardCards(cardsToDiscard))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                     break;
                 case 'bomber_select_rank':
                      showRankSelectionModal('破壊する数字を選んでください', action.count)
                         .then(ranks => executeBomber(ranks))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                      break;
                 case 'collect_select_cards':
-                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile, action.count, false)
+                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false)
                         .then(cardsToCollect => executeCollectCards(cardsToCollect))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                     break;
                 case 'steal_select_player':
-                    showPlayerSelectionModal('カードを奪う相手を選んでください', roomData.players.filter(p => p.id !== me.id && p.hand.length > 0), action.count)
+                    showPlayerSelectionModal('カードを奪う相手を選んでください', targetablePlayers.filter(p => p.hand.length > 0), action.count)
                         .then(targetId => executeStealCard(targetId, action.count))
-                        .catch(() => {});
+                        .catch(clearPendingAction);
                     break;
             }
         }
         
+        async function clearPendingAction() {
+            if (currentRoomId) {
+                await updateDoc(doc(db, 'rooms', currentRoomId), { pendingAction: null });
+            }
+        }
+
         function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true } = {}) {
             modalTitle.textContent = title;
             modalBody.innerHTML = '';
@@ -1042,18 +1090,35 @@
             modalConfirmButton.style.display = showConfirm ? 'inline-block' : 'none';
             modalCancelButton.style.display = showCancel ? 'inline-block' : 'none';
             modalOverlay.classList.remove('hidden');
+            modalOverlay.classList.add('visible-modal'); // Add a class to indicate modal is active
 
             return new Promise((resolve, reject) => {
                 if (currentModal.reject) currentModal.reject('New modal opened');
                 currentModal = { resolve, reject };
-                modalConfirmButton.onclick = () => resolve();
-                modalCancelButton.onclick = () => reject('User cancelled');
+
+                const onConfirm = () => {
+                    cleanup();
+                    resolve();
+                };
+                const onCancel = () => {
+                    cleanup();
+                    reject('User cancelled');
+                };
+                const cleanup = () => {
+                    modalConfirmButton.onclick = null;
+                    modalCancelButton.onclick = null;
+                    currentModal = {};
+                };
+
+                modalConfirmButton.onclick = onConfirm;
+                modalCancelButton.onclick = onCancel;
             });
         }
         
         function closeModal() {
             if (currentModal.reject) currentModal.reject('Modal closed externally');
             modalOverlay.classList.add('hidden');
+            modalOverlay.classList.remove('visible-modal');
             currentModal = {};
         }
 
@@ -1061,13 +1126,17 @@
             return new Promise((resolve, reject) => {
                 const container = document.createElement('div');
                 container.className = 'modal-player-selection';
+                 if (players.length === 0) {
+                    container.textContent = "対象となるプレイヤーがいません。";
+                }
                 players.forEach(p => {
                     const btn = document.createElement('button');
                     btn.textContent = p.name;
                     btn.onclick = () => { closeModal(); resolve(p.id); };
                     container.appendChild(btn);
                 });
-                showModal(title, container, { showConfirm: false, showCancel: true }).catch(reject);
+                showModal(title, container, { showConfirm: false, showCancel: true, cancelText: '戻る' })
+                  .catch(() => { closeModal(); reject(); });
             });
         }
         
@@ -1095,7 +1164,7 @@
                     const requiredCount = mustSelectAll ? Math.min(count, availableCards.length) : count;
                     modalConfirmButton.disabled = selectedModalCards.length !== requiredCount;
                 };
-                showModal(title, container, { showCancel: true }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(reject);
+                showModal(title, container, { showCancel: true }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(() => { closeModal(); reject(); });
                 updateButtonState();
             });
         }
@@ -1125,7 +1194,7 @@
                 
                 showModal(`${title} (${count}種類選択)`, container, { showCancel: true })
                     .then(() => { closeModal(); resolve(selectedRanks); })
-                    .catch(reject);
+                    .catch(() => { closeModal(); reject(); });
                 modalConfirmButton.disabled = true;
             });
         }
@@ -1147,10 +1216,62 @@
                     container.appendChild(btn);
                 });
 
-                showModal('Joker擬態', container, { showConfirm: false, showCancel: true }).catch(reject);
+                showModal('Joker擬態', container, { showConfirm: false, showCancel: true }).catch(() => { closeModal(); reject(); });
             });
         }
         
+        function showResultsModal(players) {
+            const sortedPlayers = [...players].sort((a,b) => {
+                if (a.rank === null) return 1;
+                if (b.rank === null) return -1;
+                return a.rank - b.rank;
+            });
+
+            let tableHtml = `<table id="results-table"><thead><tr><th>順位</th><th>名前</th></tr></thead><tbody>`;
+            sortedPlayers.forEach(p => {
+                const rankDisplay = p.rank ? `${p.rank}位` : '最下位';
+                tableHtml += `<tr><td>${rankDisplay}</td><td>${p.name}</td></tr>`;
+            });
+            tableHtml += `</tbody></table>`;
+            
+            showModal('ゲーム結果', tableHtml, { confirmText: 'ルームに戻る', showCancel: false })
+              .then(() => {
+                  closeModal();
+                  // Optionally, could reset the game state here to allow for a rematch
+              })
+              .catch(() => {});
+        }
+
+
+        // --- Game Logic Helpers ---
+        function handlePlayerFinish(players, finishedPlayerId) {
+            const finishedCount = players.filter(p => p.rank !== null).length;
+            const newRank = finishedCount + 1;
+            const logs = [];
+            const updatedPlayers = players.map(p => {
+                if (p.id === finishedPlayerId && p.rank === null) {
+                    logs.push({ timestamp: Date.now(), message: `${p.name}が${newRank}位で上がりました！` });
+                    return { ...p, rank: newRank };
+                }
+                return p;
+            });
+            return { updatedPlayers, 上がりLog: logs };
+        }
+        
+        function checkGameEnd(state) {
+            const activePlayers = state.players.filter(p => p.rank === null);
+            if (activePlayers.length <= 1) {
+                state.gameState = 'finished';
+                if (activePlayers.length === 1) {
+                    const lastPlayer = activePlayers[0];
+                    const rankCount = state.players.filter(p => p.rank !== null).length;
+                    state.players = state.players.map(p => p.id === lastPlayer.id ? {...p, rank: rankCount + 1} : p);
+                }
+            }
+            return state;
+        }
+
+
         // --- Action Execution Functions ---
         async function executeAction(actionFn, logMessageFn) {
             const roomRef = doc(db, 'rooms', currentRoomId);
@@ -1158,28 +1279,32 @@
                 await runTransaction(db, async (transaction) => {
                     const roomSnap = await transaction.get(roomRef);
                     if (!roomSnap.exists()) throw new Error("Room not found");
-                    const roomData = roomSnap.data();
+                    let roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
-                    const updates = await actionFn(roomData, me);
-                    const logMessage = logMessageFn(updates.logContext || {});
                     
-                    const isWin = updates.players.find(p => p.id === me.id)?.hand.length === 0;
-                    if(isWin) {
-                        updates.players.find(p => p.id === me.id).rank = 'finished';
-                        updates.log = arrayUnion({timestamp: Date.now(), message: logMessage}, {timestamp: Date.now(), message: `${me.name}が上がりました！`});
-                    } else {
-                        updates.log = arrayUnion({timestamp: Date.now(), message: logMessage});
+                    let { players, discardPile, logContext } = await actionFn(roomData, me);
+                    const logMessage = logMessageFn(logContext || {});
+                    let logEntries = [{timestamp: Date.now(), message: logMessage}];
+                    
+                    if (players.find(p => p.id === me.id)?.hand.length === 0) {
+                         const { updatedPlayers, 上がりLog } = handlePlayerFinish(players, me.id);
+                         players = updatedPlayers;
+                         logEntries.push(...上がりLog);
                     }
                     
-                    transaction.update(doc(db, 'rooms', currentRoomId), {
-                        ...updates,
+                    let nextState = {
+                        players: players,
+                        discardPile: discardPile || roomData.discardPile,
                         pendingAction: null,
-                        turnPlayerId: getNextPlayerId(updates.players, me.id, roomData.turnDirection, 0)
-                    });
+                        turnPlayerId: getNextPlayerId(players, me.id, roomData.turnDirection, 0)
+                    };
+                    
+                    const finalState = checkGameEnd(nextState);
+                    transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: arrayUnion(...logEntries)});
                 });
             } catch (e) {
                 showAlert(`エラー: ${e.message}`);
-                await updateDoc(roomRef, { pendingAction: null, turnPlayerId: getNextPlayerId((await getDoc(roomRef)).data().players, currentPlayer.id, 1, 0) });
+                await clearPendingAction();
             }
         }
         
@@ -1207,7 +1332,7 @@
                     const discardUids = new Set(cardsToDiscard.map(c => c.uid));
                     const newMyHand = me.hand.filter(c => !discardUids.has(c.uid));
                     const players = roomData.players.map(p => p.id === me.id ? { ...p, hand: newMyHand } : p);
-                    return { players, discardPile: [...roomData.discardPile, ...cardsToDiscard], logContext: { cards: cardsToDiscard } };
+                    return { players, discardPile: [...roomData.discardPile, ...cardsToDiscard.map(c => cleanCard(c))], logContext: { cards: cardsToDiscard } };
                 },
                 (ctx) => `${currentPlayer.name}がカード(${cardsToString(ctx.cards)})を捨てました。`
             );
@@ -1218,12 +1343,30 @@
                 (roomData, me) => {
                     const rankSet = new Set(ranks);
                     let allDiscarded = [];
+                    let finishedPlayerIds = [];
+
                     const players = roomData.players.map(p => {
+                        if (p.rank !== null) return p;
                         const discarded = p.hand.filter(c => rankSet.has(c.number) || (rankSet.has(15) && c.suit === 'joker'));
-                        allDiscarded.push(...discarded);
-                        return { ...p, hand: p.hand.filter(c => !discarded.find(dc => dc.uid === c.uid)) };
+                        const newHand = p.hand.filter(c => !discarded.find(dc => dc.uid === c.uid));
+                        if(discarded.length > 0) allDiscarded.push(...discarded);
+                        if(newHand.length === 0 && p.hand.length > 0) finishedPlayerIds.push(p.id);
+                        return { ...p, hand: newHand };
                     });
-                    return { players, discardPile: [...roomData.discardPile, ...allDiscarded], logContext: { ranks } };
+
+                    // 同時上がりの処理
+                    if (finishedPlayerIds.length > 0) {
+                        const finishedCount = roomData.players.filter(p => p.rank !== null).length;
+                        const newRank = finishedCount + 1;
+                        let rankCounter = 0;
+                        finishedPlayerIds.forEach(id => {
+                            const pIndex = players.findIndex(p => p.id === id);
+                            players[pIndex].rank = newRank;
+                            // ログは別途追加
+                        });
+                    }
+
+                    return { players, discardPile: [...roomData.discardPile, ...allDiscarded.map(c => cleanCard(c))], logContext: { ranks } };
                 },
                 (ctx) => `${currentPlayer.name}が数字[${ctx.ranks.map(numberToString).join(',')}]を破壊しました。`
             );
@@ -1282,9 +1425,10 @@
         }
 
         function showCutIn(cardName, effectName) {
+            cutinOverlay.classList.remove('hidden');
             cutinCardName.textContent = cardName;
             cutinEffectName.textContent = effectName;
-            cutinOverlay.classList.remove('hidden');
+            cutinOverlay.offsetHeight; // Trigger reflow
             cutinOverlay.classList.add('visible');
             setTimeout(() => {
                 cutinOverlay.classList.remove('visible');
