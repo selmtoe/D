@@ -535,7 +535,7 @@
                 isRevolution: false, isJBackActive: false,
                 turnDirection: 1, // 1 for normal, -1 for reverse
                 createdAt: serverTimestamp(),
-                pendingAction: null,
+                pendingActions: [],
                 log: [{ timestamp: Date.now(), message: `ルームが作成されました。` }]
             });
             joinRoom(currentRoomId);
@@ -633,7 +633,7 @@ joinRoomButton.addEventListener('click', async () => {
                         discardPile: [], passCount: 0,
                         lastPlayed: { player: null, cards: [] },
                         isRevolution: false, isJBackActive: false, turnDirection: 1,
-                        pendingAction: null,
+                        pendingActions: [],
                         log: arrayUnion({ timestamp: Date.now(), message: `ゲームが開始されました。最初のプレイヤーは${sortedPlayers.find(p=>p.id===firstPlayerId).name}さんです。` })
                     });
                 });
@@ -668,56 +668,94 @@ joinRoomButton.addEventListener('click', async () => {
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
                         turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
                         discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
-                        pendingAction: null
+                        pendingActions: []
                     };
                     
-                    const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
-                    const playedNumber = realCards.length > 0 ? realCards[0].number : null;
-                    
-                    let clearField = false, isFollowUpAction = false, skipCount = 0;
-                    
-                    if (selectedCards.length === 2 && selectedCards.every(c => c.suit === 'joker' && !c.mimics)) {
-                        clearField = true;
-                        logEntries.push({timestamp: Date.now(), message: "最強のJokerペア！場が流れます。"});
-                    }
-                    if (selectedCards.length >= 4) {
-                        nextState.isRevolution = !nextState.isRevolution;
-                        logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
-                    }
-                    
-                    if (playedNumber) {
-                        const effectMap = {1:"A奪い",/*3:"スペ3返し",*/4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
-                        const effectName = effectMap[playedNumber];
-                        // ★修正(6): 3は特別扱いするため、汎用の効果ログから除外
-                        if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
-                        switch(playedNumber) {
-                            case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
-                            case 5:
-                                const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
-                                if (activePlayersCount <= 1) break;
-                                const skipAmount = (2 * selectedCards.length) - 1;
-                                if (activePlayersCount > 1 && (2 * selectedCards.length) % activePlayersCount === 0) {
-                                    clearField = true;
-                                    logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
-                                } else {
-                                    skipCount = skipAmount;
-                                }
-                                break;
-                            case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
-                            case 8: clearField = true; break;
-                            case 11: nextState.isJBackActive = !nextState.isJBackActive; break;
-                            case 3: 
-                                // ★修正(6): スペ3返しの条件と、専用のカットインログ
-                                if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
-                                     clearField = true;
-                                     logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}});
-                                }
-                                break;
-                            case 7: case 10: case 12: case 13: case 1:
-                                isFollowUpAction = true;
-                                const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
-                                nextState.pendingAction = { type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length };
-                                break;
+                    let clearField = false, skipCount = 0;
+                    const isPlayStair = isStair(selectedCards);
+
+                    if (isPlayStair) {
+                        logEntries.push({ timestamp: Date.now(), message: "階段です！効果を順次処理します。" });
+                        let effectsToProcess = selectedCards.map(c => (c.mimics ? c.mimics : c).number);
+                        
+                        if (effectsToProcess.includes(11)) { // Jバック
+                            nextState.isJBackActive = !nextState.isJBackActive;
+                            logEntries.push({ timestamp: Date.now(), message: `階段効果: Jバック発動！`, effect: {card:"J", name: "Jバック"}});
+                            effectsToProcess = effectsToProcess.filter(n => n !== 11);
+                        }
+
+                        const strengthReversed = nextState.isRevolution ^ nextState.isJBackActive;
+                        effectsToProcess.sort((a, b) => {
+                            const valA = getCardValue({number: a}, nextState);
+                            const valB = getCardValue({number: b}, nextState);
+                            return valA - valB;
+                        });
+
+                        if (effectsToProcess.includes(13)) { // K回収
+                           effectsToProcess = effectsToProcess.filter(n => n !== 13);
+                           effectsToProcess.unshift(13);
+                        }
+                        
+                        const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
+                        effectsToProcess.forEach(num => {
+                             const effectMap = {1:"A奪い",4:"リバース", 5:"5スキップ", 7:"7渡し", 8:"8切り", 10:"10捨て", 12:"Qボンバー", 13:"K回収"};
+                             if(effectMap[num]) {
+                                 logEntries.push({ timestamp: Date.now(), message: `階段効果: ${numberToString(num)} - ${effectMap[num]}`, effect: {card:numberToString(num), name: effectMap[num]}});
+                             }
+                            switch(num) {
+                                case 4: nextState.turnDirection *= -1; break;
+                                case 5: skipCount++; break;
+                                case 8: clearField = true; break;
+                                case 7: case 10: case 12: case 13: case 1:
+                                    nextState.pendingActions.push({ type: actionTypeMap[num], actorId: me.id, count: 1 });
+                                    break;
+                            }
+                        });
+                        
+                    } else {
+                        const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
+                        const playedNumber = realCards.length > 0 ? realCards[0].number : null;
+                        
+                        if (selectedCards.length === 2 && selectedCards.every(c => c.suit === 'joker' && !c.mimics)) {
+                            clearField = true;
+                            logEntries.push({timestamp: Date.now(), message: "最強のJokerペア！場が流れます。"});
+                        }
+                        if (selectedCards.length >= 4) {
+                            nextState.isRevolution = !nextState.isRevolution;
+                            logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
+                        }
+                        
+                        if (playedNumber) {
+                            const effectMap = {1:"A奪い",/*3:"スペ3返し",*/4:"リバース", 5:"5スキップ", 6:"ろくろ首", 7:"7渡し", 8:"8切り", 9:"救急車", 10:"10捨て", 11:"Jバック", 12:"Qボンバー", 13:"K回収"};
+                            const effectName = effectMap[playedNumber];
+                            if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
+                            switch(playedNumber) {
+                                case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
+                                case 5:
+                                    const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
+                                    if (activePlayersCount <= 1) break;
+                                    const skipAmount = (2 * selectedCards.length) - 1;
+                                    if (activePlayersCount > 1 && skipAmount % activePlayersCount === 0 && activePlayersCount > 0) {
+                                        clearField = true;
+                                        logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
+                                    } else {
+                                        skipCount = skipAmount % activePlayersCount;
+                                    }
+                                    break;
+                                case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
+                                case 8: clearField = true; break;
+                                case 11: nextState.isJBackActive = !nextState.isJBackActive; break;
+                                case 3: 
+                                    if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
+                                         clearField = true;
+                                         logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}});
+                                    }
+                                    break;
+                                case 7: case 10: case 12: case 13: case 1:
+                                    const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
+                                    nextState.pendingActions.push({ type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length });
+                                    break;
+                            }
                         }
                     }
 
@@ -729,11 +767,9 @@ joinRoomButton.addEventListener('click', async () => {
                     
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
 
-                    if (isFollowUpAction) {
-                        // Follow-up actionへ移行するため、ターンは動かさない
+                    if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
                     } else if (clearField || remainingPlayers <= 1) {
-                         // ★修正(1): プレイヤーが上がって残り1人になった場合も場を流す
                         nextState.discardPile = [...nextState.discardPile, ...nextState.field];
                         nextState.field = [];
                         nextState.passCount = 0;
@@ -849,10 +885,9 @@ function renderGame(roomData) {
             lastPlayerInfoSpan.textContent = lastPlayer ? `最後に出した人: ${lastPlayer.name}` : "---";
 
             const isMyTurn = roomData.turnPlayerId === me.id && me.rank === null;
-            playButton.disabled = !isMyTurn || roomData.pendingAction;
+            playButton.disabled = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
 
-            // ★修正(3): パスの例外処理
-            let disablePass = !isMyTurn || roomData.pendingAction;
+            let disablePass = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
             if (!disablePass && roomData.field.length === 0) {
                 // 場が空の時は基本パス不可
                 disablePass = true;
@@ -1010,19 +1045,27 @@ async function handleCardClick(card) {
             const suit = realCards[0].suit;
             if (!realCards.every(c => c.suit === suit)) return false;
 
-            const sortedNumbers = realCards.map(c => getCardStrength(c)).sort((a,b) => a-b);
-            let jokersAvailable = cards.length - realCards.length;
+            const strengths = realCards.map(c => getCardStrength(c)).sort((a,b) => a-b);
+            
+            // 重複チェック
+            for (let i = 0; i < strengths.length - 1; i++) {
+                if (strengths[i] === strengths[i+1]) return false;
+            }
 
-            for(let i=0; i < sortedNumbers.length - 1; i++) {
-                const diff = sortedNumbers[i+1] - sortedNumbers[i] - 1;
-                if (diff < 0) return false; // Duplicate numbers
+            let jokersAvailable = cards.length - realCards.length;
+            
+            for(let i = 0; i < strengths.length - 1; i++) {
+                const diff = strengths[i+1] - strengths[i] - 1;
+                if (diff < 0) {
+                    // 通常ありえないが、ソートされているので重複と同じ
+                    return false;
+                }
                 if (diff > 0) {
-                    if (jokersAvailable >= diff) {
-                        jokersAvailable -= diff;
-                    } else { return false; }
+                    jokersAvailable -= diff;
                 }
             }
-            return true;
+            
+            return jokersAvailable >= 0;
         }
         
         function isValidPlay(playCards, myHand, roomData) {
@@ -1053,11 +1096,13 @@ async function handleCardClick(card) {
 
             const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
             const isPlayStair = isStair(cardsToEval);
-            const realCards = cardsToEval.filter(c => c.suit !== 'joker');
-            const playedNumber = realCards.length > 0 ? realCards[0].number : (cardsToEval.length > 0 ? cardsToEval[0].number : null);
-
-            if (!isPlayStair && !cardsToEval.every(c => c.number === playedNumber)) {
-                return { valid: false, message: '同じ数字のカードか、階段で出してください。' };
+            
+            if (!isPlayStair) {
+                const realCards = cardsToEval.filter(c => c.suit !== 'joker');
+                const playedNumber = realCards.length > 0 ? realCards[0].number : (cardsToEval.length > 0 ? cardsToEval[0].number : null);
+                if (!cardsToEval.every(c => c.number === playedNumber)) {
+                    return { valid: false, message: '同じ数字のカードか、階段で出してください。' };
+                }
             }
             
             if (roomData.field.length === 0) return { valid: true };
@@ -1070,9 +1115,17 @@ async function handleCardClick(card) {
             const isFieldStair = isStair(roomData.field);
             if(isPlayStair !== isFieldStair) return { valid: false, message: '場と同じ種類（通常 or 階段）で出してください。' };
             if (playCards.length !== roomData.field.length) return { valid: false, message: '場と同じ枚数のカードを出してください。' };
-
-            const playValue = getCardValue(playCards.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
-            const fieldValue = getCardValue(roomData.field.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
+            
+            let playValue, fieldValue;
+            if (isPlayStair) {
+                const playBaseCard = playCards.sort((a, b) => getCardStrength(a) - getCardStrength(b))[0];
+                const fieldBaseCard = roomData.field.sort((a, b) => getCardStrength(a) - getCardStrength(b))[0];
+                playValue = getCardValue(playBaseCard, roomData);
+                fieldValue = getCardValue(fieldBaseCard, roomData);
+            } else {
+                playValue = getCardValue(playCards[0], roomData);
+                fieldValue = getCardValue(roomData.field[0], roomData);
+            }
 
             if (playValue <= fieldValue) return { valid: false, message: '場に出ているカードより強いカードを出してください。' };
             
@@ -1081,9 +1134,9 @@ async function handleCardClick(card) {
         
         // --- Modal and Follow-up Actions ---
         function handlePendingAction(roomData) {
-            const action = roomData.pendingAction;
+            const action = roomData.pendingActions && roomData.pendingActions[0];
             if (!action || action.actorId !== currentPlayer.id || modalOverlay.classList.contains('visible-modal')) {
-                if (!action && !modalOverlay.classList.contains('hidden')) closeModal();
+                if ((!roomData.pendingActions || roomData.pendingActions.length === 0) && !modalOverlay.classList.contains('hidden')) closeModal();
                 return;
             }
             const me = roomData.players.find(p => p.id === currentPlayer.id);
@@ -1092,16 +1145,24 @@ async function handleCardClick(card) {
                 // ★修正(4): 効果発動を強制にするため、キャンセルできないモーダルに変更
                 case 'pass_select_player':
                     showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
-                        .then(targetId => updateDoc(doc(db, 'rooms', currentRoomId), { pendingAction: { ...action, type: 'pass_select_cards', targetId: targetId } }));
+                        .then(targetId => {
+                            let newActions = [...roomData.pendingActions];
+                            newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
+                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
+                         });
                     break;
                 case 'pass_select_cards':
                     showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true)
                         .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive))
-                        .catch(() => updateDoc(doc(db, 'rooms', currentRoomId), { pendingAction: { ...action, type: 'pass_select_player' } })); // カード選択をキャンセルしたらプレイヤー選択に戻る
+                        .catch(() => {
+                            let newActions = [...roomData.pendingActions];
+                            newActions[0] = { ...action, type: 'pass_select_player', targetId: null };
+                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
+                        });
                     break;
                  case 'discard_select_cards':
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true)
-                        .then(cardsToDiscard => executeDiscardCards(cardsToDiscard)).catch(clearPendingAction);
+                        .then(cardsToDiscard => executeDiscardCards(cardsToDiscard)).catch(clearPendingActions);
                     break;
                 case 'bomber_select_rank':
                      showRankSelectionModal('破壊する数字を選んでください', action.count)
@@ -1109,7 +1170,7 @@ async function handleCardClick(card) {
                      break;
                 case 'collect_select_cards':
                     showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false)
-                        .then(cardsToCollect => executeCollectCards(cardsToCollect)).catch(clearPendingAction);
+                        .then(cardsToCollect => executeCollectCards(cardsToCollect)).catch(clearPendingActions);
                     break;
                 case 'steal_select_player':
                     showPlayerSelectionModal('カードを奪う相手を選んでください', targetablePlayers.filter(p => p.hand.length > 0), action.count)
@@ -1118,9 +1179,9 @@ async function handleCardClick(card) {
             }
         }
         
-        async function clearPendingAction() {
+        async function clearPendingActions() {
             if (currentRoomId) {
-                await updateDoc(doc(db, 'rooms', currentRoomId), { pendingAction: null });
+                await updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: [] });
             }
         }
 
@@ -1409,19 +1470,25 @@ async function handleCardClick(card) {
                          logEntries.push(...上がりLog);
                     }
                     
+const newPendingActions = roomData.pendingActions ? roomData.pendingActions.slice(1) : [];
+                    
                     let nextState = {
                         players: players,
                         discardPile: discardPile || roomData.discardPile,
-                        pendingAction: null,
-                        turnPlayerId: getNextPlayerId(players, me.id, roomData.turnDirection, 0)
+                        pendingActions: newPendingActions,
+                        turnPlayerId: roomData.turnPlayerId
                     };
+                    
+                    if (newPendingActions.length === 0) {
+                        nextState.turnPlayerId = getNextPlayerId(players, me.id, roomData.turnDirection, 0);
+                    }
                     
                     const finalState = checkGameEnd(nextState);
                     transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: arrayUnion(...logEntries)});
                 });
             } catch (e) {
                 showAlert(`エラー: ${e.message}`);
-                await clearPendingAction();
+                await clearPendingActions();
             }
         }
         
