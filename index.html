@@ -1458,8 +1458,8 @@ function isValidPlay(playCards, myHand, roomData) {
             return state;
         }
 
-
-async function executeAction(actionFn, logMessageFn) {
+// --- Action Execution Functions ---
+        async function executeAction(actionFn, logMessageFn) {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
@@ -1479,19 +1479,20 @@ async function executeAction(actionFn, logMessageFn) {
                          logEntries.push(...上がりLog);
                     }
                     
-                    let nextState = { players, discardPile: discardPile || roomData.discardPile };
+                    let nextState = { ...roomData, players, discardPile: discardPile || roomData.discardPile };
                     
                     if (currentAction && currentAction.nextAction) {
                         let nextActionInChain = currentAction.nextAction;
                         if (nextActionInChain.type === 'eight_cut') {
-                            nextState.discardPile = [...(nextState.discardPile || roomData.discardPile), ...roomData.field];
+                            nextState.discardPile = [...(nextState.discardPile), ...nextState.field];
                             nextState.field = [];
                             nextState.passCount = 0;
-                            nextState.turnPlayerId = me.id;
                             nextState.isJBackActive = false;
-                            nextState.pendingAction = nextActionInChain.nextAction || null; 
-                             if (!nextState.pendingAction) { // if 8cut was the end of the chain
-                                nextState.turnPlayerId = getNextPlayerId(players, me.id, roomData.turnDirection, 0);
+                            nextState.pendingAction = nextActionInChain.nextAction || null;
+                             if (!nextState.pendingAction) {
+                                nextState.turnPlayerId = me.id;
+                            } else {
+                                nextState.turnPlayerId = me.id;
                             }
                         } else {
                             nextState.pendingAction = nextActionInChain;
@@ -1503,7 +1504,7 @@ async function executeAction(actionFn, logMessageFn) {
                     }
                     
                     const finalState = checkGameEnd(nextState);
-                    transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: arrayUnion(...logEntries)});
+                    transaction.update(roomRef, {...finalState, log: arrayUnion(...logEntries)});
                 });
             } catch (e) {
                 showAlert(`エラー: ${e.message}`);
