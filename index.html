@@ -690,17 +690,18 @@ joinRoomButton.addEventListener('click', async () => {
                         const effectName = effectMap[playedNumber];
                         // ★修正(6): 3は特別扱いするため、汎用の効果ログから除外
                         if(effectName) logEntries.push({ timestamp: Date.now(), message: `効果発動: ${numberToString(playedNumber)} - ${effectName}`, effect: {card:numberToString(playedNumber), name: effectName}});
-
                         switch(playedNumber) {
                             case 4: if (selectedCards.length % 2 !== 0) nextState.turnDirection *= -1; break;
                             case 5:
                                 const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
                                 if (activePlayersCount <= 1) break;
-                                const skipAmount = (2 * selectedCards.length) - 1 ;
-                                if (skipAmount > 0 && activePlayersCount > 1 && skipAmount % (activePlayersCount) === 0) {
+                                const skipAmount = (2 * selectedCards.length) - 1;
+                                if (activePlayersCount > 1 && (2 * selectedCards.length) % activePlayersCount === 0) {
                                     clearField = true;
                                     logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
-                                } else { skipCount = skipAmount; }
+                                } else {
+                                    skipCount = skipAmount;
+                                }
                                 break;
                             case 6: case 9: if (selectedCards.length >= 2) clearField = true; break;
                             case 8: clearField = true; break;
