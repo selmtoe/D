@@ -639,7 +639,8 @@ joinRoomButton.addEventListener('click', async () => {
                 });
             } catch (error) { showAlert(error.message); }
         });
- 
+
+        // --- Game Actions ---
         playButton.addEventListener('click', async () => {
             if (selectedCards.length === 0) return;
             const roomRef = doc(db, 'rooms', currentRoomId);
@@ -1083,7 +1084,8 @@ async function handleCardClick(card) {
             }
             return true;
         }
-        function isValidPlay(playCards, myHand, roomData) {
+        
+function isValidPlay(playCards, myHand, roomData) {
             if (roomData.field.length === 0 && roomData.lastPlayed.player === null &&
                 myHand.some(c => c.suit === 'diamond' && c.number === 3)) {
                 if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
@@ -1141,18 +1143,6 @@ async function handleCardClick(card) {
                 playValue = getCardValue(playCards.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
                 fieldValue = getCardValue(roomData.field.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
             }
-
-            if (playValue <= fieldValue) return { valid: false, message: '場に出ているカードより強いカードを出してください。' };
-            
-            return { valid: true };
-        }
-            
-            const isFieldStair = isStair(roomData.field);
-            if(isPlayStair !== isFieldStair) return { valid: false, message: '場と同じ種類（通常 or 階段）で出してください。' };
-            if (playCards.length !== roomData.field.length) return { valid: false, message: '場と同じ枚数のカードを出してください。' };
-
-            const playValue = getCardValue(playCards.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
-            const fieldValue = getCardValue(roomData.field.sort((a,b) => getCardValue(b, roomData) - getCardValue(a, roomData))[0], roomData);
 
             if (playValue <= fieldValue) return { valid: false, message: '場に出ているカードより強いカードを出してください。' };
             
@@ -1467,8 +1457,9 @@ async function handleCardClick(card) {
             }
             return state;
         }
-        
-        async function executeAction(actionFn, logMessageFn) {
+
+
+async function executeAction(actionFn, logMessageFn) {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
