@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>オンライン大富豪 v5 (修正版)</title>
+    <title>大富豪オンライン</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -674,11 +674,13 @@ joinRoomButton.addEventListener('click', async () => {
                     let clearField = false, skipCount = 0;
                     const isPlayStair = isStair(selectedCards);
 
-                    if (isPlayStair) {
+                   if (isPlayStair) {
                         logEntries.push({ timestamp: Date.now(), message: "階段です！効果を順次処理します。" });
                         let effectsToProcess = selectedCards.map(c => (c.mimics ? c.mimics : c).number);
+                        const hasEightCut = effectsToProcess.includes(8);
+                        if(hasEightCut) effectsToProcess = effectsToProcess.filter(n => n !== 8);
                         
-                        if (effectsToProcess.includes(11)) { // Jバック
+                        if (effectsToProcess.includes(11)) {
                             nextState.isJBackActive = !nextState.isJBackActive;
                             logEntries.push({ timestamp: Date.now(), message: `階段効果: Jバック発動！`, effect: {card:"J", name: "Jバック"}});
                             effectsToProcess = effectsToProcess.filter(n => n !== 11);
@@ -696,26 +698,30 @@ joinRoomButton.addEventListener('click', async () => {
                             return valA - valB;
                         });
 
-                        if (effectsToProcess.includes(13)) { // K回収
+                        if (effectsToProcess.includes(13)) {
                            effectsToProcess = effectsToProcess.filter(n => n !== 13);
                            effectsToProcess.unshift(13);
                         }
                         
                         const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
                         effectsToProcess.forEach(num => {
-                             const effectMap = {1:"A奪い",4:"リバース", 5:"5スキップ", 7:"7渡し", 8:"8切り", 10:"10捨て", 12:"Qボンバー", 13:"K回収"};
+                             const effectMap = {1:"A奪い",4:"リバース", 5:"5スキップ", 7:"7渡し", 10:"10捨て", 12:"Qボンバー", 13:"K回収"};
                              if(effectMap[num]) {
                                  logEntries.push({ timestamp: Date.now(), message: `階段効果: ${numberToString(num)} - ${effectMap[num]}`, effect: {card:numberToString(num), name: effectMap[num]}});
                              }
                             switch(num) {
                                 case 4: nextState.turnDirection *= -1; break;
                                 case 5: skipCount++; break;
-                                case 8: clearField = true; break;
                                 case 7: case 10: case 12: case 13: case 1:
                                     nextState.pendingActions.push({ type: actionTypeMap[num], actorId: me.id, count: 1 });
                                     break;
                             }
                         });
+
+                        if (hasEightCut) {
+                            clearField = true;
+                            logEntries.push({ timestamp: Date.now(), message: `階段効果: 8 - 8切り`, effect: {card:"8", name: "8切り"}});
+                        }
                         
                     } else {
                         const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
@@ -1180,12 +1186,12 @@ async function handleCardClick(card) {
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
                         .then(cardsToDiscard => executeDiscardCards(cardsToDiscard));
                     break;
-                case 'bomber_select_rank':
-                     showRankSelectionModal('破壊する数字を選んでください', action.count)
+               case 'bomber_select_rank':
+                     showRankSelectionModal('破壊する数字を選んでください', action.count, me.hand)
                         .then(ranks => executeBomber(ranks));
                      break;
                 case 'collect_select_cards':
-                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false, false)
+                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false, false, me.hand)
                         .then(cardsToCollect => executeCollectCards(cardsToCollect));
                     break;
                 case 'steal_select_player':
@@ -1201,11 +1207,39 @@ async function handleCardClick(card) {
             }
         }
 
-        function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true } = {}) {
+       function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true, myHand = null } = {}) {
             modalTitle.textContent = title;
             modalBody.innerHTML = '';
             if (typeof bodyHtml === 'string') modalBody.innerHTML = bodyHtml;
             else modalBody.appendChild(bodyHtml);
+            
+            if (myHand) {
+                const handToggleButton = document.createElement('button');
+                handToggleButton.textContent = '自分の手札を表示';
+                handToggleButton.style.marginTop = '15px';
+                handToggleButton.style.backgroundColor = '#6c757d';
+
+                const handDisplayContainer = document.createElement('div');
+                handDisplayContainer.className = 'card-container';
+                handDisplayContainer.style.display = 'none';
+                handDisplayContainer.style.marginTop = '10px';
+                handDisplayContainer.style.padding = '10px';
+                handDisplayContainer.style.border = '1px solid #ccc';
+                handDisplayContainer.style.borderRadius = '5px';
+
+                myHand.forEach(card => handDisplayContainer.appendChild(createCardElement(card)));
+
+                handToggleButton.onclick = () => {
+                    const isVisible = handDisplayContainer.style.display !== 'none';
+                    handDisplayContainer.style.display = isVisible ? 'none' : 'flex';
+                    handToggleButton.textContent = isVisible ? '自分の手札を表示' : '手札を隠す';
+                };
+                
+                const wrapper = document.createElement('div');
+                wrapper.appendChild(handToggleButton);
+                wrapper.appendChild(handDisplayContainer);
+                modalBody.appendChild(wrapper);
+            }
             
             modalConfirmButton.textContent = confirmText;
             modalCancelButton.textContent = cancelText;
@@ -1263,7 +1297,7 @@ async function handleCardClick(card) {
             });
         }
         
-        async function showCardSelectionModal(title, availableCards, count, mustSelectAll, allowCancel = true) {
+       async function showCardSelectionModal(title, availableCards, count, mustSelectAll, allowCancel = true, myHand = null) {
              return new Promise((resolve, reject) => {
                 const container = document.createElement('div');
                 container.className = 'card-container modal-card-selection';
@@ -1287,14 +1321,14 @@ async function handleCardClick(card) {
                     const requiredCount = mustSelectAll ? Math.min(count, availableCards.length) : count;
                     modalConfirmButton.disabled = selectedModalCards.length !== requiredCount;
                 };
-                showModal(title, container, { showCancel: allowCancel }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(() => { if(allowCancel) { closeModal(); reject(); } });
+                showModal(title, container, { showCancel: allowCancel, myHand: myHand }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(() => { if(allowCancel) { closeModal(); reject(); } });
                 updateButtonState();
             });
         }
 
-        async function showRankSelectionModal(title, count) {
+       async function showRankSelectionModal(title, count, myHand) {
              return new Promise((resolve, reject) => {
-                const ranks = [3,4,5,6,7,8,9,10,11,12,13,1,2,15]; // 15 for joker
+                const ranks = [3,4,5,6,7,8,9,10,11,12,13,1,2,15];
                 const container = document.createElement('div');
                 container.className = 'modal-rank-selection';
                 let selectedRanks = [];
@@ -1315,8 +1349,7 @@ async function handleCardClick(card) {
                     container.appendChild(btn);
                 });
                 
-                // ★修正(4): キャンセルボタンを非表示に
-                showModal(`${title} (${count}種類選択)`, container, { showCancel: false })
+                showModal(`${title} (${count}種類選択)`, container, { showCancel: false, myHand: myHand })
                     .then(() => { closeModal(); resolve(selectedRanks); });
                 modalConfirmButton.disabled = true;
             });
