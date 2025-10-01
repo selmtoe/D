@@ -377,7 +377,6 @@
                 <span id="turn-info"></span>
             </div>
             <div class="game-status-icons">
-                 <div id="shibari-icons" style="display: flex; gap: 5px; align-items: center; font-size: 24px;"></div>
                  <span id="revolution-icon" title="革命中" style="display:none;">⚔️</span>
                  <span id="j-back-icon" title="Jバック中" style="display:none;">J</span>
                  <span id="reverse-icon" title="リバース中" style="display:none;">🔄</span>
@@ -535,7 +534,6 @@
                 turnPlayerId: null, passCount: 0,
                 isRevolution: false, isJBackActive: false,
                 turnDirection: 1, // 1 for normal, -1 for reverse
-                shibariSuits: [],
                 createdAt: serverTimestamp(),
                 pendingActions: [],
                 log: [{ timestamp: Date.now(), message: `ルームが作成されました。` }]
@@ -635,7 +633,6 @@ joinRoomButton.addEventListener('click', async () => {
                         discardPile: [], passCount: 0,
                         lastPlayed: { player: null, cards: [] },
                         isRevolution: false, isJBackActive: false, turnDirection: 1,
-                        shibariSuits: [],
                         pendingActions: [],
                         log: arrayUnion({ timestamp: Date.now(), message: `ゲームが開始されました。最初のプレイヤーは${sortedPlayers.find(p=>p.id===firstPlayerId).name}さんです。` })
                     });
@@ -671,34 +668,11 @@ joinRoomButton.addEventListener('click', async () => {
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
                         turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
                         discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
-                        pendingActions: [],
-                        shibariSuits: [...(roomData.shibariSuits || [])]
+                        pendingActions: []
                     };
                     
                     let clearField = false, skipCount = 0;
                     const isPlayStair = isStair(selectedCards);
-
-                    if (roomData.field.length > 0) {
-                        const isFieldStair = isStair(roomData.field);
-                        const cardsToEval = selectedCards.map(c => c.mimics ? c.mimics : c);
-
-                        if (isPlayStair && isFieldStair) {
-                            const fieldSuit = roomData.field.find(c => c.suit !== 'joker')?.suit;
-                            const playSuit = cardsToEval.find(c => c.suit !== 'joker')?.suit;
-                            if (fieldSuit && playSuit && fieldSuit === playSuit && !nextState.shibariSuits.includes(fieldSuit)) {
-                                nextState.shibariSuits.push(fieldSuit);
-                            }
-                        } else if (!isPlayStair && !isFieldStair) {
-                            const fieldSuits = new Set(roomData.field.map(c => c.suit).filter(s => s !== 'joker'));
-                            const playedSuits = new Set(cardsToEval.map(c => c.suit).filter(s => s !== 'joker'));
-                            const commonSuits = [...fieldSuits].filter(s => playedSuits.has(s));
-                            commonSuits.forEach(suit => {
-                                if (!nextState.shibariSuits.includes(suit)) {
-                                    nextState.shibariSuits.push(suit);
-                                }
-                            });
-                        }
-                    }
 
                    if (isPlayStair) {
                         logEntries.push({ timestamp: Date.now(), message: "階段です！効果を順次処理します。" });
@@ -830,8 +804,7 @@ joinRoomButton.addEventListener('click', async () => {
                         nextState.field = [];
                         nextState.passCount = 0;
                         nextState.turnPlayerId = me.id; 
-                        nextState.isJBackActive = false;
-                        nextState.shibariSuits = [];
+                        nextState.isJBackActive = false; 
                     } else {
                         nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
                     }
@@ -861,14 +834,11 @@ joinRoomButton.addEventListener('click', async () => {
                     
                     const activePlayers = roomData.players.filter(p => p.rank === null);
                     // ★修正(1): 自分以外の全員がパスした場合
-                    let newShibariSuits = roomData.shibariSuits || [];
-
                     if (roomData.field.length > 0 && newPassCount >= activePlayers.length - 1) {
                         newDiscardPile = [...newDiscardPile, ...newField];
                         newField = [];
                         newPassCount = 0;
                         newJBack = false;
-                        newShibariSuits = [];
                         // ターンは最後にカードを出したプレイヤーから
                         let nextTurnHolder = roomData.players.find(p => p.id === roomData.lastPlayed.player);
                         // もしそのプレイヤーが既に上がっていたら、そこから次のアクティブなプレイヤーを探す
@@ -883,8 +853,7 @@ joinRoomButton.addEventListener('click', async () => {
                     transaction.update(roomRef, {
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
                         field: newField, isJBackActive: newJBack,
-                        discardPile: newDiscardPile, shibariSuits: newShibariSuits,
-                        log: arrayUnion(...logEntries)
+                        discardPile: newDiscardPile, log: arrayUnion(...logEntries)
                     });
                 });
                 selectedCards = [];
@@ -911,13 +880,6 @@ function renderGame(roomData) {
             revolutionIcon.style.display = roomData.isRevolution ? 'inline' : 'none';
             jBackIcon.style.display = roomData.isJBackActive ? 'inline' : 'none';
             reverseIcon.style.display = roomData.turnDirection === -1 ? 'inline' : 'none';
-
-            const shibariIconsDiv = document.getElementById('shibari-icons');
-            shibariIconsDiv.innerHTML = '';
-            if (roomData.shibariSuits && roomData.shibariSuits.length > 0) {
-                const suitSymbols = { spade: '♠', heart: '<span style="color:red;">♥</span>', diamond: '<span style="color:red;">♦</span>', club: '♣' };
-                shibariIconsDiv.innerHTML = `縛り: ${roomData.shibariSuits.map(s => suitSymbols[s]).join('')}`;
-            }
 
             const me = roomData.players.find(p => p.id === currentPlayer.id);
             if (!me) return;
@@ -1138,26 +1100,6 @@ async function handleCardClick(card) {
         }
         
         function isValidPlay(playCards, myHand, roomData) {
-            const cardsToEval = playCards.map(c => c.mimics ? c.mimics : c);
-            if (roomData.shibariSuits && roomData.shibariSuits.length > 0) {
-                const isPlayStair = isStair(cardsToEval);
-                const isFieldStair = roomData.field.length > 0 ? isStair(roomData.field) : false;
-
-                if (isPlayStair && isFieldStair) {
-                    const playSuit = cardsToEval.find(c => c.suit !== 'joker')?.suit;
-                    const shibariSuit = roomData.shibariSuits[0];
-                    if (!playSuit || playSuit !== shibariSuit) {
-                        return { valid: false, message: `階段縛りが発生中です: [${shibariSuit}] の階段で出してください。` };
-                    }
-                } else {
-                    const playedSuits = new Set(cardsToEval.map(c => c.suit).filter(s => s !== 'joker'));
-                    const hasShibariSuit = roomData.shibariSuits.some(shibari => playedSuits.has(shibari));
-                    if (!hasShibariSuit) {
-                         return { valid: false, message: `縛りが発生中です: [${roomData.shibariSuits.join(', ')}] のスートを含めてください。` };
-                    }
-                }
-            }
-
             if (roomData.field.length === 0 && roomData.lastPlayed.player === null &&
                 myHand.some(c => c.suit === 'diamond' && c.number === 3)) {
                 if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
@@ -1183,6 +1125,7 @@ async function handleCardClick(card) {
                 }
             }
 
+            const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
             const isPlayStair = isStair(cardsToEval);
             
             if (!isPlayStair) {
