@@ -351,6 +351,7 @@
         }
 
     </style>
+    <link rel="manifest" href="manifest.json">
 </head>
 <body>
 
@@ -540,7 +541,7 @@
             joinRoom(currentRoomId);
         });
 
-        joinRoomButton.addEventListener('click', async () => {
+joinRoomButton.addEventListener('click', async () => {
             const roomId = roomIdInput.value.trim();
             if (!roomId) return showAlert('ルームIDを入力してください。');
             const roomRef = doc(db, 'rooms', roomId);
@@ -550,7 +551,7 @@
             const roomData = roomSnap.data();
             if (roomData.players.find(p => p.name === currentPlayer.name)) return showAlert('同じ名前のプレイヤーが既にルームにいます。');
             if (roomData.players.length >= 6) return showAlert('このルームは満員です。');
-            if (roomData.gameState !== 'waiting') return showAlert('このゲームは既に開始されています。');
+            if (roomData.gameState === 'playing') return showAlert('このゲームは既に開始されています。');
 
             const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: false, hand: [], order: -1, rank: null };
             await updateDoc(roomRef, { 
@@ -793,17 +794,21 @@
         });
 
         // --- UI Rendering ---
-        function renderGame(roomData) {
+function renderGame(roomData) {
             roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
             copyRoomIdButton.style.display = 'inline-block';
 
-            if (roomData.gameState === 'finished') {
+            if (roomData.gameState === 'finished' && !modalOverlay.classList.contains('visible-modal')) {
                 showResultsModal(roomData.players);
-                return;
             }
             
             const amIHost = roomData.players.find(p => p.id === currentPlayer.id)?.isHost;
-            startGameButton.style.display = (amIHost && roomData.gameState === 'waiting') ? 'block' : 'none';
+            if (amIHost && (roomData.gameState === 'waiting' || roomData.gameState === 'finished')) {
+                startGameButton.style.display = 'block';
+                startGameButton.textContent = roomData.gameState === 'finished' ? '次のゲームを開始' : 'ゲーム開始';
+            } else {
+                startGameButton.style.display = 'none';
+            }
 
             revolutionIcon.style.display = roomData.isRevolution ? 'inline' : 'none';
             jBackIcon.style.display = roomData.isJBackActive ? 'inline' : 'none';
@@ -889,37 +894,37 @@
         }
         
         // ★修正(7): Jokerの選択処理を全面的に修正
-        async function handleCardClick(card) {
+async function handleCardClick(card) {
             const index = selectedCards.findIndex(c => c.uid === card.uid);
 
-            if (index > -1) { // カードが既に選択されている場合（選択解除）
-                const deselectedCard = selectedCards[index];
-                // 擬態情報をクリア
-                if (deselectedCard.mimics) delete deselectedCard.mimics;
+            if (index > -1) { // Card is already selected -> Deselect it
                 selectedCards.splice(index, 1);
-            } else { // カードが選択されていない場合（新規選択）
-                if (card.suit === 'joker') {
+                const nonJokersLeft = selectedCards.filter(c => c.suit !== 'joker');
+                if (nonJokersLeft.length === 0) {
+                    selectedCards.forEach(c => {
+                        if (c.suit === 'joker') delete c.mimics;
+                    });
+                }
+            } else { // Card is not selected -> Select it
+                selectedCards.push(card);
+            }
+            
+            const jokers = selectedCards.filter(c => c.suit === 'joker');
+            const nonJokers = selectedCards.filter(c => c.suit !== 'joker');
+
+            if (jokers.length > 0 && nonJokers.length > 0) {
+                const untransformedJokers = jokers.filter(j => !j.mimics);
+                for (const joker of untransformedJokers) {
                     try {
-                        // 他に選択されているカードから、おすすめの数字を決定
-                        const others = selectedCards.filter(c => c.suit !== 'joker' && !c.mimics);
-                        const recommendedNumber = (others.length > 0 && others.every(c => (c.mimics ? c.mimics.number : c.number) === (others[0].mimics ? others[0].mimics.number : others[0].number))) 
-                            ? (others[0].mimics ? others[0].mimics.number : others[0].number) 
-                            : null;
-                        
+                        const recommendedNumber = nonJokers[0].number;
                         const mimicData = await showJokerTransformModal(recommendedNumber);
-                        card.mimics = mimicData; // カードオブジェクトに擬態情報を付与
-                        selectedCards.push(card);
+                        joker.mimics = mimicData;
                     } catch (e) {
-                        // モーダルがキャンセルされた場合は何もしない
-                        return; 
+                        selectedCards = selectedCards.filter(c => c.uid !== joker.uid);
                     }
-                } else {
-                    // Joker以外のカードは通常通り選択
-                    selectedCards.push(card);
                 }
             }
             
-            // 手札を再描画して選択状態を反映
             const roomData = (await getDoc(doc(db, 'rooms', currentRoomId))).data();
             const me = roomData.players.find(p => p.id === currentPlayer.id);
             renderMyHand(me, roomData);
@@ -1032,14 +1037,18 @@
             if (new Set(playCards.map(c => c.uid)).size === myHand.length && isOnly2s) {
                  return { valid: false, message: '2 (または2に擬態したJoker) のみで上がることはできません。' };
             }
-            
             const jokers = playCards.filter(c => c.suit === 'joker');
             const others = playCards.filter(c => c.suit !== 'joker');
+
             if (jokers.length > 0 && others.length > 0) {
-                if (jokers.some(j => !j.mimics)) return { valid: false, message: '他のカードと出す場合、Jokerは必ず何かに擬態させてください。' };
-            }
-            if (jokers.length > 1 && others.length === 0) {
-                 if (jokers.some(j => j.mimics)) return { valid: false, message: 'Joker同士で出す場合は擬態できません。' };
+                if (jokers.some(j => !j.mimics)) {
+                    return { valid: false, message: '他のカードと出す場合、Jokerは必ず何かに擬態させてください。' };
+                }
+            } 
+            else if (jokers.length > 0 && others.length === 0) {
+                if (jokers.some(j => j.mimics)) {
+                    return { valid: false, message: 'Jokerのみで出す場合は擬態できません。' };
+                }
             }
 
             const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
@@ -1541,11 +1550,22 @@
             }, 1500);
         }
         
-        showLogButton.addEventListener('click', () => logPanel.classList.add('visible'));
+showLogButton.addEventListener('click', () => logPanel.classList.add('visible'));
         logCloseButton.addEventListener('click', () => logPanel.classList.remove('visible'));
 
         // Initialize
         showScreen('login');
+
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js').then(registration => {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                }, err => {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
     </script>
 </body>
 </html>
