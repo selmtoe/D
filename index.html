@@ -683,6 +683,11 @@ joinRoomButton.addEventListener('click', async () => {
                             logEntries.push({ timestamp: Date.now(), message: `階段効果: Jバック発動！`, effect: {card:"J", name: "Jバック"}});
                             effectsToProcess = effectsToProcess.filter(n => n !== 11);
                         }
+                        
+                        if (selectedCards.length >= 4) {
+                            nextState.isRevolution = !nextState.isRevolution;
+                            logEntries.push({timestamp: Date.now(), message: `階段効果: 革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
+                        }
 
                         const strengthReversed = nextState.isRevolution ^ nextState.isJBackActive;
                         effectsToProcess.sort((a, b) => {
@@ -1160,17 +1165,17 @@ async function handleCardClick(card) {
                             updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
                         });
                     break;
-                 case 'discard_select_cards':
-                    showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true)
-                        .then(cardsToDiscard => executeDiscardCards(cardsToDiscard)).catch(clearPendingActions);
+                case 'discard_select_cards':
+                    showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
+                        .then(cardsToDiscard => executeDiscardCards(cardsToDiscard));
                     break;
                 case 'bomber_select_rank':
                      showRankSelectionModal('破壊する数字を選んでください', action.count)
                         .then(ranks => executeBomber(ranks));
                      break;
                 case 'collect_select_cards':
-                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false)
-                        .then(cardsToCollect => executeCollectCards(cardsToCollect)).catch(clearPendingActions);
+                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false, false)
+                        .then(cardsToCollect => executeCollectCards(cardsToCollect));
                     break;
                 case 'steal_select_player':
                     showPlayerSelectionModal('カードを奪う相手を選んでください', targetablePlayers.filter(p => p.hand.length > 0), action.count)
@@ -1247,7 +1252,7 @@ async function handleCardClick(card) {
             });
         }
         
-        async function showCardSelectionModal(title, availableCards, count, mustSelectAll) {
+        async function showCardSelectionModal(title, availableCards, count, mustSelectAll, allowCancel = true) {
              return new Promise((resolve, reject) => {
                 const container = document.createElement('div');
                 container.className = 'card-container modal-card-selection';
@@ -1271,7 +1276,7 @@ async function handleCardClick(card) {
                     const requiredCount = mustSelectAll ? Math.min(count, availableCards.length) : count;
                     modalConfirmButton.disabled = selectedModalCards.length !== requiredCount;
                 };
-                showModal(title, container, { showCancel: true }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(() => { closeModal(); reject(); });
+                showModal(title, container, { showCancel: allowCancel }).then(() => { closeModal(); resolve(selectedModalCards); }).catch(() => { if(allowCancel) { closeModal(); reject(); } });
                 updateButtonState();
             });
         }
