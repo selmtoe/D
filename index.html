@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オンライン大富豪</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .screen { display: none; }
+        .active { display: block; }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        h1, h2 {
+            color: #1a73e8;
+        }
+
+        input[type="text"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #1558b8; }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #game-screen {
+            max-width: 1200px;
+        }
+        
+        .game-info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #e8f0fe;
+            border-radius: 5px;
+        }
+
+        .game-status-icons {
+            font-size: 24px;
+        }
+        
+        .players-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            min-height: 100px;
+        }
+
+        .player-box {
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            padding: 10px;
+            width: 120px;
+            height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .player-box.is-turn {
+            border-color: #1a73e8;
+            box-shadow: 0 0 10px #1a73e8;
+            font-weight: bold;
+        }
+
+        .field {
+            border: 2px dashed #ccc;
+            min-height: 150px;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .my-hand-container {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .card-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .card {
+            border: 1px solid #999;
+            border-radius: 5px;
+            width: 70px;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 20px;
+            font-weight: bold;
+            background-color: white;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding: 5px;
+            box-sizing: border-box;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+        }
+        .card.selected {
+            transform: translateY(-10px);
+            box-shadow: 0 6px 10px #1a73e8;
+            border-color: #1a73e8;
+        }
+        .card.red { color: red; }
+        .card.joker { background-color: #f0f0f0; }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        #room-info {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="container screen active">
+        <h1>オンライン大富豪</h1>
+        <input type="text" id="name-input" placeholder="名前を入力してください">
+        <button id="login-button">決定</button>
+    </div>
+
+    <div id="room-screen" class="container screen">
+        <h1>ルーム選択</h1>
+        <p>ようこそ、<span id="player-name-display"></span>さん</p>
+        <button id="create-room-button">ルームを作成する</button>
+        <hr style="margin: 20px 0;">
+        <input type="text" id="room-id-input" placeholder="ルームIDを入力">
+        <button id="join-room-button">ルームに参加する</button>
+    </div>
+
+    <div id="game-screen" class="container screen">
+        <div class="game-info-bar">
+            <div>
+                <h2>大富豪</h2>
+                <span id="turn-info"></span>
+            </div>
+            <div class="game-status-icons">
+                 <span id="revolution-icon" style="display:none;">⚔️</span>
+            </div>
+        </div>
+        
+        <div id="players-container" class="players-container"></div>
+        
+        <h3>場 (<span id="last-player-info"></span>)</h3>
+        <div id="field" class="field"></div>
+        
+        <div class="my-hand-container">
+             <h3>あなたの手札 (<span id="my-name"></span>)</h3>
+             <div id="my-hand" class="card-container"></div>
+        </div>
+
+        <div id="controls" class="controls">
+            <button id="play-button" disabled>出す</button>
+            <button id="pass-button" disabled>パス</button>
+        </div>
+        
+        <div id="game-controls">
+             <button id="start-game-button" style="display: none; background-color: #28a745;">ゲーム開始</button>
+        </div>
+
+        <div id="room-info"></div>
+    </div>
+
+    <script type="module">
+        // ▼▼▼ ここにFirebaseの設定を貼り付け ▼▼▼
+       const firebaseConfig = {
+    apiKey: "AIzaSyD1YdTMESZi-ynMzS_p_hdtr1znBI64RmM",
+    authDomain: "daifugo-8e039.firebaseapp.com",
+    projectId: "daifugo-8e039",
+    storageBucket: "daifugo-8e039.firebasestorage.app",
+    messagingSenderId: "979025215319",
+    appId: "1:979025215319:web:1bf381daf1eb647760c812",
+    measurementId: "G-KSQ8LRN4ZE"
+  };
+        // ▲▲▲ ここまで ▲▲▲
+
+        // Firebaseの初期化とサービスのインポート
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // グローバル変数
+        let currentPlayer = { id: null, name: null };
+        let currentRoomId = null;
+        let unsubscribeRoom = null;
+        let selectedCards = [];
+
+        // DOM要素
+        const screens = {
+            login: document.getElementById('login-screen'),
+            room: document.getElementById('room-screen'),
+            game: document.getElementById('game-screen')
+        };
+        const nameInput = document.getElementById('name-input');
+        const loginButton = document.getElementById('login-button');
+        const playerNameDisplay = document.getElementById('player-name-display');
+        const createRoomButton = document.getElementById('create-room-button');
+        const joinRoomButton = document.getElementById('join-room-button');
+        const roomIdInput = document.getElementById('room-id-input');
+        const myHandDiv = document.getElementById('my-hand');
+        const playersContainerDiv = document.getElementById('players-container');
+        const fieldDiv = document.getElementById('field');
+        const turnInfoSpan = document.getElementById('turn-info');
+        const lastPlayerInfoSpan = document.getElementById('last-player-info');
+        const roomInfoDiv = document.getElementById('room-info');
+        const startGameButton = document.getElementById('start-game-button');
+        const playButton = document.getElementById('play-button');
+        const passButton = document.getElementById('pass-button');
+        const myNameSpan = document.getElementById('my-name');
+        const revolutionIcon = document.getElementById('revolution-icon');
+
+
+        // --- 画面遷移 ---
+        function showScreen(screenName) {
+            Object.values(screens).forEach(screen => screen.classList.remove('active'));
+            screens[screenName].classList.add('active');
+        }
+
+        // --- ログイン処理 ---
+        loginButton.addEventListener('click', () => {
+            const name = nameInput.value.trim();
+            if (name) {
+                currentPlayer.name = name;
+                currentPlayer.id = generatePlayerId();
+                playerNameDisplay.textContent = name;
+                showScreen('room');
+            } else {
+                alert('名前を入力してください。');
+            }
+        });
+
+        // --- ルーム作成 ---
+        createRoomButton.addEventListener('click', async () => {
+            currentRoomId = generateRoomId();
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            
+            const newPlayer = {
+                id: currentPlayer.id,
+                name: currentPlayer.name,
+                isHost: true,
+                hand: [],
+                order: -1
+            };
+
+            await setDoc(roomRef, {
+                id: currentRoomId,
+                players: [newPlayer],
+                gameState: 'waiting', // waiting, playing, finished
+                field: [],
+                lastPlayed: { player: null, cards: [] },
+                turnPlayerId: null,
+                passCount: 0,
+                isRevolution: false,
+                createdAt: serverTimestamp()
+            });
+
+            joinRoom(currentRoomId);
+        });
+
+        // --- ルーム参加 ---
+        joinRoomButton.addEventListener('click', async () => {
+            const roomId = roomIdInput.value.trim();
+            if (!roomId) {
+                alert('ルームIDを入力してください。');
+                return;
+            }
+
+            const roomRef = doc(db, 'rooms', roomId);
+            const roomSnap = await getDoc(roomRef);
+
+            if (!roomSnap.exists()) {
+                alert('指定されたルームが見つかりません。');
+                return;
+            }
+            
+            const roomData = roomSnap.data();
+            
+            if (roomData.players.find(p => p.name === currentPlayer.name)) {
+                alert('同じ名前のプレイヤーが既にルームにいます。');
+                return;
+            }
+
+            if (roomData.players.length >= 6) {
+                alert('このルームは満員です。');
+                return;
+            }
+
+            if (roomData.gameState !== 'waiting') {
+                alert('このゲームは既に開始されています。');
+                return;
+            }
+
+            const newPlayer = {
+                id: currentPlayer.id,
+                name: currentPlayer.name,
+                isHost: false,
+                hand: [],
+                order: -1
+            };
+
+            await updateDoc(roomRef, {
+                players: arrayUnion(newPlayer)
+            });
+
+            joinRoom(roomId);
+        });
+
+        function joinRoom(roomId) {
+            currentRoomId = roomId;
+            myNameSpan.textContent = currentPlayer.name;
+            showScreen('game');
+            
+            if (unsubscribeRoom) unsubscribeRoom(); // 前のリスナーを解除
+            unsubscribeRoom = onSnapshot(doc(db, 'rooms', currentRoomId), (doc) => {
+                if (doc.exists()) {
+                    renderGame(doc.data());
+                } else {
+                    alert('ルームが削除されました。');
+                    location.reload();
+                }
+            });
+        }
+        
+        // --- ゲーム開始処理 ---
+        startGameButton.addEventListener('click', async () => {
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            const roomSnap = await getDoc(roomRef);
+            const roomData = roomSnap.data();
+
+            if (roomData.players.length < 3) {
+                alert('3人以上でゲームを開始できます。');
+                return;
+            }
+
+            // 1. デッキ作成
+            const suits = ['spade', 'heart', 'diamond', 'club'];
+            const deck = [];
+            for (const suit of suits) {
+                for (let i = 1; i <= 13; i++) {
+                    deck.push({ suit, number: i });
+                }
+            }
+            deck.push({ suit: 'joker', number: 15 });
+            deck.push({ suit: 'joker', number: 15 });
+
+            // 2. デッキをシャッフル
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+
+            // 3. プレイヤーの順番をランダムに決定
+            const players = roomData.players.map(p => p);
+            for (let i = players.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [players[i], players[j]] = [players[j], players[i]];
+            }
+            
+            let dia3PlayerId = null;
+            let firstPlayerId = null;
+
+            // 4. カードを配布 & ダイヤの3を探す
+            let playerIndex = 0;
+            while(deck.length > 0) {
+                const card = deck.pop();
+                if (!players[playerIndex].hand) players[playerIndex].hand = [];
+                players[playerIndex].hand.push(card);
+                if(card.suit === 'diamond' && card.number === 3){
+                    dia3PlayerId = players[playerIndex].id;
+                }
+                playerIndex = (playerIndex + 1) % players.length;
+            }
+            
+            // 5. プレイヤーの席順（order）を割り振り、最初のプレイヤーを決定
+            firstPlayerId = dia3PlayerId || players[0].id; // ダイヤの3がなければ最初の人が親
+            const firstPlayerIndex = players.findIndex(p => p.id === firstPlayerId);
+            const sortedPlayers = [];
+            for(let i=0; i<players.length; i++) {
+                const p = players[(firstPlayerIndex + i) % players.length];
+                p.order = i + 1; // 1から始まる席順
+                sortedPlayers.push(p);
+            }
+            
+            // 手札をソート
+            sortedPlayers.forEach(p => p.hand.sort((a,b) => getCardValue(a) - getCardValue(b)));
+            
+            await updateDoc(roomRef, {
+                players: sortedPlayers,
+                gameState: 'playing',
+                turnPlayerId: firstPlayerId,
+                field: [],
+                passCount: 0,
+                lastPlayed: { player: null, cards: [] },
+                isRevolution: false
+            });
+        });
+
+        // --- カードを出す処理 ---
+        playButton.addEventListener('click', async () => {
+            if (selectedCards.length === 0) return;
+
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            const roomSnap = await getDoc(roomRef);
+            const roomData = roomSnap.data();
+
+            // ルールチェック
+            const validation = isValidPlay(selectedCards, roomData.field, roomData.isRevolution);
+            if (!validation.valid) {
+                alert(validation.message);
+                return;
+            }
+
+            // 自分の手札から選択したカードを削除
+            const me = roomData.players.find(p => p.id === currentPlayer.id);
+            const newHand = me.hand.filter(cardInHand => {
+                return !selectedCards.some(selected => 
+                    cardInHand.suit === selected.suit && cardInHand.number === selected.number
+                );
+            });
+            
+            const playersCopy = roomData.players.map(p => {
+                if (p.id === currentPlayer.id) {
+                    return { ...p, hand: newHand };
+                }
+                return p;
+            });
+
+            let newTurnPlayerId = getNextPlayerId(roomData.players, currentPlayer.id);
+            let newField = selectedCards;
+            let newPassCount = 0;
+            let lastPlayer = { player: currentPlayer.id, cards: selectedCards };
+            let isRevolution = roomData.isRevolution;
+            
+            // 革命チェック
+            if(selectedCards.length >= 4){
+                isRevolution = !isRevolution;
+            }
+            
+            // 8切りチェック
+            if (selectedCards.some(c => c.number === 8)) {
+                newField = [];
+                newPassCount = 0;
+                newTurnPlayerId = currentPlayer.id; // 8切りした人から再開
+            }
+            
+            if (newHand.length === 0) {
+                // 上がり処理（今回はアラートのみ）
+                alert(`${currentPlayer.name}が上がりました！`);
+                // TODO: 順位付け、ゲーム終了処理
+            }
+            
+            await updateDoc(roomRef, {
+                players: playersCopy,
+                field: newField,
+                turnPlayerId: newTurnPlayerId,
+                passCount: newPassCount,
+                lastPlayed: lastPlayer,
+                isRevolution: isRevolution
+            });
+            
+            selectedCards = [];
+            renderMyHand(newHand, roomData);
+        });
+        
+        // --- パス処理 ---
+        passButton.addEventListener('click', async () => {
+             const roomRef = doc(db, 'rooms', currentRoomId);
+             const roomSnap = await getDoc(roomRef);
+             const roomData = roomSnap.data();
+             
+             let newPassCount = roomData.passCount + 1;
+             let newTurnPlayerId = getNextPlayerId(roomData.players, currentPlayer.id);
+             let newField = roomData.field;
+             
+             // 全員パスしたかチェック
+             const activePlayers = roomData.players.filter(p => p.hand.length > 0);
+             if (newPassCount >= activePlayers.length - 1) {
+                 newField = []; // 場を流す
+                 newPassCount = 0;
+                 // 最後にカードを出した人から再開
+                 newTurnPlayerId = roomData.lastPlayed.player; 
+             }
+             
+             await updateDoc(roomRef, {
+                 turnPlayerId: newTurnPlayerId,
+                 passCount: newPassCount,
+                 field: newField,
+             });
+        });
+
+
+        // --- UI描画 ---
+        function renderGame(roomData) {
+            // ルーム情報
+            if (roomData.gameState === 'waiting') {
+                roomInfoDiv.textContent = `ルームID: ${currentRoomId} | 参加を待っています...`;
+            } else {
+                roomInfoDiv.textContent = `ルームID: ${currentRoomId}`;
+            }
+
+            // ゲーム開始ボタンの表示制御
+            const amIHost = roomData.players.find(p => p.id === currentPlayer.id)?.isHost;
+            if (amIHost && roomData.gameState === 'waiting') {
+                startGameButton.style.display = 'block';
+            } else {
+                startGameButton.style.display = 'none';
+            }
+            
+            revolutionIcon.style.display = roomData.isRevolution ? 'inline' : 'none';
+
+            // プレイヤー表示
+            const me = roomData.players.find(p => p.id === currentPlayer.id);
+            if (!me) return;
+
+            // 席順でソート
+            const sortedPlayers = [...roomData.players].sort((a,b) => a.order - b.order);
+            
+            playersContainerDiv.innerHTML = '';
+            sortedPlayers.forEach(player => {
+                if (player.id !== currentPlayer.id) {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-box';
+                    if (player.id === roomData.turnPlayerId) {
+                        playerDiv.classList.add('is-turn');
+                    }
+                    playerDiv.innerHTML = `
+                        <div class="player-name">${player.name}</div>
+                        <div>手札: ${player.hand ? player.hand.length : 0} 枚</div>
+                    `;
+                    playersContainerDiv.appendChild(playerDiv);
+                }
+            });
+            
+            // 自分の手札表示
+            if (me.hand) {
+                renderMyHand(me.hand, roomData);
+            }
+
+            // 場札表示
+            fieldDiv.innerHTML = '';
+            roomData.field.forEach(card => {
+                fieldDiv.appendChild(createCardElement(card));
+            });
+
+            // ターン情報表示
+            const turnPlayer = roomData.players.find(p => p.id === roomData.turnPlayerId);
+            if (turnPlayer) {
+                if (turnPlayer.id === currentPlayer.id) {
+                    turnInfoSpan.textContent = "あなたのターンです";
+                } else {
+                    turnInfoSpan.textContent = `${turnPlayer.name} のターン`;
+                }
+            }
+            
+            const lastPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
+            if(lastPlayer){
+                lastPlayerInfoSpan.textContent = `最後に出した人: ${lastPlayer.name}`;
+            } else {
+                lastPlayerInfoSpan.textContent = `---`;
+            }
+
+            // 操作ボタンの有効/無効
+            const isMyTurn = roomData.turnPlayerId === currentPlayer.id;
+            playButton.disabled = !isMyTurn;
+            passButton.disabled = !isMyTurn;
+            
+            // 場にカードがない場合はパスできない
+            if (roomData.field.length === 0) {
+                 passButton.disabled = true;
+            }
+        }
+        
+        function renderMyHand(hand, roomData){
+            myHandDiv.innerHTML = '';
+            const isMyTurn = roomData.turnPlayerId === currentPlayer.id;
+            
+            // ダイヤの3を持っているか、かつゲーム開始直後か
+            const mustPlayDia3 = roomData.field.length === 0 &&
+                hand.some(c => c.suit === 'diamond' && c.number === 3) &&
+                !roomData.lastPlayed.player;
+
+            hand.forEach(card => {
+                const cardEl = createCardElement(card);
+                if (isMyTurn) {
+                    cardEl.addEventListener('click', () => {
+                        const cardIdentifier = JSON.stringify(card);
+                        const selectedIndex = selectedCards.findIndex(c => JSON.stringify(c) === cardIdentifier);
+                        
+                        if (selectedIndex > -1) {
+                            // 選択解除
+                            selectedCards.splice(selectedIndex, 1);
+                            cardEl.classList.remove('selected');
+                        } else {
+                            // 選択
+                            // ダイヤの3ルール
+                            if (mustPlayDia3 && selectedCards.length > 0 && !selectedCards.some(c => c.suit === 'diamond' && c.number === 3)) {
+                                alert('最初はダイヤの3を含めて出す必要があります。');
+                                return;
+                            }
+                            selectedCards.push(card);
+                            cardEl.classList.add('selected');
+                        }
+                    });
+                }
+                
+                // 既に選択済みのカードにselectedクラスを付与
+                if (selectedCards.some(sc => sc.suit === card.suit && sc.number === card.number)) {
+                    cardEl.classList.add('selected');
+                }
+                
+                myHandDiv.appendChild(cardEl);
+            });
+        }
+
+
+        // --- ヘルパー関数 ---
+        function generatePlayerId() {
+            return Math.random().toString(36).substring(2, 10);
+        }
+        function generateRoomId() {
+            return Math.random().toString(36).substring(2, 7).toUpperCase();
+        }
+        
+        function getCardValue(card, isRevolution = false) {
+            if (card.suit === 'joker') return isRevolution ? 0 : 99; // Joker is strongest
+            let value = card.number;
+            if (value <= 2) value += 13; // 1, 2 は 14, 15 扱い
+            return isRevolution ? 16 - value : value; // 革命時は強さが反転
+        }
+        
+        function getNextPlayerId(players, currentId) {
+            const sortedPlayers = [...players].sort((a,b) => a.order - b.order);
+            const currentIndex = sortedPlayers.findIndex(p => p.id === currentId);
+            let nextIndex = (currentIndex + 1) % sortedPlayers.length;
+            
+            // 上がった人はスキップ
+            while(sortedPlayers[nextIndex].hand.length === 0) {
+                nextIndex = (nextIndex + 1) % sortedPlayers.length;
+            }
+            return sortedPlayers[nextIndex].id;
+        }
+
+        function createCardElement(card) {
+            const el = document.createElement('div');
+            el.className = 'card';
+            const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
+            const numberStrings = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+
+            if (card.suit === 'joker') {
+                el.classList.add('joker');
+                el.innerHTML = `<span>JOKER</span><span>JOKER</span>`;
+            } else {
+                const suit = suitSymbols[card.suit];
+                const number = numberStrings[card.number] || card.number;
+                if (card.suit === 'heart' || card.suit === 'diamond') {
+                    el.classList.add('red');
+                }
+                el.innerHTML = `<span>${suit}</span><span>${number}</span>`;
+            }
+            return el;
+        }
+        
+        function isValidPlay(playCards, fieldCards, isRevolution){
+            // ダイヤの3ルール（ゲーム開始時）
+            if (fieldCards.length === 0 && !playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
+                 const amIStarter = true; // 本来は hand にダイヤの3があるかチェックする必要があるが、UI側で制御
+                 if (amIStarter && !document.querySelector('.field').innerHTML) {
+                    return { valid: false, message: '最初はダイヤの3を含めて出す必要があります。' };
+                 }
+            }
+
+            // すべて同じ数字かチェック（ジョーカーは除く）
+            const realCards = playCards.filter(c => c.suit !== 'joker');
+            if (realCards.length > 0) {
+                const firstNumber = realCards[0].number;
+                if (!realCards.every(c => c.number === firstNumber)) {
+                    return { valid: false, message: '同じ数字のカードしか同時に出せません。（階段は未実装です）' };
+                }
+            }
+            
+            if(fieldCards.length === 0){
+                return { valid: true }; // 場にカードがなければ何でも出せる
+            }
+
+            // 枚数が違う
+            if(playCards.length !== fieldCards.length){
+                return { valid: false, message: '場と同じ枚数のカードを出してください。' };
+            }
+
+            // 強さ比較
+            const playValue = getCardValue(playCards.find(c => c.suit !== 'joker') || playCards[0], isRevolution);
+            const fieldValue = getCardValue(fieldCards.find(c => c.suit !== 'joker') || fieldCards[0], isRevolution);
+
+            if(playValue <= fieldValue){
+                 return { valid: false, message: '場に出ているカードより強いカードを出してください。' };
+            }
+            
+            return { valid: true };
+        }
+
+        // 初期化
+        showScreen('login');
+    </script>
+</body>
+</html>
