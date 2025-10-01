@@ -696,9 +696,8 @@ joinRoomButton.addEventListener('click', async () => {
                             case 5:
                                 const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
                                 if (activePlayersCount <= 1) break;
-                                // ★修正(5): スキップ数を2nに変更
-                                const skipAmount = 2 * selectedCards.length;
-                                if (skipAmount > 0 && activePlayersCount > 1 && skipAmount % (activePlayersCount-1) === 0) {
+                                const skipAmount = (2 * selectedCards.length) - 1 ;
+                                if (skipAmount > 0 && activePlayersCount > 1 && skipAmount % (activePlayersCount) === 0) {
                                     clearField = true;
                                     logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
                                 } else { skipCount = skipAmount; }
