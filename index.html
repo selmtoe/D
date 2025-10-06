@@ -804,13 +804,15 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                     }
 
-                    if (newHand.length === 0 && nextState.pendingActions.length === 0) {
-                        const { updatedPlayers,上がりLog } = handlePlayerFinish(nextState.players, me.id);
+                                        if (newHand.length === 0) {
+                        const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
                         nextState.players = updatedPlayers;
                         logEntries.push(...上がりLog);
-                    }
+                        nextState.pendingActions = [];
+}
                     
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
+
 
                     if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
@@ -1703,15 +1705,16 @@ async function handleCardClick(card) {
                     }
                     const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
-                        if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { id: Date.now(), type: 'steal_success', target: target.name, cards: stolenCards } };
+                                if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { id: Date.now(), type: 'steal_success', target: target.name, cards: stolenCards } };
                         if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { id: Date.now() + 1, type: 'stolen', actor: me.name, cards: stolenCards } };
-                        return p;
+return p;
                     });
-
+                    return { players, logContext: { target: target.name, count: count } };
 
                 },
                 (ctx) => `${currentPlayer.name}が${ctx.target}からカードを${ctx.count}枚奪いました。`
-            );
+);
+
         }
 
                 async function executeEightCut() {
