@@ -1739,10 +1739,7 @@ async function handleCardClick(card) {
                     
                     const newPendingActions = roomData.pendingActions.slice(1);
                     
-                    let nextTurnPlayerId = me.id;
-                    if (newPendingActions.length === 0) {
-                        nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
-                    }
+                    const nextTurnPlayerId = me.id;
 
                     transaction.update(roomRef, {
                         field: [],
