@@ -934,25 +934,17 @@ joinRoomButton.addEventListener('click', async () => {
                                 case 3: 
                                     if (selectedCards.length === 1 && selectedCards[0].suit === 'spade' && roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics) {
                                          clearField = true;
-                                         logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}});
-                                    }
-                                    break;
-                                case 7: case 10: case 12: case 13: case 1:
-                                    const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
-                                    nextState.pendingActions.push({ type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length });
-                                    break;
-                            }
-                        }
-                    }
-
-                                        if (newHand.length === 0) {
-                        const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
-                        nextState.players = updatedPlayers;
-                        logEntries.push(...上がりLog);
-                        nextState.pendingActions = [];
-}
-                    
-                    const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
+                                      logEntries.push({ timestamp: Date.now(), message: `効果発動: スペード3返し！`, effect: {card:"スペード3", name: "スペ3返し"}}); } break;
+case 7: case 10: case 12: case 13: case 1: const actionTypeMap = { 1:'steal_select_player', 7:'pass_select_player', 10:'discard_select_cards', 12:'bomber_select_rank', 13:'collect_select_cards' };
+nextState.pendingActions.push({ type: actionTypeMap[playedNumber], actorId: me.id, count: selectedCards.length }); 
+                if (playedNumber === 13) {
+                    nextState.discardPile = [...roomData.discardPile, ...nextState.roundPile, ...nextState.field];
+                    nextState.field = [];
+                    nextState.roundPile = [];
+                }
+                break;
+nextState.players = updatedPlayers; logEntries.push(...上がりLog); nextState.pendingActions = []; } const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
+   
 if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
 } else if (clearField || remainingPlayers <= 1) {
