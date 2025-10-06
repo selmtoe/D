@@ -716,14 +716,15 @@ joinRoomButton.addEventListener('click', async () => {
                                     nextState.pendingActions.push({ type: actionTypeMap[num], actorId: me.id, count: 1 });
                                     break;
                             }
-                        });
+                                                });
 
                         if (hasEightCut) {
-                            clearField = true;
+                            nextState.pendingActions.push({ type: 'eight_cut', actorId: me.id, count: 1 });
                             logEntries.push({ timestamp: Date.now(), message: `階段効果: 8 - 8切り`, effect: {card:"8", name: "8切り"}});
                         }
                         
                     } else {
+
                         const realCards = selectedCards.map(c => c.mimics ? c.mimics : c).filter(c => c.suit !== 'joker');
                         const playedNumber = realCards.length > 0 ? realCards[0].number : null;
                         
@@ -812,11 +813,14 @@ joinRoomButton.addEventListener('click', async () => {
             } catch (error) { showAlert(error.message); }
         });
         
-        passButton.addEventListener('click', async () => {
+                passButton.addEventListener('click', async () => {
+             playButton.disabled = true;
+             passButton.disabled = true;
              const roomRef = doc(db, 'rooms', currentRoomId);
              try {
                 await runTransaction(db, async (transaction) => {
                     const roomSnap = await transaction.get(roomRef);
+
                     if (!roomSnap.exists()) return;
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
@@ -828,9 +832,9 @@ joinRoomButton.addEventListener('click', async () => {
                     let newDiscardPile = roomData.discardPile;
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}がパスしました。` }];
                     
-                    const activePlayers = roomData.players.filter(p => p.rank === null);
-                    // ★修正(1): 自分以外の全員がパスした場合
-                    if (roomData.field.length > 0 && newPassCount >= activePlayers.length - 1) {
+                                        const activePlayers = roomData.players.filter(p => p.rank === null);
+                    // 最後にカードを出したプレイヤーのターンになったら場が流れる
+                    if (roomData.field.length > 0 && newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) {
                         newDiscardPile = [...newDiscardPile, ...newField];
                         newField = [];
                         newPassCount = 0;
@@ -845,6 +849,7 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                         logEntries.push({ timestamp: Date.now(), message: `全員がパスしたため場が流れました。次は ${roomData.players.find(p => p.id === newTurnPlayerId).name}さんの番です。` });
                     }
+
                     
                     transaction.update(roomRef, {
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
@@ -1194,12 +1199,16 @@ async function handleCardClick(card) {
                     showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false, false, me.hand)
                         .then(cardsToCollect => executeCollectCards(cardsToCollect));
                     break;
-                case 'steal_select_player':
+               case 'steal_select_player':
                     showPlayerSelectionModal('カードを奪う相手を選んでください', targetablePlayers.filter(p => p.hand.length > 0), action.count)
                         .then(targetId => executeStealCard(targetId, action.count));
                     break;
+                case 'eight_cut':
+                    executeEightCut();
+                    break;
             }
         }
+
         
         async function clearPendingActions() {
             if (currentRoomId) {
@@ -1511,15 +1520,22 @@ async function handleCardClick(card) {
                     
                     let { players, discardPile, logContext } = await actionFn(roomData, me);
                     const logMessage = logMessageFn(logContext || {});
-                    let logEntries = [{timestamp: Date.now(), message: logMessage}];
+                                        let logEntries = [{timestamp: Date.now(), message: logMessage}];
                     
-                    if (players.find(p => p.id === me.id)?.hand.length === 0) {
-                         const { updatedPlayers, 上がりLog } = handlePlayerFinish(players, me.id);
-                         players = updatedPlayers;
-                         logEntries.push(...上がりLog);
-                    }
+                    let tempPlayers = players;
+                    // アクションの結果、手札が0枚になった全プレイヤーをチェックする
+                    const originalPlayers = roomData.players;
+                    tempPlayers.forEach(p => {
+                        const originalPlayer = originalPlayers.find(op => op.id === p.id);
+                        if (p.hand.length === 0 && originalPlayer && originalPlayer.hand.length > 0 && p.rank === null) {
+                            const { updatedPlayers, 上がりLog } = handlePlayerFinish(tempPlayers, p.id);
+                            tempPlayers = updatedPlayers;
+                            logEntries.push(...上がりLog);
+                        }
+                    });
+                    players = tempPlayers;
                     
-const newPendingActions = roomData.pendingActions ? roomData.pendingActions.slice(1) : [];
+                    const newPendingActions = roomData.pendingActions ? roomData.pendingActions.slice(1) : [];
                     
                     let nextState = {
                         players: players,
@@ -1635,7 +1651,36 @@ const newPendingActions = roomData.pendingActions ? roomData.pendingActions.slic
                 (ctx) => `${currentPlayer.name}が${ctx.target}からカードを${ctx.count}枚奪いました。`
             );
         }
-        
+        function executeEightCut() {
+             executeAction(
+                (roomData, me) => {
+                    const players = roomData.players;
+                    const newDiscard = [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))];
+                    return { players, discardPile: newDiscard, logContext: {} };
+                },
+                (ctx) => `${currentPlayer.name}の(階段効果)8切りにより場が流れ、リセットされます。`
+            ).then(async () => {
+                // 8切りは場のリセットも伴うため、追加の更新処理
+                const roomRef = doc(db, 'rooms', currentRoomId);
+                const roomSnap = await getDoc(roomRef);
+                if (roomSnap.exists()) {
+                    const roomData = roomSnap.data();
+                    const pendingActions = roomData.pendingActions.filter(a => a.type !== 'eight_cut');
+                    let nextTurnPlayerId = me.id;
+                    if (pendingActions.length === 0) {
+                        nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
+                    }
+                    
+                    await updateDoc(roomRef, {
+                        field: [],
+                        passCount: 0,
+                        isJBackActive: false,
+                        turnPlayerId: nextTurnPlayerId,
+                    });
+                }
+            });
+        }
+
         // --- Log and Cut-in ---
         function renderLog(log) {
             if (log.length === lastKnownLogCount) return;
