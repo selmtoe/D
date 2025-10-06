@@ -1381,10 +1381,12 @@ async function handleCardClick(card) {
                 case 'pass_select_player':
                     showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
                         .then(targetId => {
+                
                             let newActions = [...roomData.pendingActions];
                             newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
                             updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
-                         });
+               
+                          });
                     break;
                 case 'pass_select_cards':
                     showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true, false)
@@ -1397,9 +1399,9 @@ async function handleCardClick(card) {
                case 'bomber_select_rank':
                      showRankSelectionModal('破壊する数字を選んでください', action.count, me.hand)
                         .then(ranks => executeBomber(ranks));
-                     break;
+                    break;
                 case 'collect_select_cards':
-                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, false, false, me.hand)
+                    showCardSelectionModal('回収するカードを選んでください', roomData.discardPile.map(c => cleanCard(c)), action.count, true, false, me.hand)
                         .then(cardsToCollect => executeCollectCards(cardsToCollect));
                     break;
                case 'steal_select_player':
@@ -1407,10 +1409,12 @@ async function handleCardClick(card) {
                     if (action.count > 1 && validTargets.length > 0) {
                         showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
                             .then(distribution => {
-                                if (distribution.length > 0) {
+                                if (distribution.length > 0) 
+                                {
                                     executeDistributedSteal(distribution);
                                 } else {
-                                    clearPendingActions();
+                              
+                                     clearPendingActions();
                                 }
                             });
                     } else if (validTargets.length > 0) {
@@ -1868,12 +1872,25 @@ async function handleCardClick(card) {
                 (roomData, me) => {
                     const collectUids = new Set(cardsToCollect.map(c => c.uid));
                     const newMyHand = [...me.hand, ...cardsToCollect].sort((a,b) => getCardStrength(a)-getCardStrength(b));
-                    const players = roomData.players.map(p => p.id === me.id ? { ...p, hand: newMyHand } : p);
-                    return { players, discardPile: roomData.discardPile.filter(c => !collectUids.has(c.uid)), logContext: { cards: cardsToCollect } };
+       
+                     const players = roomData.players.map(p => p.id === me.id ? { ...p, hand: newMyHand } : p);
+                    return {
+                        players,
+                        discardPile: roomData.discardPile.filter(c => !collectUids.has(c.uid)),
+                        logContext: {
+                            cards: cardsToCollect,
+                            effect: {
+                                card: me.name,
+                                name: `${cardsToString(cardsToCollect)}を回収`
+                            }
+                        }
+                    };
                 },
                 (ctx) => `${currentPlayer.name}が捨て札からカード(${cardsToString(ctx.cards)})を回収しました。`
-            );
+      
+             );
         }
+
         
         function executeStealCard(targetId, count) {
             executeAction(
