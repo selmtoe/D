@@ -820,13 +820,15 @@ joinRoomButton.addEventListener('click', async () => {
                         lastPlayed: { player: me.id, cards: cleanedPlayedCards },
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
   
+
                       turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
-                        discardPile: roomData.discardPile,
+                        discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
                         pendingActions: []
                     };
-                    let clearField = false, skipCount = 0;
+let clearField = false, skipCount = 0;
 
                     const isPlayStair = isStair(selectedCards);
+
 
                    if (isPlayStair) {
                         logEntries.push({ timestamp: Date.now(), message: "階段です！効果を順次処理します。" });
