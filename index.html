@@ -1559,7 +1559,7 @@ async function handleCardClick(card) {
 
 
         // --- Action Execution Functions ---
-        async function executeAction(actionFn, logMessageFn) {
+                async function executeAction(actionFn, logMessageFn, logContext) {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
@@ -1568,11 +1568,18 @@ async function handleCardClick(card) {
                     let roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
                     
-                    let { players, discardPile, logContext } = await actionFn(roomData, me);
-                    const logMessage = logMessageFn(logContext || {});
-                                        let logEntries = [{timestamp: Date.now(), message: logMessage}];
+                    let { players, discardPile, logContext: actionLogContext } = await actionFn(roomData, me);
+                    const finalLogContext = logContext || actionLogContext || {};
+                    const logMessage = logMessageFn(finalLogContext);
+    
+                    let logEntry = {timestamp: Date.now(), message: logMessage};
+                    if (finalLogContext.effect) {
+                        logEntry.effect = finalLogContext.effect;
+                    }
+                    let logEntries = [logEntry];
                     
                     let tempPlayers = players;
+
                     // アクションの結果、手札が0枚になった全プレイヤーをチェックする
                     const originalPlayers = roomData.players;
                     tempPlayers.forEach(p => {
@@ -1670,10 +1677,17 @@ async function handleCardClick(card) {
 
                     return { players, discardPile: [...roomData.discardPile, ...allDiscarded.map(c => cleanCard(c))], logContext: { ranks } };
                 },
-                (ctx) => `${currentPlayer.name}が数字[${ctx.ranks.map(numberToString).join(',')}]を破壊しました。`
+                                (ctx) => `${currentPlayer.name}が数字[${ctx.ranks.map(numberToString).join(',')}]を破壊しました。`,
+                {
+                    ranks,
+                    effect: {
+                        card: `数字[${ranks.map(numberToString).join(',')}]`,
+                        name: 'Qボンバー'
+                    }
+                }
             );
-            showCutIn(`数字[${ranks.map(numberToString).join(',')}]`, `Qボンバー`);
         }
+
 
 
         function executeCollectCards(cardsToCollect) {
@@ -1700,11 +1714,12 @@ async function handleCardClick(card) {
                     }
                     const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
-                        if (p.id === me.id) return { ...p, hand: newMyHand };
+                        if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { type: 'steal_success', target: target.name, cards: stolenCards } };
                         if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { type: 'stolen', actor: me.name, cards: stolenCards } };
                         return p;
                     });
                     return { players, logContext: { target: target.name, count: stolenCards.length } };
+
                 },
                 (ctx) => `${currentPlayer.name}が${ctx.target}からカードを${ctx.count}枚奪いました。`
             );
