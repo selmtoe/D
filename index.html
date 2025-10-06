@@ -928,17 +928,53 @@ function renderGame(roomData) {
                     disablePass = false;
                 }
             }
-            passButton.disabled = disablePass;
-
+                        passButton.disabled = disablePass;
             renderLog(roomData.log || []);
+
+            // 自分宛のプライベート通知があればモーダルで表示
+            if (me && me.privateEvent) {
+                const event = me.privateEvent;
+                let title = '', body = '';
+                if (event.type === 'steal_success') {
+                    title = 'カードを奪いました！';
+                    body = `${event.target}さんからカード(${cardsToString(event.cards)})を奪いました。`;
+                } else if (event.type === 'stolen') {
+                    title = 'カードが奪われました！';
+                    body = `${event.actor}さんからカード(${cardsToString(event.cards)})を奪われました。`;
+                } else if (event.type === 'receive_cards') {
+                    title = 'カードを受け取りました！';
+                    body = `${event.actor}さんからカード(${cardsToString(event.cards)})を受け取りました。`;
+                }
+                
+                if (title) {
+                    showModal(title, body, { showCancel: false, confirmText: '閉じる' });
+                    // 確認後、イベントをクリアする
+                    const playerRef = doc(db, 'rooms', currentRoomId);
+                    const players = roomData.players.map(p => {
+                        if (p.id === me.id) {
+                            const { privateEvent, ...rest } = p;
+                            return rest;
+                        }
+                        return p;
+                    });
+                    updateDoc(playerRef, { players: players });
+                }
+            }
         }
+
         
-        function renderMyHand(me, roomData) {
+                function renderMyHand(me, roomData) {
             myHandDiv.innerHTML = '';
             cardUidsInHand.clear();
-            if(!me.hand || me.rank !== null) return;
+            if (!me.hand) return;
+
+            if (me.rank !== null) {
+                myHandDiv.innerHTML = `<h2 style="color: #e0f2f1; text-align: center;">${me.rank}位で上がりました！</h2>`;
+                return;
+            }
 
             me.hand.forEach(card => {
+
                 cardUidsInHand.add(card.uid);
                 const cardEl = createCardElement(card);
                 if (roomData.turnPlayerId === me.id && !roomData.pendingAction) {
@@ -1043,11 +1079,22 @@ async function handleCardClick(card) {
         
         function cardsToString(cards) {
             if (cards.length === 0) return "";
+            const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
             return cards.map(c => {
-                if (c.mimics) return `${numberToString(c.number)}->[${numberToString(c.mimics.number)}]`;
-                return numberToString(c.suit === 'joker' ? 15 : c.number);
+                const cardToDisplay = c.mimics ? c.mimics : c;
+                let cardStr = '';
+                if (cardToDisplay.suit === 'joker') {
+                    cardStr = 'Joker';
+                } else {
+                    cardStr = `${suitSymbols[cardToDisplay.suit]}${numberToString(cardToDisplay.number)}`;
+                }
+                if (c.mimics) {
+                    return `Joker->[${cardStr}]`;
+                }
+                return cardStr;
             }).join(', ');
         }
+
 
         function createCardElement(card) {
             const el = document.createElement('div');
@@ -1486,13 +1533,16 @@ async function handleCardClick(card) {
             const logs = [];
             const updatedPlayers = players.map(p => {
                 if (p.id === finishedPlayerId && p.rank === null) {
-                    logs.push({ timestamp: Date.now(), message: `${p.name}が${newRank}位で上がりました！` });
+                    const message = `${p.name}が${newRank}位で上がりました！`;
+                    logs.push({ timestamp: Date.now(), message: message });
+                    showCutIn(p.name, `${newRank}位でゴール！`);
                     return { ...p, rank: newRank };
                 }
                 return p;
             });
             return { updatedPlayers, 上がりLog: logs };
         }
+
         
         function checkGameEnd(state) {
             const activePlayers = state.players.filter(p => p.rank === null);
@@ -1563,14 +1613,20 @@ async function handleCardClick(card) {
                     const giveUids = new Set(cardsToGive.map(c => c.uid));
                     const newMyHand = me.hand.filter(c => !giveUids.has(c.uid));
                     const targetPlayer = roomData.players.find(p => p.id === targetId);
-                    
                     const players = roomData.players.map(p => {
                         if (p.id === me.id) return { ...p, hand: newMyHand };
-                        if (p.id === targetId) return { ...p, hand: [...p.hand, ...cardsToGive].sort((a,b) => getCardStrength(a) - getCardStrength(b)) };
+                        if (p.id === targetId) {
+                            return { 
+                                ...p, 
+                                hand: [...p.hand, ...cardsToGive].sort((a,b) => getCardStrength(a) - getCardStrength(b)),
+                                privateEvent: { type: 'receive_cards', actor: me.name, cards: cardsToGive }
+                            };
+                        }
                         return p;
                     });
                     return { players, logContext: { target: targetPlayer.name, cards: cardsToGive } };
                 },
+
                 (ctx) => `${currentPlayer.name}が${ctx.target}にカードを${ctx.cards.length}枚渡しました。`
             );
         }
@@ -1643,7 +1699,7 @@ async function handleCardClick(card) {
                     const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
                         if (p.id === me.id) return { ...p, hand: newMyHand };
-                        if (p.id === targetId) return { ...p, hand: targetHand };
+                        if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { type: 'stolen', actor: me.name, cards: stolenCards } };
                         return p;
                     });
                     return { players, logContext: { target: target.name, count: stolenCards.length } };
@@ -1651,6 +1707,7 @@ async function handleCardClick(card) {
                 (ctx) => `${currentPlayer.name}が${ctx.target}からカードを${ctx.count}枚奪いました。`
             );
         }
+
         function executeEightCut() {
              executeAction(
                 (roomData, me) => {
