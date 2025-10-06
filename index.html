@@ -561,19 +561,37 @@ joinRoomButton.addEventListener('click', async () => {
             joinRoom(roomId);
         });
 
-        function joinRoom(roomId) {
+        
+                function joinRoom(roomId) {
             currentRoomId = roomId;
             myNameSpan.textContent = currentPlayer.name;
             showScreen('game');
             if (unsubscribeRoom) unsubscribeRoom();
+
+            let shownPrivateEvents = new Set();
+
             unsubscribeRoom = onSnapshot(doc(db, 'rooms', currentRoomId), (doc) => {
                 if (doc.exists()) {
                     const roomData = doc.data();
                     renderGame(roomData);
-                    if(roomData.gameState !== 'finished') {
-                       handlePendingAction(roomData);
+
+                    const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    if (me && me.privateEvent && !shownPrivateEvents.has(me.privateEvent.id)) {
+                        const event = me.privateEvent;
+                        if (event.type === 'steal_success') {
+                            showCutIn(cardsToString(event.cards), `[${event.target}]から奪った`);
+                        } else if (event.type === 'stolen') {
+                            showCutIn(cardsToString(event.cards), `[${event.actor}]に奪われた`);
+                        } else if (event.type === 'receive_cards') {
+                            showCutIn(cardsToString(event.cards), `[${event.actor}]から渡された`);
+                        }
+                        shownPrivateEvents.add(event.id);
                     }
-                } else { 
+
+                    if(roomData.gameState !== 'finished') {
+                         handlePendingAction(roomData);
+                    }
+                } else {
                     showAlert('ルームが削除されました。'); 
                     location.reload(); 
                 }
@@ -928,39 +946,10 @@ function renderGame(roomData) {
                     disablePass = false;
                 }
             }
-                        passButton.disabled = disablePass;
+                            passButton.disabled = disablePass;
             renderLog(roomData.log || []);
-
-            // 自分宛のプライベート通知があればモーダルで表示
-            if (me && me.privateEvent) {
-                const event = me.privateEvent;
-                let title = '', body = '';
-                if (event.type === 'steal_success') {
-                    title = 'カードを奪いました！';
-                    body = `${event.target}さんからカード(${cardsToString(event.cards)})を奪いました。`;
-                } else if (event.type === 'stolen') {
-                    title = 'カードが奪われました！';
-                    body = `${event.actor}さんからカード(${cardsToString(event.cards)})を奪われました。`;
-                } else if (event.type === 'receive_cards') {
-                    title = 'カードを受け取りました！';
-                    body = `${event.actor}さんからカード(${cardsToString(event.cards)})を受け取りました。`;
-                }
-                
-                if (title) {
-                    showModal(title, body, { showCancel: false, confirmText: '閉じる' });
-                    // 確認後、イベントをクリアする
-                    const playerRef = doc(db, 'rooms', currentRoomId);
-                    const players = roomData.players.map(p => {
-                        if (p.id === me.id) {
-                            const { privateEvent, ...rest } = p;
-                            return rest;
-                        }
-                        return p;
-                    });
-                    updateDoc(playerRef, { players: players });
-                }
-            }
         }
+
 
         
                 function renderMyHand(me, roomData) {
@@ -1623,10 +1612,10 @@ async function handleCardClick(card) {
                     const players = roomData.players.map(p => {
                         if (p.id === me.id) return { ...p, hand: newMyHand };
                         if (p.id === targetId) {
-                            return { 
-                                ...p, 
+                                                        return {
+                                ...p,
                                 hand: [...p.hand, ...cardsToGive].sort((a,b) => getCardStrength(a) - getCardStrength(b)),
-                                privateEvent: { type: 'receive_cards', actor: me.name, cards: cardsToGive }
+                                privateEvent: { id: Date.now(), type: 'receive_cards', actor: me.name, cards: cardsToGive }
                             };
                         }
                         return p;
@@ -1714,11 +1703,11 @@ async function handleCardClick(card) {
                     }
                     const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
-                        if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { type: 'steal_success', target: target.name, cards: stolenCards } };
-                        if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { type: 'stolen', actor: me.name, cards: stolenCards } };
+                        if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { id: Date.now(), type: 'steal_success', target: target.name, cards: stolenCards } };
+                        if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { id: Date.now() + 1, type: 'stolen', actor: me.name, cards: stolenCards } };
                         return p;
                     });
-                    return { players, logContext: { target: target.name, count: stolenCards.length } };
+
 
                 },
                 (ctx) => `${currentPlayer.name}が${ctx.target}からカードを${ctx.count}枚奪いました。`
