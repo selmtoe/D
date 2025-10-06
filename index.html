@@ -1037,14 +1037,16 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
                         field: newField, isJBackActive: newJBack,
-                        roundPile: [],
+     
+                        roundPile: flow ? [] : roomData.roundPile,
      
                    discardPile: newDiscardPile, log: arrayUnion(...logEntries)
                     });
 });
                 selectedCards = [];
 
-             } catch (e) { showAlert("パスに失敗しました: " + e.message); }
+             } catch (e) { showAlert("パスに失敗しました: " + e.message);
+        
         });
 
         // --- UI Rendering ---
