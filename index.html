@@ -1672,7 +1672,9 @@ async function handleCardClick(card) {
                 },
                 (ctx) => `${currentPlayer.name}が数字[${ctx.ranks.map(numberToString).join(',')}]を破壊しました。`
             );
+            showCutIn(`数字[${ranks.map(numberToString).join(',')}]`, `Qボンバー`);
         }
+
 
         function executeCollectCards(cardsToCollect) {
             executeAction(
@@ -1708,35 +1710,41 @@ async function handleCardClick(card) {
             );
         }
 
-        function executeEightCut() {
-             executeAction(
-                (roomData, me) => {
-                    const players = roomData.players;
-                    const newDiscard = [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))];
-                    return { players, discardPile: newDiscard, logContext: {} };
-                },
-                (ctx) => `${currentPlayer.name}の(階段効果)8切りにより場が流れ、リセットされます。`
-            ).then(async () => {
-                // 8切りは場のリセットも伴うため、追加の更新処理
-                const roomRef = doc(db, 'rooms', currentRoomId);
-                const roomSnap = await getDoc(roomRef);
-                if (roomSnap.exists()) {
+                async function executeEightCut() {
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) throw new Error("Room not found");
                     const roomData = roomSnap.data();
-                    const pendingActions = roomData.pendingActions.filter(a => a.type !== 'eight_cut');
+                    const me = roomData.players.find(p => p.id === currentPlayer.id);
+
+                    const newDiscard = [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))];
+                    const logEntry = { timestamp: Date.now(), message: `${me.name}の(階段効果)8切りにより場が流れ、リセットされます。` };
+                    
+                    const newPendingActions = roomData.pendingActions.slice(1);
+                    
                     let nextTurnPlayerId = me.id;
-                    if (pendingActions.length === 0) {
+                    if (newPendingActions.length === 0) {
                         nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
                     }
-                    
-                    await updateDoc(roomRef, {
+
+                    transaction.update(roomRef, {
                         field: [],
                         passCount: 0,
                         isJBackActive: false,
+                        discardPile: newDiscard,
+                        pendingActions: newPendingActions,
                         turnPlayerId: nextTurnPlayerId,
+                        log: arrayUnion(logEntry)
                     });
-                }
-            });
+                });
+            } catch (e) {
+                showAlert(`8切り処理エラー: ${e.message}`);
+                await clearPendingActions();
+            }
         }
+
 
         // --- Log and Cut-in ---
         function renderLog(log) {
