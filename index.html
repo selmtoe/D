@@ -551,12 +551,13 @@
                 id: currentRoomId,
                 players: [newPlayer],
                 gameState: 'waiting', // waiting, playing, finished
-                field: [], discardPile: [],
+                field: [], discardPile: [], roundPile: [],
                 lastPlayed: { player: null, cards: [] },
                 turnPlayerId: null, passCount: 0,
                 isRevolution: false, isJBackActive: false,
                 turnDirection: 1, // 1 for normal, -1 for reverse
                 createdAt: serverTimestamp(),
+
                 pendingActions: [],
                 log: [{ timestamp: Date.now(), message: `ルームが作成されました。` }]
             });
@@ -822,10 +823,12 @@ joinRoomButton.addEventListener('click', async () => {
   
 
                       turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
-                        discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
+                        discardPile: roomData.discardPile,
+                        roundPile: [...roomData.roundPile, ...roomData.field.map(c => cleanCard(c))],
                         pendingActions: []
                     };
-let clearField = false, skipCount = 0;
+                    let clearField = false, skipCount = 0;
+
 
                     const isPlayStair = isStair(selectedCards);
 
@@ -953,10 +956,12 @@ let clearField = false, skipCount = 0;
 if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
 } else if (clearField || remainingPlayers <= 1) {
-                        nextState.discardPile = [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c)), ...nextState.field];
+                        nextState.discardPile = [...roomData.discardPile, ...nextState.roundPile, ...nextState.field];
 nextState.field = [];
+                        nextState.roundPile = [];
                         nextState.passCount = 0;
                         const playerWhoPlayed = nextState.players.find(p => p.id === me.id);
+
 if (playerWhoPlayed && playerWhoPlayed.rank !== null) {
 
                             nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, 0);
@@ -1008,12 +1013,12 @@ if (playerWhoPlayed && playerWhoPlayed.rank !== null) {
                         } else {
                             if (newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) {
                                 flow = true;
-                            }
+}
                         }
                     }
 
                     if (flow) {
-                        newDiscardPile = [...newDiscardPile, ...newField];
+                        newDiscardPile = [...roomData.discardPile, ...roomData.roundPile, ...newField];
 newField = [];
                         newPassCount = 0;
                         newJBack = false;
@@ -1032,10 +1037,13 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
                         field: newField, isJBackActive: newJBack,
-                        discardPile: newDiscardPile, log: arrayUnion(...logEntries)
+                        roundPile: [],
+     
+                   discardPile: newDiscardPile, log: arrayUnion(...logEntries)
                     });
-                });
+});
                 selectedCards = [];
+
              } catch (e) { showAlert("パスに失敗しました: " + e.message); }
         });
 
