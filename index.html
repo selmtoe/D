@@ -820,12 +820,14 @@ joinRoomButton.addEventListener('click', async () => {
                         players: playersCopy, field: cleanedPlayedCards, passCount: 0,
                         lastPlayed: { player: me.id, cards: cleanedPlayedCards },
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
-                        turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
-                        discardPile: [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))],
+  
+                      turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
+                        discardPile: roomData.discardPile,
                         pendingActions: []
                     };
                     
                     let clearField = false, skipCount = 0;
+
                     const isPlayStair = isStair(selectedCards);
 
                    if (isPlayStair) {
