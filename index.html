@@ -818,15 +818,21 @@ joinRoomButton.addEventListener('click', async () => {
                         nextState.turnPlayerId = me.id;
                     } else if (clearField || remainingPlayers <= 1) {
                         nextState.discardPile = [...nextState.discardPile, ...nextState.field];
-                        nextState.field = [];
+nextState.field = [];
                         nextState.passCount = 0;
-                        nextState.turnPlayerId = me.id; 
-                        nextState.isJBackActive = false; 
-                    } else {
+                        const playerWhoPlayed = nextState.players.find(p => p.id === me.id);
+                        if (playerWhoPlayed && playerWhoPlayed.rank !== null) {
+                            nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, 0);
+                        } else {
+                            nextState.turnPlayerId = me.id;
+                        }
+                        nextState.isJBackActive = false;
+} else {
                         nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
-                    }
+}
                     
                     const finalState = checkGameEnd(nextState);
+
                     transaction.update(roomRef, {...finalState, log: arrayUnion(...logEntries)});
                 });
                 selectedCards = [];
@@ -852,26 +858,41 @@ joinRoomButton.addEventListener('click', async () => {
                     let newDiscardPile = roomData.discardPile;
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}がパスしました。` }];
                     
-                                        const activePlayers = roomData.players.filter(p => p.rank === null);
-                    // 最後にカードを出したプレイヤーのターンになったら場が流れる
-                    if (roomData.field.length > 0 && newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) {
+                    const activePlayers = roomData.players.filter(p => p.rank === null);
+                    const lastPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
+                    const lastPlayerHasFinished = lastPlayer && lastPlayer.rank !== null;
+                    
+                    let flow = false;
+                    if (roomData.field.length > 0 && activePlayers.length > 0) {
+                        if (lastPlayerHasFinished) {
+                            if (newPassCount >= activePlayers.length) {
+                                flow = true;
+                            }
+                        } else {
+                            if (newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) {
+                                flow = true;
+                            }
+                        }
+                    }
+
+                    if (flow) {
                         newDiscardPile = [...newDiscardPile, ...newField];
-                        newField = [];
+newField = [];
                         newPassCount = 0;
                         newJBack = false;
-                        // ターンは最後にカードを出したプレイヤーから
+                        
                         let nextTurnHolder = roomData.players.find(p => p.id === roomData.lastPlayed.player);
-                        // もしそのプレイヤーが既に上がっていたら、そこから次のアクティブなプレイヤーを探す
-                        if (!nextTurnHolder || nextTurnHolder.rank !== null) {
+if (!nextTurnHolder || nextTurnHolder.rank !== null) {
                             newTurnPlayerId = getNextPlayerId(roomData.players, roomData.lastPlayed.player, roomData.turnDirection, 0);
-                        } else {
+} else {
                             newTurnPlayerId = roomData.lastPlayed.player;
-                        }
+}
                         logEntries.push({ timestamp: Date.now(), message: `全員がパスしたため場が流れました。次は ${roomData.players.find(p => p.id === newTurnPlayerId).name}さんの番です。` });
-                    }
+}
 
                     
                     transaction.update(roomRef, {
+
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
                         field: newField, isJBackActive: newJBack,
                         discardPile: newDiscardPile, log: arrayUnion(...logEntries)
