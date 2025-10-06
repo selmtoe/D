@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>大富豪オンライン</title>
     <style>
-        body {
+                body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             background-color: #004d40; /* 深い緑 */
             color: #E0E0E0;
@@ -17,7 +17,13 @@
             min-height: 100vh;
             box-sizing: border-box;
             /* overflow: hidden; を削除してスクロールを有効化 */
+            transition: background-color 0.5s ease;
         }
+
+        body.is-my-turn-bg {
+            background-color: #6a2e2e;
+        }
+
 
         .screen { display: none; }
         .active { display: block; }
@@ -361,10 +367,16 @@
         <button id="login-button">決定</button>
     </div>
 
-    <div id="room-screen" class="container screen">
+        <div id="room-screen" class="container screen">
         <h1>ルーム選択</h1>
         <p>ようこそ、<span id="player-name-display"></span>さん</p>
         <button id="create-room-button">ルームを作成する</button>
+        <div id="public-rooms-section" style="margin-top: 20px; text-align: left;">
+            <h2>参加可能なルーム一覧 <button id="refresh-rooms-button" style="font-size: 14px; padding: 5px 10px; margin-left: 10px;">更新</button></h2>
+            <div id="public-rooms-list" style="margin-top: 10px; max-height: 250px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; border-radius: 5px; background-color: #f9f9f9;">
+                <p>ルームを検索中...</p>
+            </div>
+        </div>
         <hr style="margin: 20px 0;">
         <input type="text" id="room-id-input" placeholder="ルームIDを入力">
         <button id="join-room-button">ルームに参加する</button>
@@ -449,9 +461,9 @@
         // ▲▲▲ ここまで ▲▲▲
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
         const showAlert = (message) => { alert(message); };
+
         
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
@@ -473,7 +485,10 @@
         const createRoomButton = document.getElementById('create-room-button');
         const joinRoomButton = document.getElementById('join-room-button');
         const roomIdInput = document.getElementById('room-id-input');
+        const refreshRoomsButton = document.getElementById('refresh-rooms-button');
+        const publicRoomsListDiv = document.getElementById('public-rooms-list');
         const myHandDiv = document.getElementById('my-hand');
+
         const playersContainerDiv = document.getElementById('players-container');
         const fieldDiv = document.getElementById('field');
         const turnInfoSpan = document.getElementById('turn-info');
@@ -507,7 +522,11 @@
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen.classList.remove('active'));
             screens[screenName].classList.add('active');
+            if (screenName === 'room') {
+                fetchPublicRooms();
+            }
         }
+
 
         // --- Login ---
         loginButton.addEventListener('click', () => {
@@ -517,12 +536,15 @@
                 currentPlayer.id = generatePlayerId();
                 playerNameDisplay.textContent = name;
                 showScreen('room');
-            } else { showAlert('名前を入力してください。'); }
+                } else { showAlert('名前を入力してください。'); }
         });
-        
+
+        refreshRoomsButton.addEventListener('click', fetchPublicRooms);
+
         // --- Room Creation/Joining ---
         createRoomButton.addEventListener('click', async () => {
             currentRoomId = generateRoomId();
+
             const roomRef = doc(db, 'rooms', currentRoomId);
             const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: true, hand: [], order: -1, rank: null };
             await setDoc(roomRef, {
@@ -556,14 +578,90 @@ joinRoomButton.addEventListener('click', async () => {
             const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: false, hand: [], order: -1, rank: null };
             await updateDoc(roomRef, { 
                 players: arrayUnion(newPlayer),
-                log: arrayUnion({ timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
+                                log: arrayUnion({ timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
             });
             joinRoom(roomId);
         });
 
+        async function fetchPublicRooms() {
+            publicRoomsListDiv.innerHTML = '<p>参加可能なルームを検索中...</p>';
+            try {
+                const roomsRef = collection(db, 'rooms');
+                const q = query(roomsRef,
+                    where('gameState', '==', 'waiting'),
+                    orderBy('createdAt', 'desc'),
+                    limit(20)
+                );
+                const querySnapshot = await getDocs(q);
+                const rooms = [];
+                querySnapshot.forEach((doc) => {
+                    rooms.push(doc.data());
+                });
+                renderPublicRooms(rooms);
+            } catch (error) {
+                console.error("Error fetching public rooms: ", error);
+                publicRoomsListDiv.innerHTML = '<p>ルームの取得に失敗しました。時間をおいて再度お試しください。</p>';
+            }
+        }
+
+        function renderPublicRooms(rooms) {
+            publicRoomsListDiv.innerHTML = '';
+            if (rooms.length === 0) {
+                publicRoomsListDiv.innerHTML = '<p>現在参加可能なルームはありません。</p>';
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.style.listStyle = 'none';
+            list.style.padding = '0';
+            list.style.margin = '0';
+
+            rooms.forEach(room => {
+                // Ensure room has players and createdAt before trying to display
+                if (!room.players || !room.createdAt) return;
+
+                const host = room.players.find(p => p.isHost);
+                const hostName = host ? host.name : '不明';
+                const playerCount = room.players.length;
+                const creationTime = new Date(room.createdAt.toDate()).toLocaleString('ja-JP');
+
+                const item = document.createElement('li');
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+                item.style.padding = '8px';
+                item.style.borderBottom = '1px solid #ddd';
+
+                const infoDiv = document.createElement('div');
+                infoDiv.innerHTML = `<strong>${hostName}のルーム</strong> (${playerCount}/6人)<br><small>作成日時: ${creationTime}</small>`;
+
+                const joinBtn = document.createElement('button');
+                joinBtn.textContent = '参加';
+                joinBtn.onclick = () => {
+                    // Prevent joining a full room, just in case
+                    if (room.players.length >= 6) {
+                        showAlert('このルームは満員です。');
+                        fetchPublicRooms(); // Refresh list
+                        return;
+                    }
+                     // Prevent joining with a duplicate name
+                    if (room.players.find(p => p.name === currentPlayer.name)) {
+                        showAlert('同じ名前のプレイヤーが既にルームにいます。');
+                        return;
+                    }
+                    joinRoom(room.id);
+                };
+
+                item.appendChild(infoDiv);
+                item.appendChild(joinBtn);
+                list.appendChild(item);
+            });
+            publicRoomsListDiv.appendChild(list);
+        }
         
-                function joinRoom(roomId) {
+        function joinRoom(roomId) {
             currentRoomId = roomId;
+
             myNameSpan.textContent = currentPlayer.name;
             showScreen('game');
             if (unsubscribeRoom) unsubscribeRoom();
@@ -968,10 +1066,18 @@ function renderGame(roomData) {
                 if (me.hand && me.hand.length === 1 && (me.hand[0].number === 2 || me.hand[0].suit === 'joker')) {
                     disablePass = false;
                 }
-            }
+                        }
                             passButton.disabled = disablePass;
             renderLog(roomData.log || []);
+
+            const isMyTurnAndActive = isMyTurn && me.rank === null;
+            if (isMyTurnAndActive) {
+                document.body.classList.add('is-my-turn-bg');
+            } else {
+                document.body.classList.remove('is-my-turn-bg');
+            }
         }
+
 
 
         
