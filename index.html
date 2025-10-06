@@ -5,13 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>大富豪オンライン</title>
     <style>
-                body {
+        body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             background-color: #004d40; /* 深い緑 */
             color: #E0E0E0;
             margin: 0;
-            padding: 0;
-            overflow: hidden; /* ゲーム画面ではスクロール不要 */
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+            /* overflow: hidden; を削除してスクロールを有効化 */
         }
 
         .screen { display: none; }
@@ -19,14 +24,6 @@
 
         /* Login and Room screens use a light container */
         .container {
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            box-sizing: border-box;
-        }
-        .container-inner {
             background-color: rgba(255, 255, 255, 0.9);
             color: #333;
             padding: 30px;
@@ -37,8 +34,22 @@
             text-align: center;
         }
         
-        h1, h2 { color: #004d40; }
+        /* Game screen uses the dark theme directly */
+        #game-screen.container {
+            max-width: 1200px;
+            background-color: transparent;
+            color: #E0E0E0;
+            box-shadow: none;
+        }
+
+        h1, h2 {
+            color: #004d40;
+        }
         
+        #game-screen h1, #game-screen h2, #game-screen h3 {
+             color: #e0f2f1;
+        }
+
         input[type="text"] {
             width: calc(100% - 22px);
             padding: 10px;
@@ -66,95 +77,29 @@
             cursor: not-allowed;
         }
 
-        /* --- New Game Screen Layout --- */
-        #game-screen {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            width: 100vw;
-            padding: 10px;
-            box-sizing: border-box;
-        }
-        
-        .game-table {
-            flex-grow: 1;
-            display: grid;
-            grid-template-rows: 1fr auto 1fr;
-            grid-template-columns: 200px 1fr 200px;
-            gap: 10px;
-            width: 100%;
-            height: 100%;
-        }
-
-        .player-area {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            justify-content: center;
-            padding: 5px;
-        }
-        .top-area {
-            grid-column: 2 / 3;
-            grid-row: 1 / 2;
-            flex-direction: row;
-        }
-        .left-area {
-            grid-column: 1 / 2;
-            grid-row: 2 / 3;
-            flex-direction: column;
-        }
-        .right-area {
-            grid-column: 3 / 4;
-            grid-row: 2 / 3;
-            flex-direction: column;
-        }
-        .field-area {
-            grid-column: 2 / 3;
-            grid-row: 2 / 3;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 10px;
-        }
-        .my-area {
-            grid-column: 1 / -1;
-            grid-row: 3 / 4;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-        }
-
         .game-info-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 15px;
             padding: 10px;
             background-color: rgba(0,0,0,0.2);
             border-radius: 5px;
-            color: #e0f2f1;
         }
-        .game-info-bar h2 {
-            margin: 0;
-            font-size: 1.5em;
-            color: #e0f2f1;
-        }
+
         .game-status-icons {
-            font-size: 24px;
+            font-size: 32px;
             display: flex;
             gap: 15px;
         }
         
-        .field {
-            border: 2px dashed #00796b;
-            min-height: 150px;
-            margin-bottom: 10px;
-            padding: 15px;
-            border-radius: 10px;
+        .players-container {
             display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-wrap: wrap;
-            background-color: rgba(0,0,0,0.1);
+            justify-content: space-around;
+            flex-wrap: wrap; /* プレイヤーが増えても改行されるように */
+            gap: 10px;
+            margin-bottom: 20px;
+            min-height: 120px;
         }
 
         .player-box {
@@ -167,11 +112,11 @@
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
-            background-color: rgba(0,0,0,0.3);
+            background-color: rgba(0,0,0,0.2);
             transition: all 0.3s;
         }
         .player-box.is-turn {
-            border-color: #80cbc4;
+            border-color: #80cbc4; /* 明るいティール */
             box-shadow: 0 0 15px #80cbc4;
             font-weight: bold;
             transform: scale(1.05);
@@ -195,46 +140,32 @@
             border-radius: 2px;
         }
 
+        .field {
+            border: 2px dashed #00796b;
+            min-height: 150px;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            background-color: rgba(0,0,0,0.1);
+        }
+
         .my-hand-container {
             background-color: rgba(0,0,0,0.3);
             padding: 15px;
             border-radius: 10px;
         }
-        .my-hand-container h3 {
-            margin: 0 0 10px 0;
-            text-align: center;
-            color: #e0f2f1;
-        }
+
         .card-container {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
             gap: 5px;
-            min-height: 115px;
         }
 
-        .controls {
-            display: flex;
-            justify-content: center;
-            padding: 10px 0;
-        }
-
-        #start-game-button { background-color: #28a745; }
-        #room-info-container {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background-color: rgba(0,0,0,0.5);
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        #copy-room-id-button {
-            padding: 5px 10px;
-            font-size: 12px;
-        }
-
-        /* Card Styles */
         .card {
             border: 1px solid #999;
             border-radius: 5px;
@@ -267,35 +198,157 @@
              color: #00796b;
              font-style: italic;
         }
-        .card.is-transformed .suit { opacity: 0.6; }
+        .card.is-transformed .suit {
+            opacity: 0.6;
+        }
         .card .suit { font-size: 1em; }
         .card .card-number { font-size: 1.2em; }
 
-        /* Modal, Cut-in, Log Panel Styles (No changes needed, but included for completeness) */
-        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-        #modal-overlay.hidden { display: none; }
-        #modal-container { background-color: #fff; color: #333; padding: 20px; border-radius: 8px; width: 90%; max-width: 600px; text-align: center; }
-        #modal-body { max-height: 60vh; overflow-y: auto; margin: 20px 0; }
-        .modal-card-selection .card { margin: 5px; }
-        .modal-player-selection button, .modal-rank-selection button { width: 100px; margin: 5px; }
-        .modal-joker-transform button { background-color: #f0f0f0; color: #333; }
-        .modal-joker-transform button.selected { background-color: #004d40; color: white; }
-        #results-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-        #results-table th, #results-table td { border: 1px solid #ddd; padding: 8px; }
-        #results-table th { background-color: #f2f2f2; }
-        #cutin-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 2000; pointer-events: none; opacity: 0; transition: opacity 0.5s ease-out; }
-        #cutin-overlay.visible { opacity: 1; }
-        #cutin-box { background: rgba(255, 255, 255, 0.9); color: #004d40; padding: 30px 60px; border-radius: 10px; text-align: center; transform: scale(0.5); transition: transform 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28); }
-        #cutin-overlay.visible #cutin-box { transform: scale(1); }
-        #cutin-card-name { font-size: 3em; font-weight: bold; display: block; }
-        #cutin-effect-name { font-size: 2em; }
-        #log-panel { position: fixed; left: -350px; top: 0; bottom: 0; width: 320px; background-color: rgba(0, 0, 0, 0.8); border-right: 2px solid #00796b; display: flex; flex-direction: column; transition: left 0.3s ease-in-out; z-index: 900; }
-        #log-panel.visible { left: 0; }
-        #log-header { padding: 10px; border-bottom: 1px solid #00796b; display: flex; justify-content: space-between; align-items: center; }
-        #log-messages { flex-grow: 1; overflow-y: auto; padding: 10px; font-size: 14px; }
-        #log-messages p { margin: 5px 0; }
-        #show-log-button { position: fixed; left: 10px; bottom: 10px; z-index: 901; }
 
+        #room-info-container {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #a0a0a0;
+        }
+        #copy-room-id-button {
+            padding: 5px 10px;
+            font-size: 14px;
+            min-width: 80px;
+        }
+        
+        /* Modal Styles */
+        #modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #modal-overlay.hidden { display: none; }
+        #modal-container {
+            background-color: #fff;
+            color: #333;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+        }
+        #modal-body {
+            max-height: 60vh;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .modal-card-selection .card { margin: 5px; }
+        .modal-player-selection button, .modal-rank-selection button {
+             width: 100px;
+             margin: 5px;
+        }
+        .modal-joker-transform button {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        .modal-joker-transform button.selected {
+            background-color: #004d40;
+            color: white;
+        }
+        .modal-rank-selection button.selected {
+            background-color: #004d40;
+        }
+
+        #results-table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+        #results-table th, #results-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        #results-table th {
+            background-color: #f2f2f2;
+        }
+
+
+        /* Cut-in Effect */
+        #cutin-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+        }
+        #cutin-overlay.visible { opacity: 1; }
+        #cutin-box {
+            background: rgba(255, 255, 255, 0.9);
+            color: #004d40;
+            padding: 30px 60px;
+            border-radius: 10px;
+            text-align: center;
+            transform: scale(0.5);
+            transition: transform 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        }
+        #cutin-overlay.visible #cutin-box { transform: scale(1); }
+        #cutin-card-name {
+            font-size: 3em;
+            font-weight: bold;
+            display: block;
+        }
+        #cutin-effect-name {
+            font-size: 2em;
+        }
+
+        /* Log Panel */
+        #log-panel {
+            position: fixed;
+            left: -350px;
+            top: 0;
+            bottom: 0;
+            width: 320px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border-right: 2px solid #00796b;
+            display: flex;
+            flex-direction: column;
+            transition: left 0.3s ease-in-out;
+            z-index: 900;
+        }
+        #log-panel.visible { left: 0; }
+        #log-header {
+            padding: 10px;
+            border-bottom: 1px solid #00796b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #log-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px;
+            font-size: 14px;
+        }
+        #log-messages p { margin: 5px 0; }
+        #show-log-button {
+            position: fixed;
+            left: 10px;
+            bottom: 10px;
+            z-index: 901;
+        }
 
     </style>
     <link rel="manifest" href="manifest.json">
@@ -850,134 +903,9 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
         });
 
         // --- UI Rendering ---
-        function renderGame(roomData) {
-            const gameScreen = screens.game;
-            const me = roomData.players.find(p => p.id === currentPlayer.id);
-            if (!me) return;
-
-            // --- 1. 動的に新しいレイアウト構造を構築 ---
-            gameScreen.innerHTML = `
-                <div id="room-info-container">
-                    <span id="room-info"></span>
-                    <button id="copy-room-id-button" style="display: none;">IDコピー</button>
-                </div>
-                <div class="game-table">
-                    <div class="player-area top-area"></div>
-                    <div class="middle-row">
-                        <div class="player-area left-area"></div>
-                        <div class="field-area">
-                            <div class="game-info-bar">
-                                <div>
-                                    <h2 id="turn-info"></h2>
-                                    <span id="last-player-info"></span>
-                                </div>
-                                <div class="game-status-icons">
-                                    <span id="revolution-icon" title="革命中">⚔️</span>
-                                    <span id="j-back-icon" title="Jバック中">J</span>
-                                    <span id="reverse-icon" title="リバース中">🔄</span>
-                                </div>
-                            </div>
-                            <div id="field" class="field"></div>
-                             <div id="game-controls">
-                                 <button id="start-game-button" style="display: none;"></button>
-                             </div>
-                        </div>
-                        <div class="player-area right-area"></div>
-                    </div>
-                    <div class="my-area">
-                        <div class="my-hand-container">
-                            <h3 id="my-name"></h3>
-                            <div id="my-hand" class="card-container"></div>
-                        </div>
-                        <div id="controls" class="controls">
-                            <button id="play-button" disabled>出す</button>
-                            <button id="pass-button" disabled>パス</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // --- 2. 新しいDOM要素を再取得 ---
-            const topArea = gameScreen.querySelector('.top-area');
-            const leftArea = gameScreen.querySelector('.left-area');
-            const rightArea = gameScreen.querySelector('.right-area');
-            const fieldDiv = gameScreen.querySelector('#field');
-            const myHandDiv = gameScreen.querySelector('#my-hand');
-            const turnInfoSpan = gameScreen.querySelector('#turn-info');
-            const lastPlayerInfoSpan = gameScreen.querySelector('#last-player-info');
-            const playButton = gameScreen.querySelector('#play-button');
-            const passButton = gameScreen.querySelector('#pass-button');
-            const startGameButton = gameScreen.querySelector('#start-game-button');
-            
-            // --- 3. プレイヤーの表示順を計算 ---
-            const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
-            const myIndex = sortedPlayers.findIndex(p => p.id === me.id);
-            
-            const otherPlayersInOrder = [];
-            if (myIndex !== -1) {
-                for (let i = 1; i < sortedPlayers.length; i++) {
-                    let playerIndex = (myIndex + i);
-                    if (roomData.turnDirection === -1) {
-                         playerIndex = (myIndex - i + sortedPlayers.length * i) % sortedPlayers.length;
-                    } else {
-                         playerIndex = (myIndex + i) % sortedPlayers.length;
-                    }
-                    otherPlayersInOrder.push(sortedPlayers[playerIndex]);
-                }
-            }
-            const otherActivePlayers = otherPlayersInOrder.filter(p => p.id !== me.id);
-            
-            // --- 4. 計算した順序で各エリアにプレイヤーを配置 ---
-            const areas = [leftArea, topArea, rightArea];
-            const distribution = {
-                1: [0, 1, 0], // 1人: 上
-                2: [1, 0, 1], // 2人: 左, 右
-                3: [1, 1, 1], // 3人: 左, 上, 右
-                4: [1, 2, 1], // 4人: 左, 上x2, 右
-                5: [1, 3, 1]  // 5人: 左, 上x3, 右
-            };
-            const dist = distribution[otherActivePlayers.length] || [1, otherActivePlayers.length - 2, 1]; // デフォルト
-            let playerIdx = 0;
-            
-            dist.forEach((count, areaIndex) => {
-                for(let i=0; i<count; i++) {
-                    if(playerIdx < otherActivePlayers.length) {
-                         const player = otherActivePlayers[playerIdx];
-                         const playerDiv = createPlayerBox(player, roomData);
-                         areas[areaIndex].appendChild(playerDiv);
-                         playerIdx++;
-                    }
-                }
-            });
-             // Helper to create player box
-            function createPlayerBox(player, roomData) {
-                    const playerDiv = document.createElement('div');
-                    playerDiv.className = 'player-box';
-                    if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
-                    if (player.rank !== null) playerDiv.classList.add('finished');
-                    
-                    let cardBacksHTML = '';
-                    if (player.hand && player.hand.length > 0) {
-                        for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
-                    }
-                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
-                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
-                    return playerDiv;
-            }
-
-            // --- 5. ゲーム情報の更新 (既存ロジックの移植) ---
-            document.getElementById('room-info').textContent = `ルームID: ${currentRoomId}`;
-            const copyBtn = document.getElementById('copy-room-id-button');
-            copyBtn.style.display = 'inline-block';
-            if (!copyBtn.onclick) { // イベントリスナーを一度だけ設定
-                 copyBtn.addEventListener('click', () => {
-                    navigator.clipboard.writeText(currentRoomId).then(() => {
-                        copyBtn.textContent = 'コピー完了!';
-                        setTimeout(() => { copyBtn.textContent = 'IDコピー'; }, 1500);
-                    });
-                });
-            }
-
+function renderGame(roomData) {
+            roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
+            copyRoomIdButton.style.display = 'inline-block';
 
             if (roomData.gameState === 'finished' && !modalOverlay.classList.contains('visible-modal')) {
                 showResultsModal(roomData.players);
@@ -987,16 +915,36 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
             if (amIHost && (roomData.gameState === 'waiting' || roomData.gameState === 'finished')) {
                 startGameButton.style.display = 'block';
                 startGameButton.textContent = roomData.gameState === 'finished' ? '次のゲームを開始' : 'ゲーム開始';
-                if(!startGameButton.onclick){
-                     startGameButton.addEventListener('click', document.getElementById('start-game-button').onclick)
-                }
             } else {
                 startGameButton.style.display = 'none';
             }
 
-            document.getElementById('revolution-icon').style.display = roomData.isRevolution ? 'inline' : 'none';
-            document.getElementById('j-back-icon').style.display = roomData.isJBackActive ? 'inline' : 'none';
-            document.getElementById('reverse-icon').style.display = roomData.turnDirection === -1 ? 'inline' : 'none';
+            revolutionIcon.style.display = roomData.isRevolution ? 'inline' : 'none';
+            jBackIcon.style.display = roomData.isJBackActive ? 'inline' : 'none';
+            reverseIcon.style.display = roomData.turnDirection === -1 ? 'inline' : 'none';
+
+            const me = roomData.players.find(p => p.id === currentPlayer.id);
+            if (!me) return;
+
+            const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
+            
+            playersContainerDiv.innerHTML = '';
+            sortedPlayers.forEach(player => {
+                if (player.id !== me.id) {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-box';
+                    if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
+                    if (player.rank !== null) playerDiv.classList.add('finished');
+                    
+                    let cardBacksHTML = '';
+                    if (player.hand && player.hand.length > 0) {
+                       for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
+                    }
+                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
+                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
+                    playersContainerDiv.appendChild(playerDiv);
+                }
+            });
             
             if (me.hand) renderMyHand(me, roomData);
 
@@ -1011,21 +959,17 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
             const isMyTurn = roomData.turnPlayerId === me.id && me.rank === null;
             playButton.disabled = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
-             if (!playButton.onclick) playButton.addEventListener('click', document.getElementById('play-button').onclick);
-
 
             let disablePass = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
             if (!disablePass && roomData.field.length === 0) {
+                // 場が空の時は基本パス不可
                 disablePass = true;
+                // 例外: 手札が残り1枚で、それが2かJokerの場合のみパスを許可
                 if (me.hand && me.hand.length === 1 && (me.hand[0].number === 2 || me.hand[0].suit === 'joker')) {
                     disablePass = false;
                 }
             }
-            passButton.disabled = disablePass;
-            if (!passButton.onclick) passButton.addEventListener('click', document.getElementById('pass-button').onclick);
-
-            document.getElementById('my-name').textContent = `あなたの手札 (${currentPlayer.name})`;
-            
+                            passButton.disabled = disablePass;
             renderLog(roomData.log || []);
         }
 
