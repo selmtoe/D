@@ -638,20 +638,57 @@ joinRoomButton.addEventListener('click', async () => {
 
                 const joinBtn = document.createElement('button');
                 joinBtn.textContent = '参加';
-                joinBtn.onclick = () => {
-                    // Prevent joining a full room, just in case
-                    if (room.players.length >= 6) {
-                        showAlert('このルームは満員です。');
-                        fetchPublicRooms(); // Refresh list
-                        return;
-                    }
-                     // Prevent joining with a duplicate name
-                    if (room.players.find(p => p.name === currentPlayer.name)) {
-                        showAlert('同じ名前のプレイヤーが既にルームにいます。');
-                        return;
-                    }
-                    joinRoom(room.id);
-                };
+                joinBtn.onclick = async () => { // ★ asyncキーワードを追加
+    try {
+        // Prevent joining a full room, just in case
+        if (room.players.length >= 6) {
+            showAlert('このルームは満員です。');
+            fetchPublicRooms(); // Refresh list
+            return;
+        }
+         // Prevent joining with a duplicate name
+        if (room.players.find(p => p.name === currentPlayer.name)) {
+            showAlert('同じ名前のプレイヤーが既にルームにいます。');
+            return;
+        }
+        
+        const roomId = room.id;
+        const roomRef = doc(db, 'rooms', roomId);
+        
+        // 念のため、最新のルーム情報を取得して最終チェック
+        const roomSnap = await getDoc(roomRef);
+        if (!roomSnap.exists()) {
+             showAlert('指定されたルームが見つかりません。リストを更新します。');
+             fetchPublicRooms();
+             return;
+        }
+        const roomData = roomSnap.data();
+        if (roomData.players.length >= 6) {
+            showAlert('このルームは満員です。リストを更新します。');
+            fetchPublicRooms();
+            return;
+        }
+        if (roomData.gameState === 'playing') {
+            showAlert('このゲームは既に開始されています。リストを更新します。');
+            fetchPublicRooms();
+            return;
+        }
+
+        const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: false, hand: [], order: -1, rank: null };
+        
+        await updateDoc(roomRef, { 
+            players: arrayUnion(newPlayer),
+            log: arrayUnion({ timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
+        });
+
+        joinRoom(roomId);
+
+    } catch (error) {
+        console.error("ルームへの参加に失敗しました: ", error);
+        showAlert("ルームへの参加に失敗しました。");
+    }
+};
+
 
                 item.appendChild(infoDiv);
                 item.appendChild(joinBtn);
