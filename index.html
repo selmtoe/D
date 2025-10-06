@@ -767,22 +767,17 @@ joinRoomButton.addEventListener('click', async () => {
                                     }
                                     break;
                                 case 5:
-                                    let activePlayersCount = roomData.players.filter(p => p.rank === null).length;
-                                    const lastPlayedPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
-                                    if (lastPlayedPlayer && lastPlayedPlayer.rank !== null) {
-                                        activePlayersCount += 1;
-                                    }
-if (activePlayersCount <= 1) break;
+                                    const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
+                                    if (activePlayersCount <= 1) break;
                                     const skipAmount = (2 * selectedCards.length) - 1;
                                     const totalMoves = 1 + skipAmount;
-if (activePlayersCount > 1 && totalMoves % activePlayersCount === 0) {
+                                    if (activePlayersCount > 1 && totalMoves % activePlayersCount === 0) {
                                         clearField = true;
-logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
+                                        logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
                                     } else {
                                         skipCount = skipAmount;
-}
+                                    }
                                     break;
-
                                 case 6: case 9: 
                                     if (selectedCards.length >= 2) {
                                         clearField = true;
@@ -857,35 +852,23 @@ logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場�
                     let newDiscardPile = roomData.discardPile;
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}がパスしました。` }];
                     
-                    const activePlayers = roomData.players.filter(p => p.rank === null);
-                    const lastPlayedPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
-                    let shouldClearField = false;
-
-                    if (roomData.field.length > 0 && activePlayers.length > 1) {
-                        if (lastPlayedPlayer && lastPlayedPlayer.rank === null) {
-                            if (newTurnPlayerId === roomData.lastPlayed.player) {
-                                shouldClearField = true;
-                            }
-                        } else if (lastPlayedPlayer && lastPlayedPlayer.rank !== null) {
-                            const nextPlayerAfterFinished = getNextPlayerId(roomData.players, roomData.lastPlayed.player, roomData.turnDirection, 0);
-                            if (newTurnPlayerId === nextPlayerAfterFinished) {
-                                shouldClearField = true;
-                            }
-                        }
-                    }
-
-                    if (shouldClearField) {
+                                        const activePlayers = roomData.players.filter(p => p.rank === null);
+                    // 最後にカードを出したプレイヤーのターンになったら場が流れる
+                    if (roomData.field.length > 0 && newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) {
                         newDiscardPile = [...newDiscardPile, ...newField];
-newField = [];
+                        newField = [];
                         newPassCount = 0;
                         newJBack = false;
-                        newTurnPlayerId = getNextPlayerId(roomData.players, roomData.lastPlayed.player, roomData.turnDirection, 0);
+                        // ターンは最後にカードを出したプレイヤーから
+                        let nextTurnHolder = roomData.players.find(p => p.id === roomData.lastPlayed.player);
+                        // もしそのプレイヤーが既に上がっていたら、そこから次のアクティブなプレイヤーを探す
+                        if (!nextTurnHolder || nextTurnHolder.rank !== null) {
+                            newTurnPlayerId = getNextPlayerId(roomData.players, roomData.lastPlayed.player, roomData.turnDirection, 0);
+                        } else {
+                            newTurnPlayerId = roomData.lastPlayed.player;
+                        }
                         logEntries.push({ timestamp: Date.now(), message: `全員がパスしたため場が流れました。次は ${roomData.players.find(p => p.id === newTurnPlayerId).name}さんの番です。` });
-
-
-
-}
-
+                    }
 
                     
                     transaction.update(roomRef, {
