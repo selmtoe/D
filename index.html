@@ -706,7 +706,7 @@ joinRoomButton.addEventListener('click', async () => {
                         
                         if (selectedCards.length >= 4) {
                             nextState.isRevolution = !nextState.isRevolution;
-                            logEntries.push({timestamp: Date.now(), message: `階段効果: 革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
+                            logEntries.push({timestamp: Date.now(), message: `階段効果: 革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`, effect: {card: "階段革命", name: ""}});
                         }
 
                         const strengthReversed = nextState.isRevolution ^ nextState.isJBackActive;
@@ -752,7 +752,7 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                         if (selectedCards.length >= 4) {
                             nextState.isRevolution = !nextState.isRevolution;
-                            logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`});
+                            logEntries.push({timestamp: Date.now(), message: `革命発生！強さが${nextState.isRevolution ? '逆転' : '正常に'}なりました。`, effect: {card: "革命", name: ""}});
                         }
                         
                         if (playedNumber) {
