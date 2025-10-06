@@ -1403,12 +1403,29 @@ async function handleCardClick(card) {
                         .then(cardsToCollect => executeCollectCards(cardsToCollect));
                     break;
                case 'steal_select_player':
-                    showPlayerSelectionModal('カードを奪う相手を選んでください', targetablePlayers.filter(p => p.hand.length > 0), action.count)
-                        .then(targetId => executeStealCard(targetId, action.count));
+                    const validTargets = targetablePlayers.filter(p => p.hand.length > 0);
+                    if (action.count > 1 && validTargets.length > 0) {
+                        showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
+                            .then(distribution => {
+                                if (distribution.length > 0) {
+                                    executeDistributedSteal(distribution);
+                                } else {
+                                    clearPendingActions();
+                                }
+                            });
+                    } else if (validTargets.length > 0) {
+                         showPlayerSelectionModal('カードを奪う相手を選んでください', validTargets, action.count)
+                            .then(targetId => executeStealCard(targetId, action.count))
+                            .catch(() => clearPendingActions());
+                    } else {
+                        showModal("対象不在", "カードを奪える相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
+                            .then(() => { closeModal(); clearPendingActions(); });
+                    }
                     break;
                 case 'eight_cut':
                     executeEightCut();
                     break;
+
             }
         }
 
@@ -1881,6 +1898,140 @@ return p;
 );
 
         }
+                function executeDistributedSteal(distribution) {
+            executeAction(
+                (roomData, me) => {
+                    let players = [...roomData.players];
+                    let logDetails = [];
+                    let allStolenCardsForMe = [];
+
+                    distribution.forEach(({playerId, count}) => {
+                        if (count <= 0) return;
+                        
+                        let target = players.find(p => p.id === playerId);
+                        if (!target || target.hand.length < count) {
+                            throw new Error(`${target.name}から指定された枚数を奪えません。`);
+                        }
+                        
+                        let targetHand = [...target.hand];
+                        let stolenCards = [];
+                        for(let i=0; i < count && targetHand.length > 0; i++) {
+                            stolenCards.push(targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0]);
+                        }
+                        
+                        allStolenCardsForMe.push(...stolenCards);
+                        logDetails.push({ name: target.name, count });
+
+                        const targetIndex = players.findIndex(p => p.id === playerId);
+                        players[targetIndex] = {
+                            ...players[targetIndex],
+                            hand: targetHand,
+                            privateEvent: { id: Date.now() + Math.random(), type: 'stolen', actor: me.name, cards: stolenCards }
+                        };
+                    });
+
+                    const myIndex = players.findIndex(p => p.id === me.id);
+                    const newMyHand = [...me.hand, ...allStolenCardsForMe].sort((a,b) => getCardStrength(a)-getCardStrength(b));
+                    players[myIndex] = {
+                        ...players[myIndex],
+                        hand: newMyHand,
+                        privateEvent: { id: Date.now(), type: 'steal_success', target: '複数人', cards: allStolenCardsForMe }
+                    };
+
+                    return { players, logContext: { logDetails } };
+                },
+                (ctx) => {
+                    const stealSummary = ctx.logDetails.map(d => `${d.name}から${d.count}枚`).join(', ');
+                    return `${currentPlayer.name}が${stealSummary}奪いました。`;
+                }
+            );
+        }
+
+        async function showStealDistributionModal(title, targetablePlayers, totalCount) {
+            return new Promise((resolve, reject) => {
+                const maxPossibleSteal = Math.min(totalCount, targetablePlayers.reduce((sum, p) => sum + p.hand.length, 0));
+                
+                const container = document.createElement('div');
+                let assignments = {};
+                targetablePlayers.forEach(p => assignments[p.id] = 0);
+
+                const header = document.createElement('p');
+                header.innerHTML = `合計 <b>${maxPossibleSteal}</b> 枚を下のプレイヤーに割り振ってください。`;
+                container.appendChild(header);
+                
+                const remainingDiv = document.createElement('div');
+                remainingDiv.style.fontWeight = 'bold';
+                remainingDiv.style.marginBottom = '15px';
+                container.appendChild(remainingDiv);
+
+                const updateTotal = () => {
+                    const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+                    remainingDiv.textContent = `残り: ${maxPossibleSteal - totalAssigned}`;
+                    modalConfirmButton.disabled = totalAssigned !== maxPossibleSteal;
+                };
+
+                targetablePlayers.forEach(p => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.style.display = 'flex';
+                    playerDiv.style.justifyContent = 'space-between';
+                    playerDiv.style.alignItems = 'center';
+                    playerDiv.style.margin = '8px 0';
+
+                    const nameLabel = document.createElement('span');
+                    nameLabel.textContent = `${p.name} (手札: ${p.hand.length}枚)`;
+                    
+                    const controlsDiv = document.createElement('div');
+                    const minusBtn = document.createElement('button');
+                    minusBtn.textContent = '-';
+                    minusBtn.style.width = '30px';
+                    
+                    const countSpan = document.createElement('span');
+                    countSpan.textContent = '0';
+                    countSpan.style.margin = '0 10px';
+                    countSpan.style.display = 'inline-block';
+                    countSpan.style.width = '20px';
+                    
+                    const plusBtn = document.createElement('button');
+                    plusBtn.textContent = '+';
+                    plusBtn.style.width = '30px';
+
+                    minusBtn.onclick = () => {
+                        if (assignments[p.id] > 0) {
+                            assignments[p.id]--;
+                            countSpan.textContent = assignments[p.id];
+                            updateTotal();
+                        }
+                    };
+                    plusBtn.onclick = () => {
+                        const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+                        if (totalAssigned < maxPossibleSteal && assignments[p.id] < p.hand.length) {
+                            assignments[p.id]++;
+                            countSpan.textContent = assignments[p.id];
+                            updateTotal();
+                        }
+                    };
+
+                    controlsDiv.appendChild(minusBtn);
+                    controlsDiv.appendChild(countSpan);
+                    controlsDiv.appendChild(plusBtn);
+                    playerDiv.appendChild(nameLabel);
+                    playerDiv.appendChild(controlsDiv);
+                    container.appendChild(playerDiv);
+                });
+
+                showModal(title, container, { showConfirm: true, showCancel: false })
+                    .then(() => {
+                        const distribution = Object.entries(assignments)
+                            .map(([playerId, count]) => ({ playerId, count }))
+                            .filter(item => item.count > 0);
+                        resolve(distribution);
+                    })
+                    .catch(reject);
+                
+                updateTotal();
+            });
+        }
+
 
                 async function executeEightCut() {
             const roomRef = doc(db, 'rooms', currentRoomId);
