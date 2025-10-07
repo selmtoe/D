@@ -1212,10 +1212,18 @@ async function handleCardClick(card) {
         }
         
         function getCardValue(card, roomData) {
-            const strengthReversed = roomData.isRevolution ^ roomData.isJBackActive; // XOR
+            // 単体のJokerは、どんな状況でも常に最強とする特別ルールを適用
+            if (card.suit === 'joker' && !card.mimics) {
+                return 99; // 革命やJバックの影響を受けずに常に最強の値を返す
+            }
+            
+            const strengthReversed = roomData.isRevolution ^ roomData.isJBackActive;
+            // XOR
             const baseStrength = getCardStrength(card);
-            if (card.suit === 'joker' && !card.mimics) return strengthReversed ? 0 : 99; // Pure Joker
-            return strengthReversed ? 16 - baseStrength : baseStrength;
+            
+            // Joker以外のカードは、革命やJバックの影響を受ける
+            return strengthReversed ?
+                16 - baseStrength : baseStrength;
         }
         
         function getNextPlayerId(players, currentId, direction, skipCount) {
