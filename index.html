@@ -2128,12 +2128,12 @@ return p;
 
         async function showGiveDistributionModal(title, targetablePlayers, totalCount, myHand) {
             return new Promise((resolve, reject) => {
+                // 渡せるカードの上限を計算
                 const maxPossibleGive = Math.min(totalCount, myHand.length);
 
-                // 渡せるカードが0枚の場合は、モーダルを表示せずに即座に完了する
-                if (maxPossibleGive === 0) {
-                    resolve([]);
-                    return;
+                // 渡せるカードが0枚の場合、モーダルを表示せずに処理を完了
+                if (maxPossibleGive <= 0) {
+                    return resolve([]);
                 }
 
                 const container = document.createElement('div');
@@ -2149,12 +2149,15 @@ return p;
                 remainingDiv.style.marginBottom = '15px';
                 container.appendChild(remainingDiv);
 
-                const updateTotal = () => {
+                // ボタンの状態と残り枚数を更新する関数
+                const updateState = () => {
+                    // 現在割り振られている合計枚数を計算
                     const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
                     const remaining = maxPossibleGive - totalAssigned;
                     remainingDiv.textContent = `残り: ${remaining}`;
-                    // 割り振りが完了した瞬間にボタンを有効化する
-                    modalConfirmButton.disabled = remaining !== 0;
+                    
+                    // 残り枚数が0になった時のみ決定ボタンを有効化する
+                    modalConfirmButton.disabled = (remaining !== 0);
                 };
 
                 targetablePlayers.forEach(p => {
@@ -2186,17 +2189,19 @@ return p;
                         if (assignments[p.id] > 0) {
                             assignments[p.id]--;
                             countSpan.textContent = assignments[p.id];
-                            updateTotal();
+                            updateState();
                         }
                     };
+
                     plusBtn.onclick = () => {
                         const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
                         if (totalAssigned < maxPossibleGive) {
                             assignments[p.id]++;
                             countSpan.textContent = assignments[p.id];
-                            updateTotal();
+                            updateState();
                         }
                     };
+
                     controlsDiv.appendChild(minusBtn);
                     controlsDiv.appendChild(countSpan);
                     controlsDiv.appendChild(plusBtn);
@@ -2214,8 +2219,8 @@ return p;
                     })
                     .catch(reject);
                 
-                // モーダル表示直後にボタンの状態を正しく初期化する
-                updateTotal();
+                // モーダル表示時に最初の状態を反映させる
+                updateState();
             });
         }
 
