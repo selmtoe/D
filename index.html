@@ -388,11 +388,13 @@
                 <h2>大富豪</h2>
                 <span id="turn-info"></span>
             </div>
-            <div class="game-status-icons">
+                        <div class="game-status-icons">
                  <span id="revolution-icon" title="革命中" style="display:none;">⚔️</span>
                  <span id="j-back-icon" title="Jバック中" style="display:none;">J</span>
                  <span id="reverse-icon" title="リバース中" style="display:none;">🔄</span>
+                 <span id="shibari-icon" title="縛り" style="display:none; font-size: 24px;"></span>
             </div>
+
         </div>
         
         <div id="players-container" class="players-container"></div>
@@ -502,6 +504,8 @@
         const revolutionIcon = document.getElementById('revolution-icon');
         const jBackIcon = document.getElementById('j-back-icon');
         const reverseIcon = document.getElementById('reverse-icon');
+        const shibariIcon = document.getElementById('shibari-icon');
+
         // Modal DOM Elements
         const modalOverlay = document.getElementById('modal-overlay');
         const modalTitle = document.getElementById('modal-title');
@@ -547,7 +551,7 @@
 
             const roomRef = doc(db, 'rooms', currentRoomId);
             const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: true, hand: [], order: -1, rank: null };
-            await setDoc(roomRef, {
+                        await setDoc(roomRef, {
                 id: currentRoomId,
                 players: [newPlayer],
                 gameState: 'waiting', // waiting, playing, finished
@@ -556,8 +560,8 @@
                 turnPlayerId: null, passCount: 0,
                 isRevolution: false, isJBackActive: false,
                 turnDirection: 1, // 1 for normal, -1 for reverse
+                shibariSuits: [], // 縛りスート
                 createdAt: serverTimestamp(),
-
                 pendingActions: [],
                 log: [{ timestamp: Date.now(), message: `ルームが作成されました。` }]
             });
@@ -788,9 +792,11 @@ joinRoomButton.addEventListener('click', async () => {
                         discardPile: [], passCount: 0,
                         lastPlayed: { player: null, cards: [] },
                         isRevolution: false, isJBackActive: false, turnDirection: 1,
+                        shibariSuits: [],
                         pendingActions: [],
                         log: arrayUnion({ timestamp: Date.now(), message: `ゲームが開始されました。最初のプレイヤーは${sortedPlayers.find(p=>p.id===firstPlayerId).name}さんです。` })
                     });
+
                 });
             } catch (error) { showAlert(error.message); }
         });
@@ -816,18 +822,45 @@ joinRoomButton.addEventListener('click', async () => {
                     const cleanedPlayedCards = selectedCards.map(c => ({ suit: c.suit, number: c.number, uid: c.uid }));
                     let logEntries = [{ timestamp: Date.now(), message: `${me.name}が${cardsToString(selectedCards)}を出しました。` }];
 
+                                        const getSuits = (cards) => {
+                        const suits = new Set();
+                        cards.forEach(c => {
+                            const cardToEval = c.mimics ? c.mimics : c;
+                            if (cardToEval.suit !== 'joker') {
+                                suits.add(cardToEval.suit);
+                            }
+                        });
+                        return Array.from(suits);
+                    };
+
+                    const fieldSuits = getSuits(roomData.field);
+                    const playSuits = getSuits(selectedCards);
+                    const commonSuits = fieldSuits.filter(s => playSuits.includes(s));
+                    let newShibariSuits = [];
+                    if (roomData.field.length > 0 && commonSuits.length > 0) {
+                        newShibariSuits = commonSuits;
+                        if (newShibariSuits.length > 0 && (!roomData.shibariSuits || newShibariSuits.join(',') !== roomData.shibariSuits.join(','))) {
+                             const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
+                             const shibariText = newShibariSuits.map(s => suitSymbols[s]).join('');
+                             logEntries.push({ timestamp: Date.now(), message: `${shibariText}縛りが発生しました。` });
+                        }
+                    }
+
+
                     let nextState = {
                         players: playersCopy, field: cleanedPlayedCards, passCount: 0,
                         lastPlayed: { player: me.id, cards: cleanedPlayedCards },
                         isRevolution: roomData.isRevolution, isJBackActive: roomData.isJBackActive,
-  
+                        shibariSuits: newShibariSuits,
 
                       turnDirection: roomData.turnDirection, turnPlayerId: roomData.turnPlayerId,
                         discardPile: roomData.discardPile,
                         roundPile: [...roomData.roundPile, ...roomData.field.map(c => cleanCard(c))],
-                        pendingActions: []
+                        
+                      pendingActions: []
                     };
                     let clearField = false, skipCount = 0;
+
 
 
                     const isPlayStair = isStair(selectedCards);
@@ -955,12 +988,14 @@ joinRoomButton.addEventListener('click', async () => {
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
 if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
-} else if (clearField || remainingPlayers <= 1) {
+                    } else if (clearField || remainingPlayers <= 1) {
                         nextState.discardPile = [...roomData.discardPile, ...nextState.roundPile, ...nextState.field];
-nextState.field = [];
+                        nextState.field = [];
                         nextState.roundPile = [];
                         nextState.passCount = 0;
+                        nextState.shibariSuits = []; // 縛り解除
                         const playerWhoPlayed = nextState.players.find(p => p.id === me.id);
+
 
 if (playerWhoPlayed && playerWhoPlayed.rank !== null) {
 
@@ -1037,11 +1072,12 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
                         turnPlayerId: newTurnPlayerId, passCount: newPassCount,
                         field: newField, isJBackActive: newJBack,
-     
+                        shibariSuits: flow ? [] : roomData.shibariSuits,
                         roundPile: flow ? [] : roomData.roundPile,
-     
+
                    discardPile: newDiscardPile, log: arrayUnion(...logEntries)
                     });
+
 });
                 selectedCards = [];
 
@@ -1070,7 +1106,16 @@ function renderGame(roomData) {
             jBackIcon.style.display = roomData.isJBackActive ? 'inline' : 'none';
             reverseIcon.style.display = roomData.turnDirection === -1 ? 'inline' : 'none';
 
+            if (roomData.shibariSuits && roomData.shibariSuits.length > 0) {
+                const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
+                shibariIcon.textContent = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
+                shibariIcon.style.display = 'inline';
+            } else {
+                shibariIcon.style.display = 'none';
+            }
+            
             const me = roomData.players.find(p => p.id === currentPlayer.id);
+
             if (!me) return;
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
@@ -1322,9 +1367,37 @@ async function handleCardClick(card) {
             return jokersAvailable >= 0;
         }
         
-        function isValidPlay(playCards, myHand, roomData) {
+                function isValidPlay(playCards, myHand, roomData) {
+            if (roomData.shibariSuits && roomData.shibariSuits.length > 0) {
+                // Check for exceptions
+                // 1. Single non-mimicked Joker
+                const isSingleJoker = playCards.length === 1 && playCards[0].suit === 'joker' && !playCards[0].mimics;
+                // 2. Spade 3 on single Joker
+                const isSpade3返し = playCards.length === 1 && playCards[0].suit === 'spade' && playCards[0].number === 3 &&
+                                roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics;
+
+                if (!isSingleJoker && !isSpade3返し) {
+                    const playSuits = new Set();
+                    playCards.forEach(c => {
+                        const cardToEval = c.mimics ? c.mimics : c;
+                        if (cardToEval.suit !== 'joker') {
+                            playSuits.add(cardToEval.suit);
+                        }
+                    });
+                    
+                    for (const shibariSuit of roomData.shibariSuits) {
+                        if (!playSuits.has(shibariSuit)) {
+                            const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
+                            const shibariText = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
+                            return { valid: false, message: `縛りが発生しています(${shibariText})。縛りスートをすべて含んでいません。` };
+                        }
+                    }
+                }
+            }
+
             if (roomData.field.length === 0 && roomData.lastPlayed.player === null &&
                 myHand.some(c => c.suit === 'diamond' && c.number === 3)) {
+
                 if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
                     return { valid: false, message: 'ゲームの最初はダイヤの3を含めて出す必要があります。' };
                 }
@@ -2089,11 +2162,13 @@ return p;
                         field: [],
                         passCount: 0,
                         isJBackActive: false,
+                        shibariSuits: [], // 縛り解除
                         discardPile: newDiscard,
                         pendingActions: newPendingActions,
                         turnPlayerId: nextTurnPlayerId,
                         log: arrayUnion(logEntry)
                     });
+
                 });
             } catch (e) {
                 showAlert(`8切り処理エラー: ${e.message}`);
