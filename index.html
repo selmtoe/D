@@ -2130,6 +2130,12 @@ return p;
             return new Promise((resolve, reject) => {
                 const maxPossibleGive = Math.min(totalCount, myHand.length);
 
+                // 渡せるカードが0枚の場合は、モーダルを表示せずに即座に完了する
+                if (maxPossibleGive === 0) {
+                    resolve([]);
+                    return;
+                }
+
                 const container = document.createElement('div');
                 let assignments = {};
                 targetablePlayers.forEach(p => assignments[p.id] = 0);
@@ -2145,8 +2151,10 @@ return p;
 
                 const updateTotal = () => {
                     const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
-                    remainingDiv.textContent = `残り: ${maxPossibleGive - totalAssigned}`;
-                    modalConfirmButton.disabled = totalAssigned !== maxPossibleGive;
+                    const remaining = maxPossibleGive - totalAssigned;
+                    remainingDiv.textContent = `残り: ${remaining}`;
+                    // 割り振りが完了した瞬間にボタンを有効化する
+                    modalConfirmButton.disabled = remaining !== 0;
                 };
 
                 targetablePlayers.forEach(p => {
@@ -2205,6 +2213,8 @@ return p;
                         resolve(distribution);
                     })
                     .catch(reject);
+                
+                // モーダル表示直後にボタンの状態を正しく初期化する
                 updateTotal();
             });
         }
