@@ -1379,29 +1379,47 @@ async function handleCardClick(card) {
         }
         
         // --- Modal and Follow-up Actions ---
-        function handlePendingAction(roomData) {
+                function handlePendingAction(roomData) {
             const action = roomData.pendingActions && roomData.pendingActions[0];
-            if (!action || action.actorId !== currentPlayer.id || modalOverlay.classList.contains('visible-modal')) {
+if (!action || action.actorId !== currentPlayer.id || modalOverlay.classList.contains('visible-modal')) {
                 if ((!roomData.pendingActions || roomData.pendingActions.length === 0) && !modalOverlay.classList.contains('hidden')) closeModal();
-                return;
+return;
             }
             const me = roomData.players.find(p => p.id === currentPlayer.id);
-            const targetablePlayers = roomData.players.filter(p => p.id !== me.id && p.rank === null);
-            switch(action.type) {
-                // ★修正(4): 効果発動を強制にするため、キャンセルできないモーダルに変更
+const targetablePlayers = roomData.players.filter(p => p.id !== me.id && p.rank === null);
+switch(action.type) {
                 case 'pass_select_player':
-                    showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
-                        .then(targetId => {
-                
-                            let newActions = [...roomData.pendingActions];
-                            newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
-                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
-               
-                          });
+                    if (action.count > 1 && targetablePlayers.length > 0) {
+                        showGiveDistributionModal('カードを渡す相手と枚数を指定してください', targetablePlayers, action.count, me.hand)
+                            .then(distribution => {
+                                if (distribution.length > 0) {
+                                    const totalCardsToGive = distribution.reduce((sum, item) => sum + item.count, 0);
+                                    let newActions = [...roomData.pendingActions];
+                                    newActions[0] = { ...action, type: 'pass_select_cards_distributed', distribution: distribution, totalCount: totalCardsToGive };
+                                    updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
+                                } else {
+                                    clearPendingActions();
+                                }
+                            });
+                    } else if (targetablePlayers.length > 0) {
+                         showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
+                            .then(targetId => {
+                                let newActions = [...roomData.pendingActions];
+                                newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
+                                updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
+                            }).catch(() => clearPendingActions());
+                    } else {
+                        showModal("対象不在", "カードを渡せる相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
+                            .then(() => { closeModal(); clearPendingActions(); });
+                    }
                     break;
                 case 'pass_select_cards':
                     showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true, false)
                         .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive));
+break;
+                case 'pass_select_cards_distributed':
+                    showCardSelectionModal(`渡すカードを${action.totalCount}枚選んでください`, me.hand, action.totalCount, true, false)
+                        .then(cardsToGive => executeDistributedGive(action.distribution, cardsToGive));
                     break;
                 case 'discard_select_cards':
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
@@ -1975,6 +1993,55 @@ return p;
             );
         }
 
+        function executeDistributedGive(distribution, cardsToGive) {
+            executeAction(
+                (roomData, me) => {
+                    let players = [...roomData.players];
+                    let logDetails = [];
+                    let cardsToGiveCopy = [...cardsToGive];
+
+                    distribution.forEach(({playerId, count}) => {
+                        if (count <= 0) return;
+
+                        const targetIndex = players.findIndex(p => p.id === playerId);
+                        if (targetIndex === -1) {
+                            throw new Error(`対象プレイヤーが見つかりません。`);
+                        }
+
+                        const givenCards = cardsToGiveCopy.splice(0, count);
+                        if (givenCards.length !== count) {
+                             throw new Error(`渡すためのカードが不足しています。`);
+                        }
+
+                        logDetails.push({ name: players[targetIndex].name, count });
+
+                        players[targetIndex] = {
+                            ...players[targetIndex],
+                            hand: [...players[targetIndex].hand, ...givenCards].sort((a,b) => getCardStrength(a) - getCardStrength(b)),
+                            privateEvent: { id: Date.now() + Math.random(), type: 'receive_cards', actor: me.name, cards: givenCards }
+                        };
+                    });
+
+                    const myIndex = players.findIndex(p => p.id === me.id);
+                    const givenCardUids = new Set(cardsToGive.map(c => c.uid));
+                    const newMyHand = me.hand.filter(c => !givenCardUids.has(c.uid));
+                    players[myIndex] = {
+                        ...players[myIndex],
+                        hand: newMyHand
+                    };
+
+                    return { players, logContext: { logDetails } };
+                },
+                (ctx) => {
+                    const giveSummary = ctx.logDetails.map(d => `${d.name}に${d.count}枚`).join(', ');
+                    return `${currentPlayer.name}がカードを${giveSummary}渡しました。`;
+                }
+            );
+        }
+
+        async function showStealDistributionModal(title, targetablePlayers, totalCount) {
+
+
         async function showStealDistributionModal(title, targetablePlayers, totalCount) {
             return new Promise((resolve, reject) => {
                 const maxPossibleSteal = Math.min(totalCount, targetablePlayers.reduce((sum, p) => sum + p.hand.length, 0));
@@ -2059,6 +2126,93 @@ return p;
                 updateTotal();
             });
         }
+
+
+        async function showGiveDistributionModal(title, targetablePlayers, totalCount, myHand) {
+            return new Promise((resolve, reject) => {
+                const maxPossibleGive = Math.min(totalCount, myHand.length);
+
+                const container = document.createElement('div');
+                let assignments = {};
+                targetablePlayers.forEach(p => assignments[p.id] = 0);
+
+                const header = document.createElement('p');
+                header.innerHTML = `合計 <b>${maxPossibleGive}</b> 枚を下のプレイヤーに割り振ってください。`;
+                container.appendChild(header);
+
+                const remainingDiv = document.createElement('div');
+                remainingDiv.style.fontWeight = 'bold';
+                remainingDiv.style.marginBottom = '15px';
+                container.appendChild(remainingDiv);
+
+                const updateTotal = () => {
+                    const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+                    remainingDiv.textContent = `残り: ${maxPossibleGive - totalAssigned}`;
+                    modalConfirmButton.disabled = totalAssigned !== maxPossibleGive;
+                };
+
+                targetablePlayers.forEach(p => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.style.display = 'flex';
+                    playerDiv.style.justifyContent = 'space-between';
+                    playerDiv.style.alignItems = 'center';
+                    playerDiv.style.margin = '8px 0';
+
+                    const nameLabel = document.createElement('span');
+                    nameLabel.textContent = `${p.name}`;
+                    
+                    const controlsDiv = document.createElement('div');
+                    const minusBtn = document.createElement('button');
+                    minusBtn.textContent = '-';
+                    minusBtn.style.width = '30px';
+                    
+                    const countSpan = document.createElement('span');
+                    countSpan.textContent = '0';
+                    countSpan.style.margin = '0 10px';
+                    countSpan.style.display = 'inline-block';
+                    countSpan.style.width = '20px';
+                    
+                    const plusBtn = document.createElement('button');
+                    plusBtn.textContent = '+';
+                    plusBtn.style.width = '30px';
+
+                    minusBtn.onclick = () => {
+                        if (assignments[p.id] > 0) {
+                            assignments[p.id]--;
+                            countSpan.textContent = assignments[p.id];
+                            updateTotal();
+                        }
+                    };
+                    plusBtn.onclick = () => {
+                        const totalAssigned = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+                        if (totalAssigned < maxPossibleGive) {
+                            assignments[p.id]++;
+                            countSpan.textContent = assignments[p.id];
+                            updateTotal();
+                        }
+                    };
+                    controlsDiv.appendChild(minusBtn);
+                    controlsDiv.appendChild(countSpan);
+                    controlsDiv.appendChild(plusBtn);
+                    playerDiv.appendChild(nameLabel);
+                    playerDiv.appendChild(controlsDiv);
+                    container.appendChild(playerDiv);
+                });
+
+                showModal(title, container, { showConfirm: true, showCancel: false })
+                    .then(() => {
+                        const distribution = Object.entries(assignments)
+                            .map(([playerId, count]) => ({ playerId, count }))
+                            .filter(item => item.count > 0);
+                        resolve(distribution);
+                    })
+                    .catch(reject);
+                updateTotal();
+            });
+        }
+
+
+                async function executeEightCut() {
 
 
                 async function executeEightCut() {
