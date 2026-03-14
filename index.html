@@ -100,32 +100,49 @@
         }
         
         .players-container {
+            position: relative;
+            width: 100%;
+            height: 350px;
+            margin-bottom: 40px;
+            perspective: 1000px;
             display: flex;
-            justify-content: space-around;
-            flex-wrap: wrap; /* プレイヤーが増えても改行されるように */
-            gap: 10px;
-            margin-bottom: 20px;
-            min-height: 120px;
+            justify-content: center;
+            align-items: center;
+            transform-style: preserve-3d;
         }
 
         .player-box {
+            position: absolute;
             border: 2px solid #00796b;
             border-radius: 8px;
             padding: 10px;
-            width: 150px;
-            min-height: 100px;
+            width: 120px;
+            min-height: 140px;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
-            background-color: rgba(0,0,0,0.2);
-            transition: all 0.3s;
+            background-color: rgba(0,0,0,0.6);
+            transition: all 0.5s ease;
+            transform-style: preserve-3d;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        }
+        .player-avatar {
+            font-size: 40px;
+            margin-bottom: 5px;
+            background: #fff;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
         }
         .player-box.is-turn {
-            border-color: #80cbc4; /* 明るいティール */
-            box-shadow: 0 0 15px #80cbc4;
+            border-color: #80cbc4;
+            box-shadow: 0 0 25px #80cbc4, 0 10px 20px rgba(0,0,0,0.5);
             font-weight: bold;
-            transform: scale(1.05);
         }
         .player-box.finished {
             opacity: 0.5;
@@ -135,20 +152,23 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 2px;
-            margin-top: 5px;
+            gap: -15px;
+            margin-top: 10px;
+            transform: translateZ(30px) rotateX(20deg);
         }
         .card-back {
-            width: 12px;
-            height: 18px;
-            background-color: #666;
-            border: 1px solid white;
-            border-radius: 2px;
+            width: 30px;
+            height: 45px;
+            background: linear-gradient(135deg, #b71c1c 25%, #d32f2f 25%, #d32f2f 50%, #b71c1c 50%, #b71c1c 75%, #d32f2f 75%, #d32f2f 100%);
+            background-size: 10px 10px;
+            border: 2px solid white;
+            border-radius: 3px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
         }
 
         .field {
             border: 2px dashed #00796b;
-            min-height: 150px;
+            min-height: 200px;
             margin-bottom: 20px;
             padding: 15px;
             border-radius: 10px;
@@ -156,8 +176,20 @@
             justify-content: center;
             align-items: center;
             flex-wrap: wrap;
-            background-color: rgba(0,0,0,0.1);
+            background-color: rgba(0,0,0,0.3);
+            perspective: 800px;
+            transform-style: preserve-3d;
         }
+        .field .card {
+            transform: rotateX(20deg) translateZ(20px);
+            box-shadow: 0 15px 25px rgba(0,0,0,0.6);
+            margin: 0 -10px;
+        }
+        .field .card:hover {
+            transform: rotateX(0deg) translateZ(40px) translateY(-10px);
+            z-index: 10;
+        }
+
 
         .my-hand-container {
             background-color: rgba(0,0,0,0.3);
@@ -1121,22 +1153,40 @@ function renderGame(roomData) {
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
             
             playersContainerDiv.innerHTML = '';
-            sortedPlayers.forEach(player => {
-                if (player.id !== me.id) {
-                    const playerDiv = document.createElement('div');
-                    playerDiv.className = 'player-box';
-                    if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
-                    if (player.rank !== null) playerDiv.classList.add('finished');
-                    
-                    let cardBacksHTML = '';
-                    if (player.hand && player.hand.length > 0) {
-                       for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
-                    }
-                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
-                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
-                    playersContainerDiv.appendChild(playerDiv);
+            const otherPlayers = sortedPlayers.filter(p => p.id !== me.id);
+            const totalOthers = otherPlayers.length;
+            const radius = 250;
+            
+            otherPlayers.forEach((player, index) => {
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player-box';
+                
+                let angle = 0;
+                if (totalOthers > 0) {
+                    angle = (index / totalOthers) * 360 - 90;
                 }
+                const rad = angle * Math.PI / 180;
+                const x = Math.cos(rad) * radius;
+                const z = Math.sin(rad) * radius - 100;
+                
+                playerDiv.style.transform = `translate3d(${x}px, 0px, ${z}px) rotateY(${-angle - 90}deg)`;
+
+                if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
+                if (player.rank !== null) playerDiv.classList.add('finished');
+                
+                let cardBacksHTML = '';
+                if (player.hand && player.hand.length > 0) {
+                    for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
+                }
+                const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
+                
+                const avatars = ['🧑‍💻','👩‍🎤','🕵️‍♂️','🥷','🧙‍♀️','🧛‍♂️'];
+                const avatar = avatars[index % avatars.length];
+
+                playerDiv.innerHTML = `<div class="player-avatar">${avatar}</div><div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
+                playersContainerDiv.appendChild(playerDiv);
             });
+
             
             if (me.hand) renderMyHand(me, roomData);
 
