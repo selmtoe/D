@@ -968,15 +968,16 @@ for (let i = 0; i < intersects.length; i++) {
             const numPlayers = roomData.players.length;
             const myIndex = roomData.players.findIndex(p => p.id === me.id);
             const radius = 9;
-            playerPositions = [];
+            playerPositions = []
             for (let i = 0; i < numPlayers; i++) {
                 const angle = (i / numPlayers) * Math.PI * 2;
                 playerPositions.push({
-                    x: Math.sin(angle) * radius,
+                    x: -Math.sin(angle) * radius,
                     z: Math.cos(angle) * radius,
-                    angle: angle
+                    angle: -angle
                 });
             }
+
             
             const newCardMeshes = {};
             const uidsInScene = new Set();
