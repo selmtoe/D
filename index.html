@@ -1074,8 +1074,9 @@ if (isMine) {
             if (isInitialDeal) {
                 newHandCards.forEach((anim, idx) => {
                     anim.mesh.position.set(0, 0.26 + idx * 0.01, 0);
-                    anim.mesh.rotation.set(Math.PI / 2, 0, 0);
+                    anim.mesh.rotation.set(Math.PI, 0, 0);
                 });
+
                 
                 newHandCards.forEach((anim, idx) => {
                     gsap.to(anim.mesh.position, { y: 4 + idx * 0.01, duration: 1.0, ease: "power2.out" });
