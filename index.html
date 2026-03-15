@@ -129,7 +129,9 @@
             width: 100%;
             max-width: 800px;
             text-align: center;
+            margin: 0 auto;
         }
+
         
         /* Game screen uses the dark theme directly */
         #game-screen.container {
@@ -560,18 +562,16 @@ cursor: pointer;
             <span id="cutin-effect-name"></span>
         </div>
     </div>
-
     <div id="log-panel">
         <div id="log-header">
             <h3>ゲームログ</h3>
-            <label style="color: white; font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input type="checkbox" id="debug-checkbox"> デバッグ</label>
+            <label style="color: white;
+font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input type="checkbox" id="debug-checkbox"> デバッグ</label>
             <button id="log-close-button">×</button>
         </div>
         <div id="log-messages"></div>
     </div>
 
-        <div id="log-messages"></div>
-    </div>
     <button id="show-log-button">ログ表示</button>
 
     <script type="module">
