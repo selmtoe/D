@@ -451,6 +451,7 @@ cursor: pointer;
             height: 100%;
             z-index: -1;
             pointer-events: auto;
+            touch-action: none;
         }
         .ui-overlay {
             position: relative;
@@ -677,6 +678,7 @@ cursor: pointer;
 
         function onPointerDown(event) {
             if (!passModeContext.active && !stealMiniGameContext.active) return;
+            event.preventDefault();
             const clientX = event.clientX;
             const clientY = event.clientY;
             mouse.x = (clientX / window.innerWidth) * 2 - 1;
@@ -706,6 +708,7 @@ cursor: pointer;
 
         function onPointerMove(event) {
             if (!dragContext.active || !dragContext.mesh) return;
+            event.preventDefault();
             const clientX = event.clientX;
             const clientY = event.clientY;
             mouse.x = (clientX / window.innerWidth) * 2 - 1;
@@ -2052,19 +2055,34 @@ if (action.count > 1 && validTargets.length > 0) {
             stealMiniGameContext.pulledCount = 0;
             const targetPos = new THREE.Vector3(targetSprite.position.x, 0, targetSprite.position.z);
             const camTargetPos = targetPos.clone().multiplyScalar(0.5).setY(10);
-            
             gsap.to(camera.position, { x: camTargetPos.x, y: camTargetPos.y, z: camTargetPos.z, duration: 1, onUpdate: () => camera.lookAt(targetPos), onComplete: () => {
                 stealMiniGameContext.targetMeshes = [];
+                const targetCards = [];
                 Object.values(cardMeshes).forEach(mesh => {
                     const dist = new THREE.Vector2(mesh.position.x, mesh.position.z).distanceTo(new THREE.Vector2(targetPos.x, targetPos.z));
                     if (dist < 3) {
-                        stealMiniGameContext.targetMeshes.push(mesh);
-                        gsap.to(mesh.rotation, { x: Math.PI, duration: 0.5 });
-                        gsap.to(mesh.position, { x: targetPos.x + (Math.random()-0.5)*2, z: targetPos.z + (Math.random()-0.5)*2, duration: 0.5 });
+                        targetCards.push(mesh);
                     }
+                });
+                
+                for (let i = targetCards.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [targetCards[i], targetCards[j]] = [targetCards[j], targetCards[i]];
+                }
+
+                const angle = Math.atan2(targetPos.x, targetPos.z);
+                const dx = Math.cos(angle);
+                const dz = -Math.sin(angle);
+
+                targetCards.forEach((mesh, index) => {
+                    stealMiniGameContext.targetMeshes.push(mesh);
+                    gsap.to(mesh.rotation, { x: Math.PI, duration: 0.5 });
+                    const offset = (index - targetCards.length / 2) * 1.5;
+                    gsap.to(mesh.position, { x: targetPos.x + dx * offset, z: targetPos.z + dz * offset, duration: 0.5 });
                 });
                 setTimeout(() => { stealMiniGameContext.active = true; }, 600);
             }});
+
             stealMiniGameContext.currentTargetIndex++;
         }
 
