@@ -34,12 +34,17 @@
             container.innerHTML += '<p>Error: ' + event.message + ' at ' + event.filename + ':' + event.lineno + ':' + event.colno + '</p>';
         });
         window.addEventListener('unhandledrejection', function(event) {
+            if (event.reason === 'Modal closed externally' || event.reason === 'New modal opened' || event.reason === 'User cancelled') {
+                event.preventDefault();
+                return;
+            }
             var container = document.getElementById('error-display-container');
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'error-display-container';
                 document.body.appendChild(container);
             }
+
             container.style.display = 'block';
             container.innerHTML += '<p>Unhandled Promise Rejection: ' + event.reason + '</p>';
         });
@@ -596,7 +601,7 @@ cursor: pointer;
         let tableMesh;
         let playerPositions = [];
         let playerNameSprites = {};
-        let dragContext = { active: false, mesh: null, mode: null, startPos: new THREE.Vector3(), targetId: null };
+        let dragContext = { active: false, mesh: null, mode: null, startPos: new THREE.Vector3(), targetId: null, startClientY: 0 };
         let passModeContext = { active: false, assignments: [], requiredCount: 0 };
         let stealMiniGameContext = { active: false, targets: [], currentTargetIndex: 0, requiredCount: 0, pulledCount: 0, originalCamPos: new THREE.Vector3(), targetMeshes: [] };
         const screens = { login: document.getElementById('login-screen'), room: document.getElementById('room-screen'), game: document.getElementById('game-screen') };
@@ -673,8 +678,14 @@ cursor: pointer;
             window.addEventListener('pointerup', onPointerUp, { passive: false });
             window.addEventListener('click', onCanvasClick);
             window.addEventListener('touchstart', onCanvasClick, { passive: false });
+            window.addEventListener('touchmove', function(event) {
+                if (document.getElementById('game-screen').classList.contains('active')) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
             animateThreeJS();
         }
+
 
         function onPointerDown(event) {
             if (!passModeContext.active && !stealMiniGameContext.active) return;
@@ -700,6 +711,7 @@ cursor: pointer;
                         dragContext.mesh = obj;
                         dragContext.mode = 'steal';
                         dragContext.startPos.copy(obj.position);
+                        dragContext.startClientY = event.clientY;
                         break;
                     }
                 }
@@ -719,32 +731,42 @@ cursor: pointer;
             raycaster.ray.intersectPlane(dragPlane, intersectPoint);
             if (intersectPoint) {
                 if (dragContext.mode === 'pass') {
-                    dragContext.mesh.position.x = intersectPoint.x;
-                    dragContext.mesh.position.z = intersectPoint.z;
+                    let closestPlayer = null;
+                    let minDist = 6.0;
+                    Object.keys(playerNameSprites).forEach(pid => {
+                        if (pid === currentPlayer.id) return;
+                        const sprite = playerNameSprites[pid];
+                        const dist = new THREE.Vector2(intersectPoint.x, intersectPoint.z).distanceTo(new THREE.Vector2(sprite.position.x, sprite.position.z));
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestPlayer = pid;
+                        }
+                    });
+                    if (closestPlayer) {
+                        const spritePos = playerNameSprites[closestPlayer].position;
+                        dragContext.mesh.position.x = spritePos.x;
+                        dragContext.mesh.position.z = spritePos.z;
+                        dragContext.targetId = closestPlayer;
+                    } else {
+                        dragContext.mesh.position.x = intersectPoint.x;
+                        dragContext.mesh.position.z = intersectPoint.z;
+                        dragContext.targetId = null;
+                    }
                 } else if (dragContext.mode === 'steal') {
-                    dragContext.mesh.position.y = Math.max(dragContext.startPos.y, intersectPoint.z * -1 + 5);
+                    const deltaY = event.clientY - dragContext.startClientY;
+                    dragContext.mesh.position.y = dragContext.startPos.y + Math.max(0, deltaY * 0.05);
                 }
             }
         }
+
 
         function onPointerUp(event) {
             if (!dragContext.active || !dragContext.mesh) return;
             dragContext.active = false;
             
             if (dragContext.mode === 'pass') {
-                let closestPlayer = null;
-                let minDist = 4.0;
-                Object.keys(playerNameSprites).forEach(pid => {
-                    if (pid === currentPlayer.id) return;
-                    const sprite = playerNameSprites[pid];
-                    const dist = new THREE.Vector2(dragContext.mesh.position.x, dragContext.mesh.position.z).distanceTo(new THREE.Vector2(sprite.position.x, sprite.position.z));
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestPlayer = pid;
-                    }
-                });
-
-                if (closestPlayer) {
+                if (dragContext.targetId) {
+                    const closestPlayer = dragContext.targetId;
                     const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
                     if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     passModeContext.assignments.push({ targetId: closestPlayer, card: dragContext.mesh.userData.card });
@@ -761,7 +783,8 @@ cursor: pointer;
                     confirmBtn.disabled = passModeContext.assignments.length !== passModeContext.requiredCount;
                 }
             } else if (dragContext.mode === 'steal') {
-                if (dragContext.mesh.position.y > dragContext.startPos.y + 4) {
+                if (dragContext.mesh.position.y > dragContext.startPos.y + 2) {
+
                     dragContext.mesh.visible = false;
                     stealMiniGameContext.pulledCount++;
                     const index = stealMiniGameContext.targetMeshes.indexOf(dragContext.mesh);
@@ -2054,8 +2077,9 @@ if (action.count > 1 && validTargets.length > 0) {
             stealMiniGameContext.requiredCount = currentObj.count;
             stealMiniGameContext.pulledCount = 0;
             const targetPos = new THREE.Vector3(targetSprite.position.x, 0, targetSprite.position.z);
-            const camTargetPos = targetPos.clone().multiplyScalar(0.5).setY(10);
+            const camTargetPos = targetPos.clone().multiplyScalar(0.2).setY(15);
             gsap.to(camera.position, { x: camTargetPos.x, y: camTargetPos.y, z: camTargetPos.z, duration: 1, onUpdate: () => camera.lookAt(targetPos), onComplete: () => {
+
                 stealMiniGameContext.targetMeshes = [];
                 const targetCards = [];
                 Object.values(cardMeshes).forEach(mesh => {
