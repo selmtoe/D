@@ -1122,21 +1122,26 @@ function renderGame(roomData) {
             
             playersContainerDiv.innerHTML = '';
             sortedPlayers.forEach(player => {
-                if (player.id !== me.id) {
-                    const playerDiv = document.createElement('div');
-                    playerDiv.className = 'player-box';
-                    if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
-                    if (player.rank !== null) playerDiv.classList.add('finished');
-                    
-                    let cardBacksHTML = '';
-                    if (player.hand && player.hand.length > 0) {
-                       for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
-                    }
-                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
-                    playerDiv.innerHTML = `<div class="player-name">${player.name}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
-                    playersContainerDiv.appendChild(playerDiv);
+                // if (player.id !== me.id) { // ← この条件を消して全員表示するようにします
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player-box';
+                if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
+                if (player.rank !== null) playerDiv.classList.add('finished');
+                
+                let cardBacksHTML = '';
+                if (player.hand && player.hand.length > 0) {
+                    for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
                 }
+                const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
+                
+                // 自分の場合は名前に「(あなた)」を追加してわかりやすくします
+                const displayName = player.id === me.id ? `${player.name} (あなた)` : player.name;
+                
+                playerDiv.innerHTML = `<div class="player-name">${displayName}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
+                playersContainerDiv.appendChild(playerDiv);
+                // }
             });
+
             
             if (me.hand) renderMyHand(me, roomData);
 
