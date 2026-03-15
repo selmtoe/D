@@ -768,12 +768,14 @@ const intersects = raycaster.intersectObjects(scene.children);
                         const spread = isMine ? 1.0 : 0.3;
                         const offset = (j - player.hand.length / 2) * spread;
                         
+                        mesh.rotation.order = 'YXZ';
                         const targetX = pos.x + Math.cos(pos.angle) * offset;
                         const targetZ = pos.z - Math.sin(pos.angle) * offset;
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = !isMine ? Math.PI / 2 : Math.PI / 4;
                         let targetRotY = -pos.angle;
                         let targetRotZ = 0;
+
 
 if (isMine) {
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
@@ -1296,28 +1298,15 @@ nextState.players = updatedPlayers;
 }
                     
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
-
-if (nextState.pendingActions.length > 0) {
+                    if (clearField || remainingPlayers <= 1) {
+                        nextState.pendingActions.push({ type: 'auto_clear_field', actorId: me.id });
+                    }
+                    if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
-                    } else if (clearField || remainingPlayers <= 1) {
-                        nextState.discardPile = [...roomData.discardPile, ...nextState.roundPile, ...nextState.field];
-                        nextState.field = [];
-                        nextState.roundPile = [];
-                        nextState.passCount = 0;
-                        nextState.shibariSuits = []; // 縛り解除
-                        const playerWhoPlayed = nextState.players.find(p => p.id === me.id);
-
-
-if (playerWhoPlayed && playerWhoPlayed.rank !== null) {
-
-                            nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, 0);
-                        } else {
-                            nextState.turnPlayerId = me.id;
-                        }
-                        nextState.isJBackActive = false;
-} else {
+                    } else {
                         nextState.turnPlayerId = getNextPlayerId(nextState.players, me.id, nextState.turnDirection, skipCount);
-}
+                    }
+
                     
                     const finalState = checkGameEnd(nextState);
 
@@ -1810,13 +1799,15 @@ async function handleCardClick(card) {
                     }
                     break;
                 case 'eight_cut':
-                    executeEightCut();
+                    setTimeout(() => executeEightCut(), 1500);
                     break;
-
+                case 'auto_clear_field':
+                    setTimeout(() => executeAutoClearField(), 1500);
+                    break;
             }
         }
 
-        
+   
         async function clearPendingActions() {
             if (currentRoomId) {
                 await updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: [] });
@@ -2449,7 +2440,10 @@ return p;
                     
                     const newPendingActions = roomData.pendingActions.slice(1);
                     
-                    const nextTurnPlayerId = me.id;
+                    let nextTurnPlayerId = me.id;
+                    if (me && me.rank !== null) {
+                        nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
+                    }
 
                     transaction.update(roomRef, {
                         field: [],
@@ -2460,11 +2454,46 @@ return p;
                         pendingActions: newPendingActions,
                         turnPlayerId: nextTurnPlayerId,
                         log: arrayUnion(logEntry)
-                    });
+                     });
 
                 });
             } catch (e) {
                 showAlert(`8切り処理エラー: ${e.message}`);
+                await clearPendingActions();
+            }
+        }
+
+        async function executeAutoClearField() {
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) throw new Error("Room not found");
+                    const roomData = roomSnap.data();
+                    const me = roomData.players.find(p => p.id === currentPlayer.id);
+
+                    const newDiscard = [...roomData.discardPile, ...roomData.roundPile, ...roomData.field.map(c => cleanCard(c))];
+                    
+                    const newPendingActions = roomData.pendingActions.slice(1);
+                    
+                    let nextTurnPlayerId = me.id;
+                    if (me && me.rank !== null) {
+                        nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
+                    }
+
+                    transaction.update(roomRef, {
+                        field: [],
+                        roundPile: [],
+                        passCount: 0,
+                        isJBackActive: false,
+                        shibariSuits: [],
+                        discardPile: newDiscard,
+                        pendingActions: newPendingActions,
+                        turnPlayerId: nextTurnPlayerId
+                     });
+                });
+            } catch (e) {
+                showAlert(`自動流し処理エラー: ${e.message}`);
                 await clearPendingActions();
             }
         }
