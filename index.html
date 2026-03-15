@@ -7,25 +7,69 @@
     <style>
                 body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
-            background-color: #004d40; /* 深い緑 */
+            background: radial-gradient(circle at center, #00695c 0%, #004d40 100%);
             color: #E0E0E0;
             margin: 0;
-            padding: 20px;
+padding: 20px;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             box-sizing: border-box;
-            /* overflow: hidden; を削除してスクロールを有効化 */
+            /* overflow: hidden;
+            を削除してスクロールを有効化 */
             transition: background-color 0.5s ease;
-        }
+}
 
         body.is-my-turn-bg {
             background-color: #6a2e2e;
+}
+
+        .waiting-players-list {
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto 20px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+            text-align: left;
+        }
+        .waiting-players-list h3 {
+            color: #004d40;
+            margin-top: 0;
+            border-bottom: 2px solid #00796b;
+            padding-bottom: 10px;
+        }
+        .waiting-player-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            font-size: 18px;
+        }
+        .waiting-player-item:last-child {
+            border-bottom: none;
+        }
+        .player-number {
+            font-weight: bold;
+            color: #00796b;
+            margin-right: 15px;
+            width: 80px;
+        }
+        .host-badge {
+            background-color: #ffb300;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: auto;
+            font-weight: bold;
         }
 
+        .screen { display: none;
+}
 
-        .screen { display: none; }
         .active { display: block; }
 
         /* Login and Room screens use a light container */
@@ -174,7 +218,7 @@
 
         .card {
             border: 1px solid #999;
-            border-radius: 5px;
+            border-radius: 8px;
             width: 70px;
             height: 100px;
             display: flex;
@@ -183,16 +227,17 @@
             align-items: center;
             font-size: 20px;
             font-weight: bold;
-            background-color: white;
-            cursor: pointer;
+            background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
+cursor: pointer;
             user-select: none;
             position: relative;
             padding: 5px;
             box-sizing: border-box;
-            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+            box-shadow: 2px 4px 8px rgba(0,0,0,0.3);
             color: #333;
             transition: all 0.2s;
-        }
+}
+
         .card.selected {
             transform: translateY(-10px);
             box-shadow: 0 6px 10px #00796b;
@@ -399,22 +444,26 @@
         
         <div id="players-container" class="players-container"></div>
         
-        <h3>場 (<span id="last-player-info"></span>)</h3>
-        <div id="field" class="field"></div>
-        
-        <div class="my-hand-container">
-             <h3>あなたの手札 (<span id="my-name"></span>)</h3>
-             <div id="my-hand" class="card-container"></div>
-        </div>
+        <div id="game-playing-area">
+            <h3>場 (<span id="last-player-info"></span>)</h3>
+            <div id="field" class="field"></div>
+            
+            <div class="my-hand-container">
+                 <h3>あなたの手札 (<span id="my-name"></span>)</h3>
+                 <div id="my-hand" class="card-container"></div>
+            </div>
 
-        <div id="controls" class="controls">
-            <button id="play-button" disabled>出す</button>
-            <button id="pass-button" disabled>パス</button>
+            <div id="controls" class="controls">
+                <button id="play-button" disabled>出す</button>
+                <button id="pass-button" disabled>パス</button>
+            </div>
         </div>
         
         <div id="game-controls">
+         
              <button id="start-game-button" style="display: none; background-color: #28a745;">ゲーム開始</button>
         </div>
+
 
         <div id="room-info-container">
             <span id="room-info"></span>
@@ -978,14 +1027,16 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                     }
 
-                                        if (newHand.length === 0) {
-                        const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
-                        nextState.players = updatedPlayers;
+                    if (newHand.length === 0) {
+   
+                     const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
+nextState.players = updatedPlayers;
                         logEntries.push(...上がりLog);
-                        nextState.pendingActions = [];
+                        nextState.pendingActions = nextState.pendingActions.filter(a => a.type === 'bomber_select_rank' || a.type === 'eight_cut');
 }
                     
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
+
 if (nextState.pendingActions.length > 0) {
                         nextState.turnPlayerId = me.id;
                     } else if (clearField || remainingPlayers <= 1) {
@@ -1115,40 +1166,60 @@ function renderGame(roomData) {
             }
             
             const me = roomData.players.find(p => p.id === currentPlayer.id);
-
-            if (!me) return;
+if (!me) return;
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
             
+            const isWaiting = roomData.gameState === 'waiting';
+            document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
+
             playersContainerDiv.innerHTML = '';
-            sortedPlayers.forEach(player => {
-                // if (player.id !== me.id) { // ← この条件を消して全員表示するようにします
-                const playerDiv = document.createElement('div');
-                playerDiv.className = 'player-box';
-                if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
-                if (player.rank !== null) playerDiv.classList.add('finished');
+            if (isWaiting) {
+                playersContainerDiv.className = 'waiting-players-list';
+                const header = document.createElement('h3');
+                header.textContent = `参加者 (${roomData.players.length}/6人)`;
+                playersContainerDiv.appendChild(header);
                 
-                let cardBacksHTML = '';
-                if (player.hand && player.hand.length > 0) {
-                    for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
-                }
-                const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
-                
-                // 自分の場合は名前に「(あなた)」を追加してわかりやすくします
-                const displayName = player.id === me.id ? `${player.name} (あなた)` : player.name;
-                
-                playerDiv.innerHTML = `<div class="player-name">${displayName}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
-                playersContainerDiv.appendChild(playerDiv);
-                // }
-            });
+                const ul = document.createElement('ul');
+                ul.style.listStyle = 'none';
+                ul.style.padding = '0';
+                ul.style.margin = '0';
+                roomData.players.forEach((player, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'waiting-player-item';
+                    const hostBadge = player.isHost ? '<span class="host-badge">👑 ホスト</span>' : '';
+                    li.innerHTML = `<span class="player-number">Player ${index + 1}</span><span class="player-name-waiting">${player.name} ${player.id === me.id ? '<b>(あなた)</b>' : ''}</span>${hostBadge}`;
+                    ul.appendChild(li);
+                });
+                playersContainerDiv.appendChild(ul);
+            } else {
+                playersContainerDiv.className = 'players-container';
+                sortedPlayers.forEach(player => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-box';
+                    if (player.id === roomData.turnPlayerId) playerDiv.classList.add('is-turn');
+                    if (player.rank !== null) playerDiv.classList.add('finished');
+                    
+                    let cardBacksHTML = '';
+                    if (player.hand && player.hand.length > 0) {
+                        for (let i = 0; i < player.hand.length; i++) cardBacksHTML += '<div class="card-back"></div>';
+                    }
+                    const rankText = player.rank ? `${player.rank}位` : `手札: ${player.hand ? player.hand.length : 0}枚`;
+                    
+                    const displayName = player.id === me.id ? `${player.name} (あなた)` : player.name;
+                    
+                    playerDiv.innerHTML = `<div class="player-name">${displayName}</div><div>${rankText}</div><div class="other-player-cards">${cardBacksHTML}</div>`;
+                    playersContainerDiv.appendChild(playerDiv);
+                });
+            }
 
             
             if (me.hand) renderMyHand(me, roomData);
-
-            fieldDiv.innerHTML = '';
+fieldDiv.innerHTML = '';
             roomData.field.forEach(card => fieldDiv.appendChild(createCardElement(card)));
 
             const turnPlayer = roomData.players.find(p => p.id === roomData.turnPlayerId);
+
             turnInfoSpan.textContent = turnPlayer ? (turnPlayer.id === me.id ? "あなたのターンです" : `${turnPlayer.name} のターン`) : "---";
             
             const lastPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
@@ -1572,13 +1643,15 @@ async function handleCardClick(card) {
             }
             
             modalConfirmButton.textContent = confirmText;
-            modalCancelButton.textContent = cancelText;
+modalCancelButton.textContent = cancelText;
             modalConfirmButton.style.display = showConfirm ? 'inline-block' : 'none';
             modalCancelButton.style.display = showCancel ? 'inline-block' : 'none';
+            modalConfirmButton.disabled = false;
+            modalCancelButton.disabled = false;
             modalOverlay.classList.remove('hidden');
             modalOverlay.classList.add('visible-modal');
+           return new Promise((resolve, reject) => {
 
-            return new Promise((resolve, reject) => {
                 if (currentModal.reject) currentModal.reject('New modal opened');
                 currentModal = { resolve, reject };
 
