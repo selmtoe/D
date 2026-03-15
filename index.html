@@ -696,17 +696,18 @@ cursor: pointer;
             mouse.y = -(clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children);
-            for (let i = 0; i < intersects.length; i++) {
+for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
-                if (obj.userData && obj.userData.card) {
+if (obj.userData && obj.userData.card) {
                     if (passModeContext.active && obj.userData.isMine) {
                         dragContext.active = true;
-                        dragContext.mesh = obj;
+dragContext.mesh = obj;
                         dragContext.mode = 'pass';
-                        dragContext.startPos.copy(obj.position);
+                        dragContext.startPos.copy(obj.userData.originalPos || obj.position);
                         break;
                     }
                     if (stealMiniGameContext.active && stealMiniGameContext.targetMeshes.includes(obj)) {
+
                         dragContext.active = true;
                         dragContext.mesh = obj;
                         dragContext.mode = 'steal';
@@ -762,23 +763,46 @@ cursor: pointer;
 
         function onPointerUp(event) {
             if (!dragContext.active || !dragContext.mesh) return;
-            dragContext.active = false;
+dragContext.active = false;
             
             if (dragContext.mode === 'pass') {
+                const oldTargetId = passModeContext.assignments.find(a => a.card.uid === dragContext.mesh.userData.card.uid)?.targetId;
+                
                 if (dragContext.targetId) {
                     const closestPlayer = dragContext.targetId;
-                    const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
+const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
                     if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     passModeContext.assignments.push({ targetId: closestPlayer, card: dragContext.mesh.userData.card });
-                    const spritePos = playerNameSprites[closestPlayer].position;
-                    gsap.to(dragContext.mesh.position, { x: spritePos.x, y: spritePos.y - 1, z: spritePos.z, duration: 0.3 });
                 } else {
                     const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
-                    if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
+if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     gsap.to(dragContext.mesh.position, { x: dragContext.startPos.x, y: dragContext.startPos.y, z: dragContext.startPos.z, duration: 0.3 });
+                    if (dragContext.mesh.userData.originalRot) {
+                        gsap.to(dragContext.mesh.rotation, { x: dragContext.mesh.userData.originalRot.x, y: dragContext.mesh.userData.originalRot.y, z: dragContext.mesh.userData.originalRot.z, duration: 0.3 });
+                    }
                 }
 
+                const playersToUpdate = new Set();
+                if (dragContext.targetId) playersToUpdate.add(dragContext.targetId);
+                if (oldTargetId) playersToUpdate.add(oldTargetId);
+                
+                playersToUpdate.forEach(pid => {
+                    const cardsForPlayer = passModeContext.assignments.filter(a => a.targetId === pid);
+                    const spritePos = playerNameSprites[pid].position;
+                    const angle = Math.atan2(spritePos.x, spritePos.z);
+                    cardsForPlayer.forEach((assignment, index) => {
+                        const meshToMove = cardMeshes[assignment.card.uid];
+                        const spread = 1.0;
+                        const offset = (index - (cardsForPlayer.length - 1) / 2) * spread;
+                        const targetX = spritePos.x + Math.cos(angle) * offset;
+                        const targetZ = spritePos.z - Math.sin(angle) * offset;
+                        gsap.to(meshToMove.position, { x: targetX, y: spritePos.y, z: targetZ, duration: 0.3 });
+                        gsap.to(meshToMove.rotation, { x: Math.PI / 2, y: angle + Math.PI, z: 0, duration: 0.3 });
+                    });
+                });
+
                 const confirmBtn = document.getElementById('custom-pass-confirm-btn');
+
                 if (confirmBtn) {
                     confirmBtn.disabled = passModeContext.assignments.length !== passModeContext.requiredCount;
                 }
@@ -934,21 +958,24 @@ const intersects = raycaster.intersectObjects(scene.children);
                 if (player.id !== me.id) {
                     if (!playerNameSprites[player.id]) {
                         const canvas = document.createElement('canvas');
-                        canvas.width = 256; canvas.height = 64;
-                        const ctx = canvas.getContext('2d');
+                        canvas.width = 512; canvas.height = 128;
+                       
+  const ctx = canvas.getContext('2d');
                         ctx.fillStyle = 'white';
-                        ctx.font = 'bold 28px Arial';
+                        ctx.font = 'bold 56px Arial';
                         ctx.textAlign = 'center';
-                        ctx.fillText(player.name, 128, 40);
+                
+         ctx.fillText(player.name, 256, 80);
                         const tex = new THREE.CanvasTexture(canvas);
                         const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
                         const sprite = new THREE.Sprite(mat);
+ 
                         sprite.scale.set(6, 1.5, 1);
-                        sprite.raycast = function() {};
+sprite.raycast = function() {};
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
                     }
-                    playerNameSprites[player.id].position.set(pos.x, 4, pos.z);
+                    playerNameSprites[player.id].position.set(pos.x, 5.5, pos.z);
                 }
 
 
@@ -977,12 +1004,14 @@ const intersects = raycaster.intersectObjects(scene.children);
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
                         let targetRotY = isMine ? -pos.angle : pos.angle;
-                        let targetRotZ = 0;
+let targetRotZ = 0;
 
 
 
 
 if (isMine) {
+                            mesh.userData.originalPos = new THREE.Vector3(targetX, targetY, targetZ);
+                            mesh.userData.originalRot = new THREE.Vector3(targetRotX, targetRotY, targetRotZ);
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
 if (isSelected) {
                                 targetY += 1.0;
@@ -990,7 +1019,6 @@ if (isSelected) {
                         }
 
                         gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
-
 
                         gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
                     });
@@ -2077,8 +2105,9 @@ if (action.count > 1 && validTargets.length > 0) {
             stealMiniGameContext.requiredCount = currentObj.count;
             stealMiniGameContext.pulledCount = 0;
             const targetPos = new THREE.Vector3(targetSprite.position.x, 0, targetSprite.position.z);
-            const camTargetPos = targetPos.clone().multiplyScalar(0.2).setY(15);
+            const camTargetPos = targetPos.clone().multiplyScalar(0.4).setY(22);
             gsap.to(camera.position, { x: camTargetPos.x, y: camTargetPos.y, z: camTargetPos.z, duration: 1, onUpdate: () => camera.lookAt(targetPos), onComplete: () => {
+
 
                 stealMiniGameContext.targetMeshes = [];
                 const targetCards = [];
@@ -2717,12 +2746,15 @@ return p;
 
                 showModal(title, container, { showConfirm: true, showCancel: false })
                     .then(() => {
+                        closeModal();
                         const distribution = Object.entries(assignments)
                             .map(([playerId, count]) => ({ playerId, count }))
-                            .filter(item => item.count > 0);
+   
+                         .filter(item => item.count > 0);
                         resolve(distribution);
                     })
                     .catch(reject);
+
                 
                 updateTotal();
             });
