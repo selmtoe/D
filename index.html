@@ -2138,7 +2138,7 @@ if (!cardsToEval.every(c => c.number === playedNumber)) {
                     if (document.getElementById('custom-pass-ui')) return;
                     passModeContext.active = true;
                     passModeContext.assignments = [];
-                    passModeContext.requiredCount = action.count;
+                    passModeContext.requiredCount = Math.min(action.count, me.hand.length);
                     const uiDiv = document.createElement('div');
                     uiDiv.id = 'custom-pass-ui';
                     uiDiv.style.position = 'fixed';
@@ -2151,7 +2151,7 @@ if (!cardsToEval.every(c => c.number === playedNumber)) {
                     uiDiv.style.zIndex = '1000';
                     uiDiv.style.color = 'white';
                     uiDiv.style.textAlign = 'center';
-                    uiDiv.innerHTML = `<p>手札のカードを ${action.count} 枚、渡す相手の名前までドラッグしてください</p>`;
+                    uiDiv.innerHTML = `<p>手札のカードを ${passModeContext.requiredCount} 枚、渡す相手の名前までドラッグしてください</p>`;
                     const confirmBtn = document.createElement('button');
                     confirmBtn.id = 'custom-pass-confirm-btn';
                     confirmBtn.textContent = '決定';
@@ -2159,8 +2159,9 @@ if (!cardsToEval.every(c => c.number === playedNumber)) {
                     confirmBtn.onclick = async () => {
                         passModeContext.active = false;
                         document.body.removeChild(uiDiv);
-                        if (passModeContext.assignments.length === action.count) {
+                        if (passModeContext.assignments.length === passModeContext.requiredCount) {
                             let newActions = [...roomData.pendingActions];
+
                             let currentAssignments = [...passModeContext.assignments];
                             await clearPendingActions();
                             for (const a of currentAssignments) {
