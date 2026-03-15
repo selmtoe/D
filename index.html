@@ -1,12 +1,53 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
+        <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>大富豪オンライン</title>
+    <style>
+        #error-display-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            max-height: 50vh;
+            overflow-y: auto;
+            background-color: rgba(255, 0, 0, 0.9);
+            color: white;
+            z-index: 10000;
+            font-family: monospace;
+            padding: 10px;
+            box-sizing: border-box;
+            display: none;
+            white-space: pre-wrap;
+        }
+    </style>
+    <script>
+        window.addEventListener('error', function(event) {
+            var container = document.getElementById('error-display-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'error-display-container';
+                document.body.appendChild(container);
+            }
+            container.style.display = 'block';
+            container.innerHTML += '<p>Error: ' + event.message + ' at ' + event.filename + ':' + event.lineno + ':' + event.colno + '</p>';
+        });
+        window.addEventListener('unhandledrejection', function(event) {
+            var container = document.getElementById('error-display-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'error-display-container';
+                document.body.appendChild(container);
+            }
+            container.style.display = 'block';
+            container.innerHTML += '<p>Unhandled Promise Rejection: ' + event.reason + '</p>';
+        });
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
+
                 body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             background: radial-gradient(circle at center, #00695c 0%, #004d40 100%);
