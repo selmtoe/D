@@ -769,12 +769,14 @@ const intersects = raycaster.intersectObjects(scene.children);
                         const offset = (j - player.hand.length / 2) * spread;
                         
                         mesh.rotation.order = 'YXZ';
-                        const targetX = pos.x + Math.cos(pos.angle) * offset;
-                        const targetZ = pos.z - Math.sin(pos.angle) * offset;
+                        const depthOffset = j * 0.01;
+                        const targetX = pos.x + Math.cos(pos.angle) * offset - Math.sin(pos.angle) * depthOffset;
+                        const targetZ = pos.z - Math.sin(pos.angle) * offset - Math.cos(pos.angle) * depthOffset;
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
                         let targetRotY = isMine ? -pos.angle : pos.angle;
                         let targetRotZ = 0;
+
 
 
 
