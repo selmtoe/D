@@ -671,6 +671,7 @@ cursor: pointer;
             window.addEventListener('pointermove', onPointerMove, { passive: false });
             window.addEventListener('pointerup', onPointerUp, { passive: false });
             window.addEventListener('click', onCanvasClick);
+            window.addEventListener('touchstart', onCanvasClick, { passive: false });
             animateThreeJS();
         }
 
