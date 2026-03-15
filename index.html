@@ -539,10 +539,11 @@ cursor: pointer;
         // ▲▲▲ ここまで ▲▲▲
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import * as THREE from "https://unpkg.com/three@0.128.0/build/three.module.js";
-import { TWEEN } from "https://unpkg.com/@tweenjs/tween.js@18.6.4/dist/tween.esm.js";
-const showAlert = (message) => { alert(message); };
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import * as THREE from "https://unpkg.com/three@0.128.0/build/three.module.js";
+        import * as TWEEN from "https://unpkg.com/@tweenjs/tween.js@18.6.4/dist/tween.esm.js";
+        const showAlert = (message) => { alert(message); };
+
         
         const app = initializeApp(firebaseConfig);
 
@@ -1900,9 +1901,10 @@ modalCancelButton.textContent = cancelText;
                 container.className = 'modal-player-selection';
                  if (players.length === 0) {
                     container.textContent = "対象となるプレイヤーがいません。効果は不発に終わります。";
-                    setTimeout(() => { closeModal(); reject(); clearPendingAction(); }, 2000);
+                    setTimeout(() => { closeModal(); reject(); clearPendingActions(); }, 2000);
                  }
                 players.forEach(p => {
+
                     const btn = document.createElement('button');
                     btn.textContent = p.name;
                     btn.onclick = () => { closeModal(); resolve(p.id); };
