@@ -2108,7 +2108,7 @@ modalCancelButton.textContent = cancelText;
                 container.className = 'modal-player-selection';
                  if (players.length === 0) {
                     container.textContent = "対象となるプレイヤーがいません。効果は不発に終わります。";
-                    setTimeout(() => { closeModal(); reject(); clearPendingAction(); }, 2000);
+                    setTimeout(() => { closeModal(); reject(); clearPendingActions(); }, 2000);
                  }
                 players.forEach(p => {
                     const btn = document.createElement('button');
