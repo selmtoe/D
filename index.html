@@ -773,7 +773,7 @@ const intersects = raycaster.intersectObjects(scene.children);
                         const targetZ = pos.z - Math.sin(pos.angle) * offset;
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = !isMine ? Math.PI / 2 : Math.PI / 4;
-                        let targetRotY = isMine ? -pos.angle : -pos.angle + (Math.PI / 2);
+                        let targetRotY = -pos.angle;
                         let targetRotZ = 0;
 
 
