@@ -1532,12 +1532,14 @@ joinRoomButton.addEventListener('click', async () => {
                         }
                     }
 
-                    if (newHand.length === 0) {
+                    const willGainCards = nextState.pendingActions.some(a => ['collect_select_cards', 'steal_select_player'].includes(a.type));
+                    if (newHand.length === 0 && !willGainCards) {
    
-                     const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
+                    
+ const { updatedPlayers, 上がりLog } = handlePlayerFinish(nextState.players, me.id);
 nextState.players = updatedPlayers;
                         logEntries.push(...上がりLog);
-                        nextState.pendingActions = nextState.pendingActions.filter(a => a.type === 'bomber_select_rank' || a.type === 'eight_cut');
+nextState.pendingActions = nextState.pendingActions.filter(a => a.type === 'bomber_select_rank' || a.type === 'eight_cut');
 }
                     
                     const remainingPlayers = nextState.players.filter(p => p.rank === null).length;
@@ -1796,20 +1798,30 @@ async function handleCardClick(card) {
         
         function getNextPlayerId(players, currentId, direction, skipCount) {
             const activePlayers = players.filter(p => p.rank === null).sort((a,b) => a.order - b.order);
-            if (activePlayers.length === 0) return null;
+if (activePlayers.length === 0) return null;
             if (activePlayers.length === 1) return activePlayers[0].id;
             
             let currentIndex = activePlayers.findIndex(p => p.id === currentId);
-            if (currentIndex === -1) { 
-                const originalPlayer = players.find(p => p.id === currentId) || { order: -1 };
-                const nextOrderedPlayer = activePlayers.find(p => p.order > originalPlayer.order);
-                currentIndex = nextOrderedPlayer ? activePlayers.indexOf(nextOrderedPlayer) -1 : activePlayers.length -1;
+if (currentIndex === -1) { 
+                const originalPlayer = players.find(p => p.id === currentId);
+                if (!originalPlayer) return activePlayers[0].id;
+
+                let virtualIndex = activePlayers.findIndex(p => p.order > originalPlayer.order);
+                if (virtualIndex === -1) virtualIndex = activePlayers.length;
+
+                if (direction === 1) {
+                    currentIndex = virtualIndex - 1;
+                } else {
+                    currentIndex = virtualIndex % activePlayers.length;
+                }
             }
             
             const totalMoves = 1 + skipCount;
-            const nextIndex = (currentIndex + (totalMoves * direction) + activePlayers.length * totalMoves) % activePlayers.length;
+            let nextIndex = (currentIndex + (totalMoves * direction)) % activePlayers.length;
+            if (nextIndex < 0) nextIndex += activePlayers.length;
             return activePlayers[nextIndex].id;
-        }
+}
+
 
         function numberToString(num) {
             const map = { 1: 'A', 2: '2', 11: 'J', 12: 'Q', 13: 'K', 15: 'Joker' };
@@ -2467,14 +2479,16 @@ modalCancelButton.textContent = cancelText;
 
                     // アクションの結果、手札が0枚になった全プレイヤーをチェックする
                     const originalPlayers = roomData.players;
-                    tempPlayers.forEach(p => {
-                        const originalPlayer = originalPlayers.find(op => op.id === p.id);
-                        if (p.hand.length === 0 && originalPlayer && originalPlayer.hand.length > 0 && p.rank === null) {
-                            const { updatedPlayers, 上がりLog } = handlePlayerFinish(tempPlayers, p.id);
+tempPlayers.forEach(p => {
+                        if (p.hand.length === 0 && p.rank === null) {
+                            const 
+{ updatedPlayers, 上がりLog } = handlePlayerFinish(tempPlayers, p.id);
                             tempPlayers = updatedPlayers;
                             logEntries.push(...上がりLog);
                         }
+            
                     });
+
                     players = tempPlayers;
                     
                     const newPendingActions = roomData.pendingActions ? roomData.pendingActions.slice(1) : [];
