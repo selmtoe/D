@@ -798,15 +798,15 @@ cursor: pointer;
         }
 
         function showScreen(screenName) {
-
             Object.values(screens).forEach(screen => screen.classList.remove('active'));
             screens[screenName].classList.add('active');
             if (screenName === 'room') {
                 fetchPublicRooms();
             }
+            if (screenName === 'game' && !renderer) {
+                initThreeJS();
+            }
         }
-
-
         // --- Login ---
         loginButton.addEventListener('click', () => {
             const name = nameInput.value.trim();
