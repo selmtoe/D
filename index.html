@@ -654,7 +654,7 @@ cursor: pointer;
             renderer.setPixelRatio(window.devicePixelRatio);
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 22, 28);
+            camera.position.set(0, 15, 20);
             camera.lookAt(0, 0, 0);
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
@@ -703,11 +703,10 @@ cursor: pointer;
                         dragContext.active = true;
                         dragContext.mesh = obj;
                         dragContext.mode = 'pass';
-                        dragContext.startPos.copy(obj.userData.originalPos || obj.position);
+                        dragContext.startPos.copy(obj.position);
                         break;
                     }
                     if (stealMiniGameContext.active && stealMiniGameContext.targetMeshes.includes(obj)) {
-
                         dragContext.active = true;
                         dragContext.mesh = obj;
                         dragContext.mode = 'steal';
@@ -771,37 +770,15 @@ cursor: pointer;
                     const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
                     if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     passModeContext.assignments.push({ targetId: closestPlayer, card: dragContext.mesh.userData.card });
-                    const targetAssignments = passModeContext.assignments.filter(a => a.targetId === closestPlayer);
                     const spritePos = playerNameSprites[closestPlayer].position;
-                    targetAssignments.forEach((assignment, index) => {
-                        const mesh = cardMeshes[assignment.card.uid];
-                        if (mesh) {
-                            const offset = (index - (targetAssignments.length - 1) / 2) * 1.0;
-                            gsap.to(mesh.position, { x: spritePos.x + offset, y: spritePos.y - 1 + (index * 0.05), z: spritePos.z + (index * 0.02), duration: 0.3 });
-                        }
-                    });
+                    gsap.to(dragContext.mesh.position, { x: spritePos.x, y: spritePos.y - 1, z: spritePos.z, duration: 0.3 });
                 } else {
                     const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
-                    if (existingIdx > -1) {
-                        const removedTargetId = passModeContext.assignments[existingIdx].targetId;
-                        passModeContext.assignments.splice(existingIdx, 1);
-                        const targetAssignments = passModeContext.assignments.filter(a => a.targetId === removedTargetId);
-                        if (targetAssignments.length > 0) {
-                            const spritePos = playerNameSprites[removedTargetId].position;
-                            targetAssignments.forEach((assignment, index) => {
-                                const mesh = cardMeshes[assignment.card.uid];
-                                if (mesh) {
-                                    const offset = (index - (targetAssignments.length - 1) / 2) * 1.0;
-                                    gsap.to(mesh.position, { x: spritePos.x + offset, y: spritePos.y - 1 + (index * 0.05), z: spritePos.z + (index * 0.02), duration: 0.3 });
-                                }
-                            });
-                        }
-                    }
+                    if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     gsap.to(dragContext.mesh.position, { x: dragContext.startPos.x, y: dragContext.startPos.y, z: dragContext.startPos.z, duration: 0.3 });
                 }
 
                 const confirmBtn = document.getElementById('custom-pass-confirm-btn');
-
                 if (confirmBtn) {
                     confirmBtn.disabled = passModeContext.assignments.length !== passModeContext.requiredCount;
                 }
@@ -955,28 +932,25 @@ const intersects = raycaster.intersectObjects(scene.children);
                 const pos = playerPositions[posIndex];
                 
                 if (player.id !== me.id) {
- 
                     if (!playerNameSprites[player.id]) {
                         const canvas = document.createElement('canvas');
-                        canvas.width = 512; canvas.height = 128;
-                       
+                        canvas.width = 256; canvas.height = 64;
                         const ctx = canvas.getContext('2d');
                         ctx.fillStyle = 'white';
-                        ctx.font = 'bold 56px Arial';
+                        ctx.font = 'bold 28px Arial';
                         ctx.textAlign = 'center';
-                
-                        ctx.fillText(player.name, 256, 80);
+                        ctx.fillText(player.name, 128, 40);
                         const tex = new THREE.CanvasTexture(canvas);
                         const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
                         const sprite = new THREE.Sprite(mat);
- 
                         sprite.scale.set(6, 1.5, 1);
                         sprite.raycast = function() {};
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
                     }
-                    playerNameSprites[player.id].position.set(pos.x, 6.5, pos.z);
-}
+                    playerNameSprites[player.id].position.set(pos.x, 4, pos.z);
+                }
+
 
 
                 if (player.hand) {
@@ -1010,18 +984,18 @@ const intersects = raycaster.intersectObjects(scene.children);
 
 if (isMine) {
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
-                        if (isSelected) {
+if (isSelected) {
                                 targetY += 1.0;
 }
                         }
 
                         gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
-                        gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
-                        mesh.userData.originalPos = new THREE.Vector3(targetX, targetY, targetZ);
-                    });
-}
-            });
 
+
+                        gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
+                    });
+                }
+            });
 
             roomData.field.forEach((card, j) => {
                 const uid = card.uid;
@@ -2743,17 +2717,17 @@ return p;
 
                 showModal(title, container, { showConfirm: true, showCancel: false })
                     .then(() => {
-                        closeModal();
                         const distribution = Object.entries(assignments)
                             .map(([playerId, count]) => ({ playerId, count }))
-   
-                         .filter(item => item.count > 0);
+                            .filter(item => item.count > 0);
                         resolve(distribution);
                     })
-                    .catch((err) => { closeModal(); reject(err); });
- updateTotal();
+                    .catch(reject);
+                
+                updateTotal();
             });
         }
+
 
                 async function executeEightCut() {
             const roomRef = doc(db, 'rooms', currentRoomId);
