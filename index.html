@@ -901,6 +901,9 @@ const intersects = raycaster.intersectObjects(scene.children);
 
             roomData.players.forEach((player, i) => {
                 activePlayerIds.add(player.id);
+                const posIndex = (i - myIndex + numPlayers) % numPlayers;
+                const pos = playerPositions[posIndex];
+                
                 if (player.id !== me.id) {
                     if (!playerNameSprites[player.id]) {
                         const canvas = document.createElement('canvas');
@@ -918,10 +921,9 @@ const intersects = raycaster.intersectObjects(scene.children);
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
                     }
-                    const posIndex = (i - myIndex + numPlayers) % numPlayers;
-                    const pos = playerPositions[posIndex];
                     playerNameSprites[player.id].position.set(pos.x, 4, pos.z);
                 }
+
 
 
                 if (player.hand) {
