@@ -917,11 +917,9 @@ const intersects = raycaster.intersectObjects(scene.children);
                     playerNameSprites[player.id] = sprite;
                 }
                 const posIndex = (i - myIndex + numPlayers) % numPlayers;
-                playerNameSprites[player.id].position.set(playerPositions[posIndex].x, 4, playerPositions[posIndex].z);
-
-
-                const posIndex = (i - myIndex + numPlayers) % numPlayers;
                 const pos = playerPositions[posIndex];
+                playerNameSprites[player.id].position.set(pos.x, 4, pos.z);
+
                 if (player.hand) {
                     player.hand.forEach((card, j) => {
                         const uid = card.uid;
