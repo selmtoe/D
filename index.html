@@ -939,20 +939,13 @@ for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
                 
                 if (stealMiniGameContext.active && stealMiniGameContext.targetMeshes.includes(obj)) {
-                    obj.visible = false;
-                    stealMiniGameContext.pulledCount++;
+                    gsap.to(obj.position, { y: obj.position.y + 2, duration: 0.3 });
+ stealMiniGameContext.pulledCount++;
                     const index = stealMiniGameContext.targetMeshes.indexOf(obj);
                     if (index > -1) stealMiniGameContext.targetMeshes.splice(index, 1);
-                    if (stealMiniGameContext.pulledCount >= stealMiniGameContext.requiredCount) {
+if (stealMiniGameContext.pulledCount >= stealMiniGameContext.requiredCount) {
                         stealMiniGameContext.active = false;
-                        proceedNextStealMiniGame();
-                    }
-                    break;
-                }
-
-                if (obj.userData && obj.userData.card) {
-                    if (obj.userData.isMine) {
-                        handleCardClick(obj.userData.card);
+ setTimeout(() => { proceedNextStealMiniGame(); }, 500);
                     }
                     break;
                 }
@@ -1015,27 +1008,34 @@ sprite.raycast = function() {};
                         uidsInScene.add(uid);
         
                         let mesh = cardMeshes[uid];
+                        let isNew = false;
                         if (!mesh) {
                             mesh = createCardMesh3D(card);
-                         
-                            mesh.position.set(pos.x, 0, pos.z);
+                 
+         
+                            mesh.position.set(0, 0.5 + j * 0.01, 0);
+                            mesh.rotation.set(Math.PI / 2, 0, 0);
                             scene.add(mesh);
+                            isNew = true;
                         }
-                        mesh.visible = true;
+          
+               mesh.visible = true;
                         newCardMeshes[uid] = mesh;
 
                         const isMine = player.id === me.id;
                         mesh.userData.isMine = isMine;
-                        
+   
+                     
                         const spread = isMine ? 1.0 : 0.3;
                         const offset = (j - player.hand.length / 2) * spread;
-                        
+               
+         
                         mesh.rotation.order = 'YXZ';
                         const depthOffset = j * 0.01;
-                        const targetX = pos.x + Math.cos(pos.angle) * offset - Math.sin(pos.angle) * depthOffset;
-                        const targetZ = pos.z - Math.sin(pos.angle) * offset - Math.cos(pos.angle) * depthOffset;
+const targetX = pos.x + Math.cos(pos.angle) * offset - Math.sin(pos.angle) * depthOffset;
+const targetZ = pos.z - Math.sin(pos.angle) * offset - Math.cos(pos.angle) * depthOffset;
                         let targetY = isMine ? 1.5 : 2.5;
-                        let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
+let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
                         let targetRotY = isMine ? -pos.angle : pos.angle;
 let targetRotZ = 0;
 
@@ -1044,16 +1044,24 @@ let targetRotZ = 0;
 
 if (isMine) {
                             mesh.userData.originalPos = new THREE.Vector3(targetX, targetY, targetZ);
-                            mesh.userData.originalRot = new THREE.Vector3(targetRotX, targetRotY, targetRotZ);
+mesh.userData.originalRot = new THREE.Vector3(targetRotX, targetRotY, targetRotZ);
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
 if (isSelected) {
                                 targetY += 1.0;
 }
                         }
 
-                        gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
+                        if (isNew) {
+                            gsap.to(mesh.position, { y: 3 + j * 0.01, duration: 0.5 });
+                            const dealOrder = j * numPlayers + i;
+                            const dealDelay = 0.5 + dealOrder * 0.03;
+                            gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.4, delay: dealDelay });
+                            gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.4, delay: dealDelay });
+                        } else {
+                            gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
+                            gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
+                        }
 
-                        gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
                     });
                 }
             });
@@ -2014,10 +2022,10 @@ const shibariText = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
 
             if (playCards.length === myHand.length && !isPlayStair) {
                 const contains2 = playCards.some(c => c.number === 2 || (c.mimics && c.mimics.number === 2));
-                const containsJoker = playCards.some(c => c.suit === 'joker');
-                if (contains2 || containsJoker) {
-                    if (isDebugMode) console.log("[DEBUG] 失敗: 2上がり・Joker上がり禁止ルールに抵触");
-                    return { valid: false, message: '2 または Joker を含んだ上がりは禁止されています(階段を除く)。' };
+                const onlyJokers = playCards.every(c => c.suit === 'joker');
+                if (contains2 || onlyJokers) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: 2上がり・Joker単独上がり禁止ルールに抵触");
+                    return { valid: false, message: '2 または Joker単独 での上がりは禁止されています(階段を除く)。' };
                 }
             }
 
@@ -2201,8 +2209,9 @@ if (action.count > 1 && validTargets.length > 0) {
             stealMiniGameContext.requiredCount = currentObj.count;
             stealMiniGameContext.pulledCount = 0;
             const targetPos = new THREE.Vector3(targetSprite.position.x, 0, targetSprite.position.z);
-            const camTargetPos = targetPos.clone().multiplyScalar(0.4).setY(22);
+            const camTargetPos = targetPos.clone().multiplyScalar(0.5).setY(8);
             gsap.to(camera.position, { x: camTargetPos.x, y: camTargetPos.y, z: camTargetPos.z, duration: 1, onUpdate: () => camera.lookAt(targetPos), onComplete: () => {
+
 
 
                 stealMiniGameContext.targetMeshes = [];
