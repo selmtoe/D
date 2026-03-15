@@ -563,8 +563,12 @@ cursor: pointer;
     <div id="log-panel">
         <div id="log-header">
             <h3>ゲームログ</h3>
+            <label style="color: white; font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input type="checkbox" id="debug-checkbox"> デバッグ</label>
             <button id="log-close-button">×</button>
         </div>
+        <div id="log-messages"></div>
+    </div>
+
         <div id="log-messages"></div>
     </div>
     <button id="show-log-button">ログ表示</button>
@@ -644,10 +648,18 @@ cursor: pointer;
         const cutinEffectName = document.getElementById('cutin-effect-name');
         const logPanel = document.getElementById('log-panel');
         const showLogButton = document.getElementById('show-log-button');
-        const logCloseButton = document.getElementById('log-close-button');
-        const logMessagesDiv = document.getElementById('log-messages');
+const logCloseButton = document.getElementById('log-close-button');
+const logMessagesDiv = document.getElementById('log-messages');
+const debugCheckbox = document.getElementById('debug-checkbox');
+let isDebugMode = false;
+if (debugCheckbox) {
+    debugCheckbox.addEventListener('change', (e) => {
+        isDebugMode = e.target.checked;
+    });
+}
 
         function initThreeJS() {
+
             const canvas = document.getElementById('webgl-canvas');
             renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -701,14 +713,15 @@ cursor: pointer;
             mouse.y = -(clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(scene.children);
-            for (let i = 0; i < intersects.length; i++) {
+for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
-                if (obj.userData && obj.userData.card) {
+if (obj.userData && obj.userData.card) {
                     if (passModeContext.active && obj.userData.isMine) {
                         dragContext.active = true;
-                        dragContext.mesh = obj;
+dragContext.mesh = obj;
                         dragContext.mode = 'pass';
                         dragContext.startPos.copy(obj.userData.originalPos || obj.position);
+                        gsap.to(obj.position, { y: 6.0, duration: 0.1 });
                         break;
                     }
                 }
@@ -722,37 +735,42 @@ cursor: pointer;
             const clientX = event.clientX;
             const clientY = event.clientY;
             mouse.x = (clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+mouse.y = -(clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
-            const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dragContext.mesh.position.y);
-            const intersectPoint = new THREE.Vector3();
+            const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -6.0);
+const intersectPoint = new THREE.Vector3();
             raycaster.ray.intersectPlane(dragPlane, intersectPoint);
             if (intersectPoint) {
                 if (dragContext.mode === 'pass') {
                     let closestPlayer = null;
-                    let minDist = 6.0;
+let minDist = 6.0;
                     Object.keys(playerNameSprites).forEach(pid => {
                         if (pid === currentPlayer.id) return;
                         const sprite = playerNameSprites[pid];
                         const dist = new THREE.Vector2(intersectPoint.x, intersectPoint.z).distanceTo(new THREE.Vector2(sprite.position.x, sprite.position.z));
-                        if (dist < minDist) {
+        
+                if (dist < minDist) {
                             minDist = dist;
                             closestPlayer = pid;
-                        }
+                    
+    }
                     });
-                    if (closestPlayer) {
+if (closestPlayer) {
                         const spritePos = playerNameSprites[closestPlayer].position;
-                        dragContext.mesh.position.x = spritePos.x;
+dragContext.mesh.position.x = spritePos.x;
+                        dragContext.mesh.position.y = spritePos.y + 1.0;
                         dragContext.mesh.position.z = spritePos.z;
                         dragContext.targetId = closestPlayer;
                     } else {
                         dragContext.mesh.position.x = intersectPoint.x;
-                        dragContext.mesh.position.z = intersectPoint.z;
+                        dragContext.mesh.position.y = 6.0;
+dragContext.mesh.position.z = intersectPoint.z;
                         dragContext.targetId = null;
                     }
                 }
             }
         }
+
 
 
         function onPointerUp(event) {
@@ -784,14 +802,17 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                     const cardsForPlayer = passModeContext.assignments.filter(a => a.targetId === pid);
                     const spritePos = playerNameSprites[pid].position;
                     const angle = Math.atan2(spritePos.x, spritePos.z);
-                    cardsForPlayer.forEach((assignment, index) => {
+                  
+  cardsForPlayer.forEach((assignment, index) => {
                         const meshToMove = cardMeshes[assignment.card.uid];
                         const spread = 1.0;
                         const offset = (index - (cardsForPlayer.length - 1) / 2) * spread;
-                        const targetX = spritePos.x + Math.cos(angle) * offset;
+      
+                  const targetX = spritePos.x + Math.cos(angle) * offset;
                         const targetZ = spritePos.z - Math.sin(angle) * offset;
-                        gsap.to(meshToMove.position, { x: targetX, y: spritePos.y, z: targetZ, duration: 0.3 });
-                        gsap.to(meshToMove.rotation, { x: Math.PI / 2, y: angle + Math.PI, z: 0, duration: 0.3 });
+                        gsap.to(meshToMove.position, { x: targetX, y: spritePos.y + 1.0, z: targetZ, duration: 0.3 });
+          
+              gsap.to(meshToMove.rotation, { x: Math.PI / 2, y: angle + Math.PI, z: 0, duration: 0.3 });
                     });
                 });
 
@@ -1707,17 +1728,18 @@ if (!me) return;
 
             const isMyTurn = roomData.turnPlayerId === me.id && me.rank === null;
             playButton.disabled = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
-
-            let disablePass = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
-            if (!disablePass && roomData.field.length === 0) {
+let disablePass = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
+if (!disablePass && roomData.field.length === 0) {
                 // 場が空の時は基本パス不可
                 disablePass = true;
-                // 例外: 手札が残り1枚で、それが2かJokerの場合のみパスを許可
-                if (me.hand && me.hand.length === 1 && (me.hand[0].number === 2 || me.hand[0].suit === 'joker')) {
+// 例外: 手札が2かJokerしか無い場合のみパスを許可
+                const canOnlyPlay2OrJoker = me.hand && me.hand.length > 0 && me.hand.every(c => c.number === 2 || c.suit === 'joker');
+                if (canOnlyPlay2OrJoker) {
                     disablePass = false;
-                }
+}
                         }
                             passButton.disabled = disablePass;
+
             renderLog(roomData.log || []);
 
             const isMyTurnAndActive = isMyTurn && me.rank === null;
@@ -1739,9 +1761,10 @@ if (!me) return;
         
         // ★修正(7): Jokerの選択処理を全面的に修正
 async function handleCardClick(card) {
+            if (passModeContext.active) return;
             const index = selectedCards.findIndex(c => c.uid === card.uid);
+if (index > -1) { // Card is already selected -> Deselect it
 
-            if (index > -1) { // Card is already selected -> Deselect it
                 selectedCards.splice(index, 1);
                 const nonJokersLeft = selectedCards.filter(c => c.suit !== 'joker');
                 if (nonJokersLeft.length === 0) {
@@ -1907,29 +1930,39 @@ if (currentIndex === -1) {
         }
         
                 function isValidPlay(playCards, myHand, roomData) {
+            if (isDebugMode) {
+                const p = document.createElement('p');
+                p.style.color = 'orange';
+                p.style.fontSize = '12px';
+                p.textContent = `[DEBUG] isValidPlay開始. 場:${roomData.field.length}枚, 選択:${playCards.length}枚`;
+                document.getElementById('log-messages').prepend(p);
+                console.log("[DEBUG] isValidPlay開始", {playCards, myHand, field: roomData.field});
+            }
+
             if (roomData.shibariSuits && roomData.shibariSuits.length > 0) {
                 // Check for exceptions
                 // 1. Single non-mimicked Joker
-                const isSingleJoker = playCards.length === 1 && playCards[0].suit === 'joker' && !playCards[0].mimics;
-                // 2. Spade 3 on single Joker
+               
+ const isSingleJoker = playCards.length === 1 && playCards[0].suit === 'joker' && !playCards[0].mimics;
+// 2. Spade 3 on single Joker
                 const isSpade3返し = playCards.length === 1 && playCards[0].suit === 'spade' && playCards[0].number === 3 &&
                                 roomData.field.length === 1 && roomData.field[0].suit === 'joker' && !roomData.field[0].mimics;
-
-                if (!isSingleJoker && !isSpade3返し) {
+if (!isSingleJoker && !isSpade3返し) {
                     const playSuits = new Set();
-                    playCards.forEach(c => {
+playCards.forEach(c => {
                         const cardToEval = c.mimics ? c.mimics : c;
                         if (cardToEval.suit !== 'joker') {
                             playSuits.add(cardToEval.suit);
-                        }
+           
+             }
                     });
-                    
-                    for (const shibariSuit of roomData.shibariSuits) {
+for (const shibariSuit of roomData.shibariSuits) {
                         if (!playSuits.has(shibariSuit)) {
                             const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
-                            const shibariText = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
+const shibariText = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
+                            if (isDebugMode) console.log("[DEBUG] 失敗: 縛りに反している");
                             return { valid: false, message: `縛りが発生しています(${shibariText})。縛りスートをすべて含んでいません。` };
-                        }
+}
                     }
                 }
             }
@@ -1937,39 +1970,53 @@ if (currentIndex === -1) {
             if (roomData.field.length === 0 && roomData.lastPlayed.player === null &&
                 myHand.some(c => c.suit === 'diamond' && c.number === 3)) {
 
-                if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
+       
+         if (!playCards.some(c => c.suit === 'diamond' && c.number === 3)) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: ダイヤの3が含まれていない");
                     return { valid: false, message: 'ゲームの最初はダイヤの3を含めて出す必要があります。' };
-                }
+}
             }
             
-            const isOnly2s = playCards.every(c => (c.number === 2 && c.suit !== 'joker') || (c.suit === 'joker' && c.mimics && c.mimics.number === 2));
-            if (new Set(playCards.map(c => c.uid)).size === myHand.length && isOnly2s) {
-                 return { valid: false, message: '2 (または2に擬態したJoker) のみで上がることはできません。' };
+            if (playCards.length === myHand.length) {
+                const contains2 = playCards.some(c => c.number === 2 || (c.mimics && c.mimics.number === 2));
+                const containsJoker = playCards.some(c => c.suit === 'joker');
+                if (contains2 || containsJoker) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: 2上がり・Joker上がり禁止ルールに抵触");
+                    return { valid: false, message: '2 または Joker を含んだ上がりは禁止されています。' };
+                }
             }
+
             const jokers = playCards.filter(c => c.suit === 'joker');
-            const others = playCards.filter(c => c.suit !== 'joker');
+const others = playCards.filter(c => c.suit !== 'joker');
 
             if (jokers.length > 0 && others.length > 0) {
                 if (jokers.some(j => !j.mimics)) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: Jokerが擬態していない");
                     return { valid: false, message: '他のカードと出す場合、Jokerは必ず何かに擬態させてください。' };
-                }
+}
             } 
             else if (jokers.length > 0 && others.length === 0) {
                 if (jokers.some(j => j.mimics)) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: 単独Jokerなのに擬態している");
                     return { valid: false, message: 'Jokerのみで出す場合は擬態できません。' };
-                }
+}
             }
 
             const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
-            const isPlayStair = isStair(cardsToEval);
+const isPlayStair = isStair(cardsToEval);
             
+            if (isDebugMode) console.log("[DEBUG] 階段判定:", isPlayStair, "評価対象:", cardsToEval);
+
             if (!isPlayStair) {
                 const realCards = cardsToEval.filter(c => c.suit !== 'joker');
-                const playedNumber = realCards.length > 0 ? realCards[0].number : (cardsToEval.length > 0 ? cardsToEval[0].number : null);
-                if (!cardsToEval.every(c => c.number === playedNumber)) {
+const playedNumber = realCards.length > 0 ? realCards[0].number : (cardsToEval.length > 0 ? cardsToEval[0].number : null);
+if (isDebugMode) console.log("[DEBUG] 階段ではない場合の判定. 基準数値:", playedNumber);
+if (!cardsToEval.every(c => c.number === playedNumber)) {
+                    if (isDebugMode) console.log("[DEBUG] 失敗: 全カードの数字が揃っていない");
                     return { valid: false, message: '同じ数字のカードか、階段で出してください。' };
-                }
+}
             }
+
             
             if (roomData.field.length === 0) return { valid: true };
 
@@ -2017,7 +2064,7 @@ if (currentIndex === -1) {
                     const uiDiv = document.createElement('div');
                     uiDiv.id = 'custom-pass-ui';
                     uiDiv.style.position = 'fixed';
-                    uiDiv.style.bottom = '80px';
+                    uiDiv.style.bottom = '160px';
                     uiDiv.style.left = '50%';
                     uiDiv.style.transform = 'translateX(-50%)';
                     uiDiv.style.background = 'rgba(0,0,0,0.8)';
