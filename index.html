@@ -53,25 +53,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
 
-                body {
+        body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
             background: radial-gradient(circle at center, #00695c 0%, #004d40 100%);
             color: #E0E0E0;
             margin: 0;
-padding: 20px;
+            padding: 20px;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             box-sizing: border-box;
-            /* overflow: hidden;
-            を削除してスクロールを有効化 */
-            transition: background-color 0.5s ease;
-}
+            transition: background 0.5s ease;
+        }
 
         body.is-my-turn-bg {
-            background-color: #6a2e2e;
-}
+            background: radial-gradient(circle at center, #8e3a3a 0%, #5c2020 100%);
+        }
+
 
         .waiting-players-list {
             background: rgba(255, 255, 255, 0.95);
@@ -496,18 +495,20 @@ cursor: pointer;
 
     <div id="game-screen" class="container screen">
         <canvas id="webgl-canvas"></canvas>
-        <div class="game-info-bar ui-overlay">
+        <div class="game-info-bar ui-overlay" style="display: none;">
             <div>
                 <h2>大富豪</h2>
                 <span id="turn-info"></span>
             </div>
-                        <div class="game-status-icons">
-                 <span id="revolution-icon" title="革命中" style="display:none;">⚔️</span>
-                 <span id="j-back-icon" title="Jバック中" style="display:none;">J</span>
-                 <span id="reverse-icon" title="リバース中" style="display:none;">🔄</span>
-                 <span id="shibari-icon" title="縛り" style="display:none; font-size: 24px;"></span>
-            </div>
-
+        </div>
+        
+        <div id="table-status-icons" class="ui-overlay" style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); display: flex; gap: 15px; font-size: 32px; pointer-events: none; z-index: 5;">
+             <span id="revolution-icon" title="革命中" style="display:none; text-shadow: 0 0 10px red;">⚔️</span>
+             <span id="j-back-icon" title="Jバック中" style="display:none; color: gold; font-weight: bold; text-shadow: 0 0 10px orange;">J</span>
+             <svg id="reverse-icon" viewBox="0 0 24 24" width="36" height="36" style="display:none; fill: #fff; filter: drop-shadow(0 0 5px #0ff);">
+                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+             </svg>
+             <span id="shibari-icon" title="縛り" style="display:none; font-size: 24px; text-shadow: 0 0 5px white;"></span>
         </div>
         
         <div id="players-container" class="players-container" style="display: none;"></div>
@@ -605,6 +606,7 @@ cursor: pointer;
         let tableMesh;
         let playerPositions = [];
         let playerNameSprites = {};
+        let turnIndicator = null;
         let dragContext = { active: false, mesh: null, mode: null, startPos: new THREE.Vector3(), targetId: null, startClientY: 0 };
         let passModeContext = { active: false, assignments: [], requiredCount: 0 };
         let stealMiniGameContext = { active: false, targets: [], currentTargetIndex: 0, requiredCount: 0, pulledCount: 0, originalCamPos: new THREE.Vector3(), targetMeshes: [] };
@@ -678,7 +680,15 @@ if (debugCheckbox) {
             tableMesh = new THREE.Mesh(tableGeo, tableMat);
             tableMesh.position.y = -0.25;
             scene.add(tableMesh);
+            const arrowGeo = new THREE.ConeGeometry(0.5, 1.5, 32);
+            const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            turnIndicator = new THREE.Mesh(arrowGeo, arrowMat);
+            turnIndicator.rotation.x = Math.PI;
+            turnIndicator.visible = false;
+            scene.add(turnIndicator);
+
             raycaster = new THREE.Raycaster();
+
             mouse = new THREE.Vector2();
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
@@ -829,8 +839,13 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
 
         function animateThreeJS() {
             requestAnimationFrame(animateThreeJS);
-renderer.render(scene, camera);
+            if (turnIndicator && turnIndicator.visible) {
+                const time = Date.now() * 0.005;
+                turnIndicator.position.y = turnIndicator.userData.baseY + Math.sin(time) * 0.5;
+            }
+            renderer.render(scene, camera);
         }
+
 
         function generateCardTexture(card) {
 
@@ -1098,11 +1113,24 @@ if (isSelected) {
                     const meshToRemove = cardMeshes[uid];
                     gsap.delayedCall(0.5, () => {
                         scene.remove(meshToRemove);
+        
                     });
                 }
             });
             cardMeshes = newCardMeshes;
+
+            if (turnIndicator) {
+                const turnSprite = playerNameSprites[roomData.turnPlayerId];
+                if (turnSprite && roomData.turnPlayerId !== currentPlayer.id) {
+                    turnIndicator.visible = true;
+                    turnIndicator.position.set(turnSprite.position.x, turnSprite.position.y + 2, turnSprite.position.z);
+                    turnIndicator.userData.baseY = turnSprite.position.y + 2.5;
+                } else {
+                    turnIndicator.visible = false;
+                }
+            }
         }
+
 
 
         function showScreen(screenName) {
@@ -1981,17 +2009,20 @@ const shibariText = roomData.shibariSuits.map(s => suitSymbols[s]).join('');
 }
             }
             
-            if (playCards.length === myHand.length) {
+            const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
+            const isPlayStair = isStair(cardsToEval);
+
+            if (playCards.length === myHand.length && !isPlayStair) {
                 const contains2 = playCards.some(c => c.number === 2 || (c.mimics && c.mimics.number === 2));
                 const containsJoker = playCards.some(c => c.suit === 'joker');
                 if (contains2 || containsJoker) {
                     if (isDebugMode) console.log("[DEBUG] 失敗: 2上がり・Joker上がり禁止ルールに抵触");
-                    return { valid: false, message: '2 または Joker を含んだ上がりは禁止されています。' };
+                    return { valid: false, message: '2 または Joker を含んだ上がりは禁止されています(階段を除く)。' };
                 }
             }
 
             const jokers = playCards.filter(c => c.suit === 'joker');
-const others = playCards.filter(c => c.suit !== 'joker');
+            const others = playCards.filter(c => c.suit !== 'joker');
 
             if (jokers.length > 0 && others.length > 0) {
                 if (jokers.some(j => !j.mimics)) {
@@ -2006,8 +2037,6 @@ const others = playCards.filter(c => c.suit !== 'joker');
 }
             }
 
-            const cardsToEval = playCards.map(c => c.mimics ? { ...c.mimics, uid: c.uid } : c);
-const isPlayStair = isStair(cardsToEval);
             
             if (isDebugMode) console.log("[DEBUG] 階段判定:", isPlayStair, "評価対象:", cardsToEval);
 
@@ -2068,7 +2097,7 @@ if (!cardsToEval.every(c => c.number === playedNumber)) {
                     const uiDiv = document.createElement('div');
                     uiDiv.id = 'custom-pass-ui';
                     uiDiv.style.position = 'fixed';
-                    uiDiv.style.bottom = '160px';
+                    uiDiv.style.top = '100px';
                     uiDiv.style.left = '50%';
                     uiDiv.style.transform = 'translateX(-50%)';
                     uiDiv.style.background = 'rgba(0,0,0,0.8)';
@@ -2498,7 +2527,7 @@ modalCancelButton.textContent = cancelText;
         
         function checkGameEnd(state) {
             const activePlayers = state.players.filter(p => p.rank === null);
-            if (activePlayers.length <= 1) {
+            if (activePlayers.length <= 1 && (!state.pendingActions || state.pendingActions.length === 0)) {
                 state.gameState = 'finished';
                 if (activePlayers.length === 1) {
                     const lastPlayer = activePlayers[0];
@@ -2620,16 +2649,8 @@ tempPlayers.forEach(p => {
                         return { ...p, hand: newHand };
                     });
 
-                    if (finishedPlayerIds.length > 0) {
-                        const finishedCount = roomData.players.filter(p => p.rank !== null).length;
-                        const newRank = finishedCount + 1;
-                        finishedPlayerIds.forEach(id => {
-                            const pIndex = players.findIndex(p => p.id === id);
-                            players[pIndex].rank = newRank;
-                        });
-                    }
-
                     return { players, discardPile: [...roomData.discardPile, ...allDiscarded.map(c => cleanCard(c))], logContext: { ranks } };
+
                 },
                                 (ctx) => `${currentPlayer.name}が数字[${ctx.ranks.map(numberToString).join(',')}]を破壊しました。`,
                 {
