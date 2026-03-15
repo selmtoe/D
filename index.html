@@ -401,33 +401,7 @@ cursor: pointer;
             z-index: 901;
         }
 
-        #three-canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            pointer-events: auto;
-        }
-        #game-screen {
-            position: relative;
-            z-index: 1;
-            background: transparent;
-        }
-        #players-container, #game-playing-area h3, #field, #my-hand {
-            display: none !important;
-        }
-        .controls {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-        }
-
     </style>
-
     <link rel="manifest" href="manifest.json">
 </head>
 <body>
@@ -454,7 +428,6 @@ cursor: pointer;
     </div>
 
     <div id="game-screen" class="container screen">
-        <div id="three-canvas-container"></div>
         <div class="game-info-bar">
             <div>
                 <h2>大富豪</h2>
@@ -540,26 +513,20 @@ cursor: pointer;
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        import * as THREE from "https://unpkg.com/three@0.128.0/build/three.module.js";
-        import * as TWEEN from "https://unpkg.com/@tweenjs/tween.js@18.6.4/dist/tween.esm.js";
         const showAlert = (message) => { alert(message); };
 
         
         const app = initializeApp(firebaseConfig);
-
         const db = getFirestore(app);
 
         // Global variables
         let currentPlayer = { id: null, name: null };
         let currentRoomId = null;
         let unsubscribeRoom = null;
-        let selectedCards = [];
+        let selectedCards = []; // Stores { suit, number, uid, mimics?: {suit, number} }
         let cardUidsInHand = new Set();
         let currentModal = { resolve: null, reject: null };
         let lastKnownLogCount = 0;
-        let scene, camera, renderer, raycaster, mouse;
-        let cardMeshes = {};
-        let tableMesh;
 
         // DOM Elements
         const screens = { login: document.getElementById('login-screen'), room: document.getElementById('room-screen'), game: document.getElementById('game-screen') };
@@ -1251,13 +1218,10 @@ if (!me) return;
 fieldDiv.innerHTML = '';
             roomData.field.forEach(card => fieldDiv.appendChild(createCardElement(card)));
 
-            update3DScene(roomData, me.id);
-
             const turnPlayer = roomData.players.find(p => p.id === roomData.turnPlayerId);
 
-            turnInfoSpan.textContent = turnPlayer ?
-(turnPlayer.id === me.id ? "あなたのターンです" : `${turnPlayer.name} のターン`) : "---";
-           
+            turnInfoSpan.textContent = turnPlayer ? (turnPlayer.id === me.id ? "あなたのターンです" : `${turnPlayer.name} のターン`) : "---";
+            
             const lastPlayer = roomData.players.find(p => p.id === roomData.lastPlayed.player);
             lastPlayerInfoSpan.textContent = lastPlayer ? `最後に出した人: ${lastPlayer.name}` : "---";
 
@@ -1353,190 +1317,12 @@ async function handleCardClick(card) {
             }
             
             const roomData = (await getDoc(doc(db, 'rooms', currentRoomId))).data();
-const me = roomData.players.find(p => p.id === currentPlayer.id);
+            const me = roomData.players.find(p => p.id === currentPlayer.id);
             renderMyHand(me, roomData);
-
-            if (cardMeshes[card.uid]) {
-                const mesh = cardMeshes[card.uid];
-                const index = selectedCards.findIndex(c => c.uid === card.uid);
-                mesh.userData.isSelected = index > -1;
-            }
-            update3DScene(roomData, me.id);
-}
+        }
 
         // --- Helper Functions ---
-                function initThreeJS() {
-            const container = document.getElementById('three-canvas-container');
-            if (container.children.length > 0) return;
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 15, 15);
-            camera.lookAt(0, 0, 0);
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
-            container.appendChild(renderer.domElement);
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(5, 20, 10);
-            dirLight.castShadow = true;
-            scene.add(dirLight);
-            const tableGeo = new THREE.CylinderGeometry(10, 10, 0.5, 32);
-            const tableMat = new THREE.MeshPhongMaterial({ color: 0x2e7d32 });
-            tableMesh = new THREE.Mesh(tableGeo, tableMat);
-            tableMesh.position.y = -0.25;
-            tableMesh.receiveShadow = true;
-            scene.add(tableMesh);
-            raycaster = new THREE.Raycaster();
-            mouse = new THREE.Vector2();
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-            window.addEventListener('click', onMouseClick3D);
-            requestAnimationFrame(animate3D);
-        }
-
-        function animate3D(time) {
-            requestAnimationFrame(animate3D);
-            TWEEN.update(time);
-            renderer.render(scene, camera);
-        }
-
-        function createCardTexture(card) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 128;
-            canvas.height = 192;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, 128, 192);
-            ctx.strokeStyle = '#ccc';
-            ctx.strokeRect(2, 2, 124, 188);
-            if (card) {
-                const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
-                const isRed = card.suit === 'heart' || card.suit === 'diamond';
-                ctx.fillStyle = isRed ? 'red' : 'black';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                if (card.suit === 'joker') {
-                    ctx.font = '24px Arial';
-                    ctx.fillText('JOKER', 64, 96);
-                } else {
-                    const displayCard = card.mimics ? card.mimics : card;
-                    const suit = suitSymbols[displayCard.suit];
-                    const num = numberToString(displayCard.number);
-                    ctx.font = '36px Arial';
-                    ctx.fillText(suit, 64, 50);
-                    ctx.font = '48px Arial';
-                    ctx.fillText(num, 64, 110);
-                }
-            } else {
-                ctx.fillStyle = '#1e3d59';
-                ctx.fillRect(5, 5, 118, 182);
-            }
-            const tex = new THREE.CanvasTexture(canvas);
-            return tex;
-        }
-
-        function getCardMesh(cardData, isBack) {
-            const uid = cardData ? cardData.uid : Math.random().toString();
-            if (cardMeshes[uid]) return cardMeshes[uid];
-            const geo = new THREE.BoxGeometry(1.2, 0.02, 1.8);
-            const texFront = createCardTexture(isBack ? null : cardData);
-            const texBack = createCardTexture(null);
-            const matFront = new THREE.MeshPhongMaterial({ map: texFront });
-            const matBack = new THREE.MeshPhongMaterial({ map: texBack });
-            const matSide = new THREE.MeshPhongMaterial({ color: 0xffffff });
-            const mesh = new THREE.Mesh(geo, [matSide, matSide, matFront, matBack, matSide, matSide]);
-            mesh.castShadow = true;
-            mesh.userData = { uid: uid, card: cardData, isSelected: false };
-            cardMeshes[uid] = mesh;
-            scene.add(mesh);
-            return mesh;
-        }
-
-        function update3DScene(roomData, meId) {
-            initThreeJS();
-            const activePlayers = roomData.players.filter(p => p.rank === null).sort((a, b) => a.order - b.order);
-            const totalPlayers = activePlayers.length;
-            let myIndex = activePlayers.findIndex(p => p.id === meId);
-            if (myIndex === -1) myIndex = 0;
-            const radius = 8;
-            
-            const currentUids = new Set();
-            
-            activePlayers.forEach((player, i) => {
-                const angleOffset = -Math.PI / 2;
-                const angle = ((i - myIndex) / totalPlayers) * Math.PI * 2 + angleOffset;
-                const px = Math.cos(angle) * radius;
-                const pz = Math.sin(angle) * radius;
-                
-                if (player.id === meId) {
-                    player.hand.forEach((card, j) => {
-                        currentUids.add(card.uid);
-                        const mesh = getCardMesh(card, false);
-                        const handWidth = player.hand.length * 0.8;
-                        const startX = px - handWidth / 2 + j * 0.8;
-                        const targetPos = new THREE.Vector3(startX, 0.5, pz);
-                        const targetRot = new THREE.Euler(0, 0, 0);
-                        if (mesh.userData.isSelected) {
-                            targetPos.y += 0.5;
-                            targetPos.z -= 0.5;
-                        }
-                        new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                        new TWEEN.Tween(mesh.rotation).to({ x: targetRot.x, y: targetRot.y, z: targetRot.z }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                    });
-                } else {
-                    player.hand.forEach((card, j) => {
-                        const fakeUid = player.id + "_card_" + j;
-                        currentUids.add(fakeUid);
-                        const mesh = getCardMesh({ uid: fakeUid }, true);
-                        const handWidth = player.hand.length * 0.5;
-                        const startX = -handWidth / 2 + j * 0.5;
-                        const localPos = new THREE.Vector3(startX, 0.5, 0);
-                        localPos.applyAxisAngle(new THREE.Vector3(0,1,0), -angle - Math.PI/2);
-                        const targetPos = new THREE.Vector3(px + localPos.x, 0.5, pz + localPos.z);
-                        new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                        new TWEEN.Tween(mesh.rotation).to({ x: 0, y: -angle - Math.PI/2, z: Math.PI }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                    });
-                }
-            });
-
-            roomData.field.forEach((card, i) => {
-                currentUids.add(card.uid);
-                const mesh = getCardMesh(card, false);
-                const targetPos = new THREE.Vector3(-1 + i * 0.5, 0.1 + i * 0.01, 0);
-                new TWEEN.Tween(mesh.position).to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.rotation).to({ x: 0, y: 0, z: 0 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-            });
-
-            Object.keys(cardMeshes).forEach(uid => {
-                if (!currentUids.has(uid)) {
-                    scene.remove(cardMeshes[uid]);
-                    delete cardMeshes[uid];
-                }
-            });
-        }
-
-        function onMouseClick3D(event) {
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(scene.children);
-            if (intersects.length > 0) {
-                const object = intersects[0].object;
-                if (object.userData && object.userData.card && object.userData.card.uid && !object.userData.card.uid.includes("_card_")) {
-                    handleCardClick(object.userData.card);
-                    object.userData.isSelected = !object.userData.isSelected;
-                }
-            }
-        }
-
-        function generatePlayerId() { return Math.random().toString(36).substring(2, 10);
-}
-
+        function generatePlayerId() { return Math.random().toString(36).substring(2, 10); }
         function generateRoomId() { return Math.random().toString(36).substring(2, 7).toUpperCase(); }
         
         function getCardStrength(card) {
@@ -1901,10 +1687,9 @@ modalCancelButton.textContent = cancelText;
                 container.className = 'modal-player-selection';
                  if (players.length === 0) {
                     container.textContent = "対象となるプレイヤーがいません。効果は不発に終わります。";
-                    setTimeout(() => { closeModal(); reject(); clearPendingActions(); }, 2000);
+                    setTimeout(() => { closeModal(); reject(); clearPendingAction(); }, 2000);
                  }
                 players.forEach(p => {
-
                     const btn = document.createElement('button');
                     btn.textContent = p.name;
                     btn.onclick = () => { closeModal(); resolve(p.id); };
