@@ -916,11 +916,11 @@ const mesh = new THREE.Mesh(geometry, materials);
             mesh.userData = { card: card, isSelected: false };
             return mesh;
 }
-
         function onCanvasClick(event) {
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
-
+            if (document.getElementById('modal-overlay').classList.contains('visible-modal')) return;
             let clientX = event.clientX;
+
             let clientY = event.clientY;
 
             if (event.changedTouches && event.changedTouches.length > 0) {
