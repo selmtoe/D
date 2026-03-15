@@ -770,12 +770,11 @@ const intersects = raycaster.intersectObjects(scene.children);
                         
                         const targetX = pos.x + Math.cos(pos.angle) * offset;
                         const targetZ = pos.z - Math.sin(pos.angle) * offset;
-                        let targetY = isMine ? 1.5 : 0.5;
-                        
-                        let targetRotX = !isMine ?
-Math.PI : 0;
+                        let targetY = isMine ? 1.5 : 2.5;
+                        let targetRotX = !isMine ? Math.PI / 2 : Math.PI / 4;
                         let targetRotY = -pos.angle;
                         let targetRotZ = 0;
+
 if (isMine) {
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
 if (isSelected) {
@@ -802,11 +801,28 @@ if (isSelected) {
                 }
                 newCardMeshes[uid] = mesh;
                 const offset = (j - roomData.field.length / 2) * 1.0;
-  
                 gsap.to(mesh.position, { x: offset, y: 0.26, z: 0, duration: 0.5 });
                 gsap.to(mesh.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
             });
-Object.keys(cardMeshes).forEach(uid => {
+
+            if (roomData.discardPile) {
+                roomData.discardPile.forEach((card, j) => {
+                    const uid = card.uid;
+                    uidsInScene.add(uid);
+                    let mesh = cardMeshes[uid];
+                    if (!mesh) {
+                        mesh = createCardMesh3D(card);
+                        mesh.position.set(0, 5, 0);
+                        scene.add(mesh);
+                    }
+                    newCardMeshes[uid] = mesh;
+                    gsap.to(mesh.position, { x: -4, y: 0.26 + j * 0.05, z: 0, duration: 0.5 });
+                    gsap.to(mesh.rotation, { x: Math.PI, y: 0, z: 0, duration: 0.5 });
+                });
+            }
+
+            Object.keys(cardMeshes).forEach(uid => {
+
                 if (!uidsInScene.has(uid)) {
                     scene.remove(cardMeshes[uid]);
                 }
