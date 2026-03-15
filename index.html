@@ -553,7 +553,12 @@ cursor: pointer;
         let cardMeshes = {};
         let tableMesh;
         let playerPositions = [];
+        let playerNameSprites = {};
+        let dragContext = { active: false, mesh: null, mode: null, startPos: new THREE.Vector3(), targetId: null };
+        let passModeContext = { active: false, assignments: [], requiredCount: 0 };
+        let stealMiniGameContext = { active: false, targets: [], currentTargetIndex: 0, requiredCount: 0, pulledCount: 0, originalCamPos: new THREE.Vector3(), targetMeshes: [] };
         const screens = { login: document.getElementById('login-screen'), room: document.getElementById('room-screen'), game: document.getElementById('game-screen') };
+
 
         const nameInput = document.getElementById('name-input');
         const loginButton = document.getElementById('login-button');
@@ -621,10 +626,113 @@ cursor: pointer;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
-window.addEventListener('click', onCanvasClick);
-window.addEventListener('touchstart', onCanvasClick, { passive: false });
+            window.addEventListener('pointerdown', onPointerDown, { passive: false });
+            window.addEventListener('pointermove', onPointerMove, { passive: false });
+            window.addEventListener('pointerup', onPointerUp, { passive: false });
+            window.addEventListener('click', onCanvasClick);
             animateThreeJS();
         }
+
+        function onPointerDown(event) {
+            if (!passModeContext.active && !stealMiniGameContext.active) return;
+            const clientX = event.clientX;
+            const clientY = event.clientY;
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children);
+            for (let i = 0; i < intersects.length; i++) {
+                const obj = intersects[i].object;
+                if (obj.userData && obj.userData.card) {
+                    if (passModeContext.active && obj.userData.isMine) {
+                        dragContext.active = true;
+                        dragContext.mesh = obj;
+                        dragContext.mode = 'pass';
+                        dragContext.startPos.copy(obj.position);
+                        break;
+                    }
+                    if (stealMiniGameContext.active && stealMiniGameContext.targetMeshes.includes(obj)) {
+                        dragContext.active = true;
+                        dragContext.mesh = obj;
+                        dragContext.mode = 'steal';
+                        dragContext.startPos.copy(obj.position);
+                        break;
+                    }
+                }
+            }
+        }
+
+        function onPointerMove(event) {
+            if (!dragContext.active || !dragContext.mesh) return;
+            const clientX = event.clientX;
+            const clientY = event.clientY;
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dragContext.mesh.position.y);
+            const intersectPoint = new THREE.Vector3();
+            raycaster.ray.intersectPlane(dragPlane, intersectPoint);
+            if (intersectPoint) {
+                if (dragContext.mode === 'pass') {
+                    dragContext.mesh.position.x = intersectPoint.x;
+                    dragContext.mesh.position.z = intersectPoint.z;
+                } else if (dragContext.mode === 'steal') {
+                    dragContext.mesh.position.y = Math.max(dragContext.startPos.y, intersectPoint.z * -1 + 5);
+                }
+            }
+        }
+
+        function onPointerUp(event) {
+            if (!dragContext.active || !dragContext.mesh) return;
+            dragContext.active = false;
+            
+            if (dragContext.mode === 'pass') {
+                let closestPlayer = null;
+                let minDist = 4.0;
+                Object.keys(playerNameSprites).forEach(pid => {
+                    if (pid === currentPlayer.id) return;
+                    const sprite = playerNameSprites[pid];
+                    const dist = new THREE.Vector2(dragContext.mesh.position.x, dragContext.mesh.position.z).distanceTo(new THREE.Vector2(sprite.position.x, sprite.position.z));
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestPlayer = pid;
+                    }
+                });
+
+                if (closestPlayer) {
+                    const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
+                    if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
+                    passModeContext.assignments.push({ targetId: closestPlayer, card: dragContext.mesh.userData.card });
+                    const spritePos = playerNameSprites[closestPlayer].position;
+                    gsap.to(dragContext.mesh.position, { x: spritePos.x, y: spritePos.y - 1, z: spritePos.z, duration: 0.3 });
+                } else {
+                    const existingIdx = passModeContext.assignments.findIndex(a => a.card.uid === dragContext.mesh.userData.card.uid);
+                    if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
+                    gsap.to(dragContext.mesh.position, { x: dragContext.startPos.x, y: dragContext.startPos.y, z: dragContext.startPos.z, duration: 0.3 });
+                }
+
+                const confirmBtn = document.getElementById('custom-pass-confirm-btn');
+                if (confirmBtn) {
+                    confirmBtn.disabled = passModeContext.assignments.length !== passModeContext.requiredCount;
+                }
+            } else if (dragContext.mode === 'steal') {
+                if (dragContext.mesh.position.y > dragContext.startPos.y + 4) {
+                    dragContext.mesh.visible = false;
+                    stealMiniGameContext.pulledCount++;
+                    const index = stealMiniGameContext.targetMeshes.indexOf(dragContext.mesh);
+                    if (index > -1) stealMiniGameContext.targetMeshes.splice(index, 1);
+                    
+                    if (stealMiniGameContext.pulledCount >= stealMiniGameContext.requiredCount) {
+                        stealMiniGameContext.active = false;
+                        proceedNextStealMiniGame();
+                    }
+                } else {
+                    gsap.to(dragContext.mesh.position, { y: dragContext.startPos.y, duration: 0.3, ease: "bounce.out" });
+                }
+            }
+            dragContext.mesh = null;
+        }
+
 
         function animateThreeJS() {
             requestAnimationFrame(animateThreeJS);
@@ -732,6 +840,7 @@ const intersects = raycaster.intersectObjects(scene.children);
         }
 
         function update3DScene(roomData, me) {
+            if (passModeContext.active || stealMiniGameContext.active) return;
             const numPlayers = roomData.players.length;
             const myIndex = roomData.players.findIndex(p => p.id === me.id);
             const radius = 9;
@@ -747,8 +856,29 @@ const intersects = raycaster.intersectObjects(scene.children);
             
             const newCardMeshes = {};
             const uidsInScene = new Set();
+            const activePlayerIds = new Set();
 
             roomData.players.forEach((player, i) => {
+                activePlayerIds.add(player.id);
+                if (!playerNameSprites[player.id]) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256; canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(player.name, 128, 40);
+                    const tex = new THREE.CanvasTexture(canvas);
+                    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+                    const sprite = new THREE.Sprite(mat);
+                    sprite.scale.set(6, 1.5, 1);
+                    scene.add(sprite);
+                    playerNameSprites[player.id] = sprite;
+                }
+                const posIndex = (i - myIndex + numPlayers) % numPlayers;
+                playerNameSprites[player.id].position.set(playerPositions[posIndex].x, 4, playerPositions[posIndex].z);
+
+
                 const posIndex = (i - myIndex + numPlayers) % numPlayers;
                 const pos = playerPositions[posIndex];
                 if (player.hand) {
@@ -826,15 +956,25 @@ if (isSelected) {
                 });
             }
 
-            Object.keys(cardMeshes).forEach(uid => {
-
-                if (!uidsInScene.has(uid)) {
-                    scene.remove(cardMeshes[uid]);
+            Object.keys(playerNameSprites).forEach(pid => {
+                if (!activePlayerIds.has(pid)) {
+                    scene.remove(playerNameSprites[pid]);
+                    delete playerNameSprites[pid];
                 }
             });
 
+            Object.keys(cardMeshes).forEach(uid => {
+
+                if (!uidsInScene.has(uid)) {
+                    const meshToRemove = cardMeshes[uid];
+                    gsap.delayedCall(0.5, () => {
+                        scene.remove(meshToRemove);
+                    });
+                }
+            });
             cardMeshes = newCardMeshes;
         }
+
 
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen.classList.remove('active'));
@@ -1754,20 +1894,47 @@ async function handleCardClick(card) {
             switch(action.type) {
                 // ★修正(4): 効果発動を強制にするため、キャンセルできないモーダルに変更
                 case 'pass_select_player':
-                    showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
-                        .then(targetId => {
-                
+                    if (document.getElementById('custom-pass-ui')) return;
+                    passModeContext.active = true;
+                    passModeContext.assignments = [];
+                    passModeContext.requiredCount = action.count;
+                    const uiDiv = document.createElement('div');
+                    uiDiv.id = 'custom-pass-ui';
+                    uiDiv.style.position = 'fixed';
+                    uiDiv.style.bottom = '80px';
+                    uiDiv.style.left = '50%';
+                    uiDiv.style.transform = 'translateX(-50%)';
+                    uiDiv.style.background = 'rgba(0,0,0,0.8)';
+                    uiDiv.style.padding = '15px';
+                    uiDiv.style.borderRadius = '10px';
+                    uiDiv.style.zIndex = '1000';
+                    uiDiv.style.color = 'white';
+                    uiDiv.style.textAlign = 'center';
+                    uiDiv.innerHTML = `<p>手札のカードを ${action.count} 枚、渡す相手の名前までドラッグしてください</p>`;
+                    const confirmBtn = document.createElement('button');
+                    confirmBtn.id = 'custom-pass-confirm-btn';
+                    confirmBtn.textContent = '決定';
+                    confirmBtn.disabled = true;
+                    confirmBtn.onclick = async () => {
+                        passModeContext.active = false;
+                        document.body.removeChild(uiDiv);
+                        if (passModeContext.assignments.length === action.count) {
                             let newActions = [...roomData.pendingActions];
-                            newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
-                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
-               
-                          });
-                    break;
+                            let currentAssignments = [...passModeContext.assignments];
+                            await clearPendingActions();
+                            for (const a of currentAssignments) {
+                                await new Promise(r => setTimeout(r, 100));
+                                await executeGiveCards(a.targetId, [a.card]);
+                            }
+                        }
+                    };
+                    uiDiv.appendChild(confirmBtn);
+                    document.body.appendChild(uiDiv);
+                break;
                 case 'pass_select_cards':
-                    showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true, false)
-                        .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive));
-                    break;
+                break;
                 case 'discard_select_cards':
+
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
                         .then(cardsToDiscard => executeDiscardCards(cardsToDiscard));
                     break;
@@ -1781,26 +1948,29 @@ async function handleCardClick(card) {
                     break;
                case 'steal_select_player':
                     const validTargets = targetablePlayers.filter(p => p.hand.length > 0);
-                    if (action.count > 1 && validTargets.length > 0) {
+if (action.count > 1 && validTargets.length > 0) {
                         showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
                             .then(distribution => {
                                 if (distribution.length > 0) 
                                 {
-                                    executeDistributedSteal(distribution);
-                                } else {
+                                    startStealMiniGame(distribution, () => executeDistributedSteal(distribution));
+                                
+} else {
                               
                                      clearPendingActions();
-                                }
+                               
+ }
                             });
-                    } else if (validTargets.length > 0) {
+} else if (validTargets.length > 0) {
                          showPlayerSelectionModal('カードを奪う相手を選んでください', validTargets, action.count)
-                            .then(targetId => executeStealCard(targetId, action.count))
+                            .then(targetId => startStealMiniGame([{playerId: targetId, count: action.count}], () => executeStealCard(targetId, action.count)))
                             .catch(() => clearPendingActions());
-                    } else {
+} else {
                         showModal("対象不在", "カードを奪える相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
                             .then(() => { closeModal(); clearPendingActions(); });
-                    }
+}
                     break;
+
                 case 'eight_cut':
                     setTimeout(() => executeEightCut(), 1500);
                     break;
@@ -1811,11 +1981,53 @@ async function handleCardClick(card) {
         }
 
    
+        function startStealMiniGame(distribution, finalActionCallback) {
+            stealMiniGameContext.originalCamPos.copy(camera.position);
+            stealMiniGameContext.targets = distribution;
+            stealMiniGameContext.currentTargetIndex = 0;
+            stealMiniGameContext.finalActionCallback = finalActionCallback;
+            proceedNextStealMiniGame();
+        }
+
+        function proceedNextStealMiniGame() {
+            if (stealMiniGameContext.currentTargetIndex >= stealMiniGameContext.targets.length) {
+                gsap.to(camera.position, { x: stealMiniGameContext.originalCamPos.x, y: stealMiniGameContext.originalCamPos.y, z: stealMiniGameContext.originalCamPos.z, duration: 1, onUpdate: () => camera.lookAt(0,0,0) });
+                stealMiniGameContext.finalActionCallback();
+                return;
+            }
+            const currentObj = stealMiniGameContext.targets[stealMiniGameContext.currentTargetIndex];
+            const targetSprite = playerNameSprites[currentObj.playerId];
+            if (!targetSprite) {
+                stealMiniGameContext.currentTargetIndex++;
+                proceedNextStealMiniGame();
+                return;
+            }
+            stealMiniGameContext.requiredCount = currentObj.count;
+            stealMiniGameContext.pulledCount = 0;
+            const targetPos = new THREE.Vector3(targetSprite.position.x, 0, targetSprite.position.z);
+            const camTargetPos = targetPos.clone().multiplyScalar(0.5).setY(10);
+            
+            gsap.to(camera.position, { x: camTargetPos.x, y: camTargetPos.y, z: camTargetPos.z, duration: 1, onUpdate: () => camera.lookAt(targetPos), onComplete: () => {
+                stealMiniGameContext.targetMeshes = [];
+                Object.values(cardMeshes).forEach(mesh => {
+                    const dist = new THREE.Vector2(mesh.position.x, mesh.position.z).distanceTo(new THREE.Vector2(targetPos.x, targetPos.z));
+                    if (dist < 3) {
+                        stealMiniGameContext.targetMeshes.push(mesh);
+                        gsap.to(mesh.rotation, { x: Math.PI, duration: 0.5 });
+                        gsap.to(mesh.position, { x: targetPos.x + (Math.random()-0.5)*2, z: targetPos.z + (Math.random()-0.5)*2, duration: 0.5 });
+                    }
+                });
+                setTimeout(() => { stealMiniGameContext.active = true; }, 600);
+            }});
+            stealMiniGameContext.currentTargetIndex++;
+        }
+
         async function clearPendingActions() {
             if (currentRoomId) {
                 await updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: [] });
-            }
+}
         }
+
 
        function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true, myHand = null } = {}) {
             modalTitle.textContent = title;
