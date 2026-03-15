@@ -465,8 +465,10 @@ cursor: pointer;
         
         <div id="players-container" class="players-container" style="display: none;"></div>
         
+        <div id="player-labels-container" class="ui-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none;"></div>
         <div id="game-playing-area" class="ui-overlay">
             <h3 style="display: none;">場 (<span id="last-player-info"></span>)</h3>
+
             <div id="field" class="field" style="display: none;"></div>
           
             
@@ -616,22 +618,161 @@ cursor: pointer;
             scene.add(tableMesh);
             raycaster = new THREE.Raycaster();
             mouse = new THREE.Vector2();
-            window.addEventListener('resize', () => {
+        let isDraggingPassCard = false;
+        let draggedCardMesh = null;
+        let passAssignments = {};
+        let interactiveMode = null;
+        let interactiveData = null; 
+        const passConfirmBtn = document.createElement('button');
+        passConfirmBtn.textContent = '決定';
+        passConfirmBtn.style.position = 'fixed'; passConfirmBtn.style.bottom = '80px'; passConfirmBtn.style.left = '50%'; passConfirmBtn.style.transform = 'translateX(-50%)'; passConfirmBtn.style.zIndex = '1000'; passConfirmBtn.style.display = 'none';
+        document.body.appendChild(passConfirmBtn);
+
+        window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
-window.addEventListener('click', onCanvasClick);
-window.addEventListener('touchstart', onCanvasClick, { passive: false });
+        window.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+        window.addEventListener('touchstart', onPointerDown, { passive: false });
+        window.addEventListener('touchmove', onPointerMove, { passive: false });
+        window.addEventListener('touchend', onPointerUp);
+        window.addEventListener('click', onCanvasClick);
+        
+        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        
+        function getPointerPos(event) {
+            let clientX = event.clientX, clientY = event.clientY;
+            if (event.changedTouches && event.changedTouches.length > 0) {
+                clientX = event.changedTouches[0].clientX; clientY = event.changedTouches[0].clientY;
+            } else if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX; clientY = event.touches[0].clientY;
+            }
+            return { x: (clientX / window.innerWidth) * 2 - 1, y: -(clientY / window.innerHeight) * 2 + 1 };
+        }
+
+        function onPointerDown(event) {
+            if (interactiveMode === 'pass') {
+                let pos = getPointerPos(event);
+                raycaster.setFromCamera(new THREE.Vector2(pos.x, pos.y), camera);
+                const intersects = raycaster.intersectObjects(scene.children);
+                for (let i = 0; i < intersects.length; i++) {
+                    const obj = intersects[i].object;
+                    if (obj.userData && obj.userData.card && obj.userData.isMine) {
+                        isDraggingPassCard = true;
+                        draggedCardMesh = obj;
+                        break;
+                    }
+                }
+            } else if (interactiveMode === 'steal') {
+                let pos = getPointerPos(event);
+                raycaster.setFromCamera(new THREE.Vector2(pos.x, pos.y), camera);
+                const intersects = raycaster.intersectObjects(scene.children);
+                for (let i = 0; i < intersects.length; i++) {
+                    const obj = intersects[i].object;
+                    if (obj.userData && obj.userData.isStealTarget) {
+                        isDraggingPassCard = true;
+                        draggedCardMesh = obj;
+                        interactiveData.startY = getPointerPos(event).y;
+                        break;
+                    }
+                }
+            }
+        }
+
+        function onPointerMove(event) {
+            if (isDraggingPassCard && draggedCardMesh) {
+                let pos = getPointerPos(event);
+                raycaster.setFromCamera(new THREE.Vector2(pos.x, pos.y), camera);
+                if (interactiveMode === 'pass') {
+                    let intersectPoint = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(dragPlane, intersectPoint);
+                    if (intersectPoint) {
+                        draggedCardMesh.position.copy(intersectPoint);
+                        draggedCardMesh.position.y = 1.0;
+                    }
+                } else if (interactiveMode === 'steal') {
+                    let deltaY = pos.y - interactiveData.startY;
+                    if (deltaY > 0) {
+                        draggedCardMesh.position.y = 1.0 + deltaY * 10;
+                    }
+                }
+            }
+        }
+
+        function onPointerUp(event) {
+            if (isDraggingPassCard && draggedCardMesh) {
+                if (interactiveMode === 'pass') {
+                    let closestPlayer = null;
+                    let minDist = Infinity;
+                    let roomData = interactiveData.roomData;
+                    const numPlayers = roomData.players.length;
+                    const myIndex = roomData.players.findIndex(p => p.id === currentPlayer.id);
+                    
+                    roomData.players.forEach((p, i) => {
+                        if (p.id !== currentPlayer.id && p.rank === null) {
+                            const posIndex = (i - myIndex + numPlayers) % numPlayers;
+                            const pos = playerPositions[posIndex];
+                            const pVec = new THREE.Vector3(pos.x, 0, pos.z);
+                            const dist = draggedCardMesh.position.distanceTo(pVec);
+                            if (dist < 4.0 && dist < minDist) {
+                                minDist = dist;
+                                closestPlayer = p.id;
+                            }
+                        }
+                    });
+
+                    if (closestPlayer) {
+                        passAssignments[draggedCardMesh.userData.card.uid] = closestPlayer;
+                    } else {
+                        delete passAssignments[draggedCardMesh.userData.card.uid];
+                    }
+                    
+                    passConfirmBtn.disabled = Object.keys(passAssignments).length !== interactiveData.count;
+                    update3DScene(roomData, roomData.players.find(p=>p.id===currentPlayer.id), true); 
+                } else if (interactiveMode === 'steal') {
+                    let pos = getPointerPos(event);
+                    let deltaY = pos.y - interactiveData.startY;
+                    if (deltaY > 0.5) {
+                        draggedCardMesh.visible = false;
+                        interactiveData.stolenCount++;
+                        interactiveData.onStolen(draggedCardMesh.userData.card);
+                    } else {
+                        gsap.to(draggedCardMesh.position, { y: 0.1, duration: 0.3 });
+                    }
+                }
+            }
+            isDraggingPassCard = false;
+            draggedCardMesh = null;
+        }
+
             animateThreeJS();
+        }
+
+
+        let playerLabels = {};
+        function updateLabels() {
+            for (let id in playerLabels) {
+                let label = playerLabels[id];
+                let pos = label.pos3D.clone();
+                pos.y += 2.0; 
+                pos.project(camera);
+                let x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+                let y = (pos.y * -0.5 + 0.5) * window.innerHeight;
+                label.el.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+            }
         }
 
         function animateThreeJS() {
             requestAnimationFrame(animateThreeJS);
-renderer.render(scene, camera);
+            renderer.render(scene, camera);
+            updateLabels();
         }
 
         function generateCardTexture(card) {
+
 
             const canvas = document.createElement('canvas');
             canvas.width = 128;
@@ -702,8 +843,8 @@ const mesh = new THREE.Mesh(geometry, materials);
 }
 
         function onCanvasClick(event) {
+            if (interactiveMode) return;
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
-
             let clientX = event.clientX;
             let clientY = event.clientY;
 
@@ -748,10 +889,32 @@ const intersects = raycaster.intersectObjects(scene.children);
             const newCardMeshes = {};
             const uidsInScene = new Set();
 
+            const labelsContainer = document.getElementById('player-labels-container');
+            let activeLabels = new Set();
+
             roomData.players.forEach((player, i) => {
                 const posIndex = (i - myIndex + numPlayers) % numPlayers;
                 const pos = playerPositions[posIndex];
+                
+                activeLabels.add(player.id);
+                if (!playerLabels[player.id]) {
+                    let el = document.createElement('div');
+                    el.style.position = 'absolute';
+                    el.style.color = 'white';
+                    el.style.background = 'rgba(0,0,0,0.6)';
+                    el.style.padding = '4px 8px';
+                    el.style.borderRadius = '4px';
+                    el.style.fontWeight = 'bold';
+                    el.style.fontSize = '14px';
+                    el.style.pointerEvents = 'none';
+                    labelsContainer.appendChild(el);
+                    playerLabels[player.id] = { el: el, pos3D: new THREE.Vector3(pos.x, 0, pos.z) };
+                }
+                playerLabels[player.id].el.textContent = player.name + (player.id === me.id ? '(あなた)' : '') + (player.rank ? ` [${player.rank}位]` : '');
+                playerLabels[player.id].pos3D.set(pos.x, 0, pos.z);
+
                 if (player.hand) {
+
                     player.hand.forEach((card, j) => {
                         const uid = card.uid;
                         uidsInScene.add(uid);
@@ -780,20 +943,48 @@ const intersects = raycaster.intersectObjects(scene.children);
 
 
 
-if (isMine) {
-                            const isSelected = selectedCards.some(sc => sc.uid === uid);
-if (isSelected) {
-                                targetY += 1.0;
-}
+                        if (isMine) {
+                            if (interactiveMode === 'pass' && passAssignments[uid]) {
+                                const targetId = passAssignments[uid];
+                                const tIndex = roomData.players.findIndex(p => p.id === targetId);
+                                const posIndexTarget = (tIndex - myIndex + numPlayers) % numPlayers;
+                                const tPos = playerPositions[posIndexTarget];
+                                targetX = tPos.x * 0.8;
+                                targetZ = tPos.z * 0.8;
+                                targetY = 1.0;
+                            } else {
+                                const isSelected = selectedCards.some(sc => sc.uid === uid);
+                                if (isSelected) {
+                                    targetY += 1.0;
+                                }
+                            }
                         }
 
-                        gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
-
-
-                        gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
+                        if (!isDraggingPassCard || draggedCardMesh !== mesh) {
+                            gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
+                            gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
+                        }
                     });
                 }
             });
+
+            let roundPileCount = 0;
+            if (roomData.roundPile) {
+                roomData.roundPile.forEach((card, j) => {
+                    const uid = card.uid;
+                    uidsInScene.add(uid);
+                    let mesh = cardMeshes[uid];
+                    if (!mesh) {
+                        mesh = createCardMesh3D(card);
+                        mesh.position.set(0, 5, 0);
+                        scene.add(mesh);
+                    }
+                    newCardMeshes[uid] = mesh;
+                    gsap.to(mesh.position, { x: 0, y: 0.26 + j * 0.005, z: 0, duration: 0.5 });
+                    gsap.to(mesh.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
+                });
+                roundPileCount = roomData.roundPile.length;
+            }
 
             roomData.field.forEach((card, j) => {
                 const uid = card.uid;
@@ -806,10 +997,9 @@ if (isSelected) {
                 }
                 newCardMeshes[uid] = mesh;
                 const offset = (j - roomData.field.length / 2) * 1.0;
-                gsap.to(mesh.position, { x: offset, y: 0.26, z: 0, duration: 0.5 });
+                gsap.to(mesh.position, { x: offset, y: 0.26 + roundPileCount * 0.005 + 0.01, z: 0, duration: 0.5 });
                 gsap.to(mesh.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
             });
-
             if (roomData.discardPile) {
                 roomData.discardPile.forEach((card, j) => {
                     const uid = card.uid;
@@ -832,8 +1022,14 @@ if (isSelected) {
                     scene.remove(cardMeshes[uid]);
                 }
             });
-
             cardMeshes = newCardMeshes;
+
+            for(let id in playerLabels) {
+                if(!activeLabels.has(id)) {
+                    playerLabels[id].el.remove();
+                    delete playerLabels[id];
+                }
+            }
         }
 
         function showScreen(screenName) {
@@ -1754,19 +1950,25 @@ async function handleCardClick(card) {
             switch(action.type) {
                 // ★修正(4): 効果発動を強制にするため、キャンセルできないモーダルに変更
                 case 'pass_select_player':
-                    showPlayerSelectionModal('カードを渡す相手を選んでください', targetablePlayers, action.count)
-                        .then(targetId => {
-                
-                            let newActions = [...roomData.pendingActions];
-                            newActions[0] = { ...action, type: 'pass_select_cards', targetId: targetId };
-                            updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: newActions });
-               
-                          });
-                    break;
                 case 'pass_select_cards':
-                    showCardSelectionModal('渡すカードを選んでください', me.hand, action.count, true, false)
-                        .then(cardsToGive => executeGiveCards(action.targetId, cardsToGive));
+                    passAssignments = {};
+                    interactiveMode = 'pass';
+                    interactiveData = { count: action.count, roomData: roomData };
+                    passConfirmBtn.style.display = 'block';
+                    passConfirmBtn.disabled = true;
+                    passConfirmBtn.onclick = () => {
+                        interactiveMode = null;
+                        passConfirmBtn.style.display = 'none';
+                        let distribution = {};
+                        for (let uid in passAssignments) {
+                            let tid = passAssignments[uid];
+                            if (!distribution[tid]) distribution[tid] = [];
+                            distribution[tid].push(me.hand.find(c => c.uid === uid));
+                        }
+                        executeDistributedGive(distribution);
+                    };
                     break;
+
                 case 'discard_select_cards':
                     showCardSelectionModal('捨てるカードを選んでください', me.hand, action.count, true, false)
                         .then(cardsToDiscard => executeDiscardCards(cardsToDiscard));
@@ -1782,21 +1984,26 @@ async function handleCardClick(card) {
                case 'steal_select_player':
                     const validTargets = targetablePlayers.filter(p => p.hand.length > 0);
                     if (action.count > 1 && validTargets.length > 0) {
-                        showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
+                showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
                             .then(distribution => {
                                 if (distribution.length > 0) 
                                 {
-                                    executeDistributedSteal(distribution);
-                                } else {
+                                    startInteractiveSteal(distribution, roomData);
+                                
+} else {
                               
                                      clearPendingActions();
-                                }
+                               
+ }
                             });
-                    } else if (validTargets.length > 0) {
-                         showPlayerSelectionModal('カードを奪う相手を選んでください', validTargets, action.count)
-                            .then(targetId => executeStealCard(targetId, action.count))
-                            .catch(() => clearPendingActions());
-                    } else {
+ } else if (validTargets.length > 0) {
+                         showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
+                            .then(distribution => {
+                                if (distribution.length > 0) startInteractiveSteal(distribution, roomData);
+                                else clearPendingActions();
+                            }).catch(() => clearPendingActions());
+ } else {
+
                         showModal("対象不在", "カードを奪える相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
                             .then(() => { closeModal(); clearPendingActions(); });
                     }
@@ -2246,8 +2453,144 @@ modalCancelButton.textContent = cancelText;
 
 
 
+        function executeDistributedGive(distribution) {
+            executeAction(
+                (roomData, me) => {
+                    let givenUids = new Set();
+                    let logDetails = [];
+                    for(let tid in distribution) {
+                        distribution[tid].forEach(c => givenUids.add(c.uid));
+                    }
+                    const newMyHand = me.hand.filter(c => !givenUids.has(c.uid));
+                    
+                    const players = roomData.players.map(p => {
+                        if (p.id === me.id) return { ...p, hand: newMyHand };
+                        if (distribution[p.id]) {
+                            const cardsToGive = distribution[p.id];
+                            logDetails.push(`${p.name}に${cardsToGive.length}枚`);
+                            return {
+                                ...p,
+                                hand: [...p.hand, ...cardsToGive].sort((a,b) => getCardStrength(a) - getCardStrength(b)),
+                                privateEvent: { id: Date.now(), type: 'receive_cards', actor: me.name, cards: cardsToGive }
+                            };
+                        }
+                        return p;
+                    });
+                    return { players, logContext: { logDetails } };
+                },
+                (ctx) => `${currentPlayer.name}がカードを渡しました。(${ctx.logDetails.join(', ')})`
+            );
+        }
+
+        async function startInteractiveSteal(distribution, roomData) {
+            interactiveMode = 'steal_anim';
+            let allStolenCards = {}; 
+            
+            for (let dist of distribution) {
+                const targetId = dist.playerId;
+                const count = dist.count;
+                const targetPlayer = roomData.players.find(p => p.id === targetId);
+                if(!targetPlayer || targetPlayer.hand.length === 0) continue;
+
+                const numPlayers = roomData.players.length;
+                const myIndex = roomData.players.findIndex(p => p.id === currentPlayer.id);
+                const tIndex = roomData.players.findIndex(p => p.id === targetId);
+                const posIndex = (tIndex - myIndex + numPlayers) % numPlayers;
+                const pos = playerPositions[posIndex];
+                
+                const targetCamPos = new THREE.Vector3(pos.x * 0.5, 5, pos.z * 0.5);
+                const targetLookAt = new THREE.Vector3(pos.x, 0, pos.z);
+                
+                await new Promise(res => {
+                    gsap.to(camera.position, { x: targetCamPos.x, y: targetCamPos.y, z: targetCamPos.z, duration: 1 });
+                    gsap.to(camera.rotation, { 
+                        onUpdate: function() { camera.lookAt(targetLookAt); }, 
+                        duration: 1, 
+                        onComplete: res 
+                    });
+                });
+
+                let targetMeshes = [];
+                let shuffledHand = [...targetPlayer.hand].sort(() => Math.random() - 0.5);
+                shuffledHand.forEach((c, i) => {
+                    let m = cardMeshes[c.uid];
+                    if(m) {
+                        m.userData.isStealTarget = true;
+                        m.userData.card = c;
+                        targetMeshes.push(m);
+                        const offset = (i - shuffledHand.length/2) * 1.2;
+                        gsap.to(m.position, { x: pos.x + Math.cos(pos.angle+Math.PI/2)*offset, y: 0.1, z: pos.z - Math.sin(pos.angle+Math.PI/2)*offset, duration: 0.5 });
+                        gsap.to(m.rotation, { x: Math.PI, y: pos.angle, z: 0, duration: 0.5 });
+                    }
+                });
+
+                interactiveMode = 'steal';
+                let stolenForThisTarget = [];
+                await new Promise(res => {
+                    interactiveData = {
+                        count: count,
+                        stolenCount: 0,
+                        startY: 0,
+                        onStolen: (card) => {
+                            stolenForThisTarget.push(card);
+                            if (interactiveData.stolenCount >= count) {
+                                res();
+                            }
+                        }
+                    };
+                });
+                interactiveMode = 'steal_anim';
+                allStolenCards[targetId] = stolenForThisTarget;
+                
+                await new Promise(res => {
+                    gsap.to(camera.position, { x: 0, y: 15, z: 20, duration: 1 });
+                    gsap.to(camera.rotation, { 
+                        onUpdate: function() { camera.lookAt(0,0,0); }, 
+                        duration: 1, 
+                        onComplete: res 
+                    });
+                });
+            }
+            
+            interactiveMode = null;
+            executeAction(
+                (currentRoomData, me) => {
+                    let players = [...currentRoomData.players];
+                    let logDetails = [];
+                    let allStolenCardsForMe = [];
+                    for(let tid in allStolenCards) {
+                        let target = players.find(p => p.id === tid);
+                        let stolenCards = allStolenCards[tid];
+                        allStolenCardsForMe.push(...stolenCards);
+                        logDetails.push({ name: target.name, count: stolenCards.length });
+                        
+                        let targetHand = target.hand.filter(c => !stolenCards.find(sc => sc.uid === c.uid));
+                        const targetIndex = players.findIndex(p => p.id === tid);
+                        players[targetIndex] = {
+                            ...players[targetIndex],
+                            hand: targetHand,
+                            privateEvent: { id: Date.now() + Math.random(), type: 'stolen', actor: me.name, cards: stolenCards }
+                        };
+                    }
+                    const myIndex = players.findIndex(p => p.id === me.id);
+                    const newMyHand = [...me.hand, ...allStolenCardsForMe].sort((a,b) => getCardStrength(a)-getCardStrength(b));
+                    players[myIndex] = {
+                        ...players[myIndex],
+                        hand: newMyHand,
+                        privateEvent: { id: Date.now(), type: 'steal_success', target: '複数人', cards: allStolenCardsForMe }
+                    };
+                    return { players, logContext: { logDetails } };
+                },
+                (ctx) => {
+                    const stealSummary = ctx.logDetails.map(d => `${d.name}から${d.count}枚`).join(', ');
+                    return `${currentPlayer.name}が${stealSummary}奪いました。`;
+                }
+            );
+        }
+
         function executeCollectCards(cardsToCollect) {
             executeAction(
+
                 (roomData, me) => {
                     const collectUids = new Set(cardsToCollect.map(c => c.uid));
                     const newMyHand = [...me.hand, ...cardsToCollect].sort((a,b) => getCardStrength(a)-getCardStrength(b));
