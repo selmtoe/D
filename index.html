@@ -986,31 +986,30 @@ for (let i = 0; i < intersects.length; i++) {
                 activePlayerIds.add(player.id);
                 const posIndex = (i - myIndex + numPlayers) % numPlayers;
                 const pos = playerPositions[posIndex];
-                
+               
                 if (player.id !== me.id) {
- 
-                    if (!playerNameSprites[player.id]) {
+                    const isTurnPlayer = player.id === roomData.turnPlayerId;
+                    if (!playerNameSprites[player.id] || playerNameSprites[player.id].userData.isTurnPlayer !== isTurnPlayer) {
+                        if (playerNameSprites[player.id]) scene.remove(playerNameSprites[player.id]);
                         const canvas = document.createElement('canvas');
                         canvas.width = 512; canvas.height = 128;
-                       
-  const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = 'white';
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = isTurnPlayer ? '#ffeb3b' : 'white';
                         ctx.font = 'bold 56px Arial';
                         ctx.textAlign = 'center';
-               
-         ctx.fillText(player.name, 256, 80);
+                        ctx.fillText(player.name, 256, 80);
                         const tex = new THREE.CanvasTexture(canvas);
                         const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-                        const sprite = 
-new THREE.Sprite(mat);
- 
+                        const sprite = new THREE.Sprite(mat);
                         sprite.scale.set(6, 1.5, 1);
-sprite.raycast = function() {};
+                        sprite.raycast = function() {};
+                        sprite.userData = { isTurnPlayer: isTurnPlayer };
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
                     }
                     playerNameSprites[player.id].position.set(pos.x, 5.5, pos.z);
-}
+                }
+
 
 
 
