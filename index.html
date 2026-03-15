@@ -621,16 +621,18 @@ cursor: pointer;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
-            window.addEventListener('click', onCanvasClick);
+window.addEventListener('click', onCanvasClick);
+window.addEventListener('touchstart', onCanvasClick, { passive: false });
             animateThreeJS();
         }
 
         function animateThreeJS() {
             requestAnimationFrame(animateThreeJS);
-            renderer.render(scene, camera);
+renderer.render(scene, camera);
         }
 
         function generateCardTexture(card) {
+
             const canvas = document.createElement('canvas');
             canvas.width = 128;
             canvas.height = 256;
@@ -682,30 +684,44 @@ cursor: pointer;
 
         function createCardMesh3D(card) {
             const geometry = new THREE.BoxGeometry(1.5, 0.05, 2.5);
-            const frontTex = generateCardTexture(card);
+const frontTex = generateCardTexture(card);
             const backTex = getCardBackTexture();
             const sideMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-            const materials = [
+const materials = [
                 sideMat,
                 sideMat,
                 new THREE.MeshStandardMaterial({ map: frontTex }),
                 new THREE.MeshStandardMaterial({ map: backTex }),
                 sideMat,
-                sideMat
+         
+               sideMat
             ];
-            const mesh = new THREE.Mesh(geometry, materials);
+const mesh = new THREE.Mesh(geometry, materials);
             mesh.userData = { card: card, isSelected: false };
             return mesh;
-        }
+}
 
         function onCanvasClick(event) {
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            let clientX = event.clientX;
+            let clientY = event.clientY;
+
+            if (event.changedTouches && event.changedTouches.length > 0) {
+                clientX = event.changedTouches[0].clientX;
+                clientY = event.changedTouches[0].clientY;
+            } else if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            }
+
+mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(scene.children);
+const intersects = raycaster.intersectObjects(scene.children);
             for (let i = 0; i < intersects.length; i++) {
                 const obj = intersects[i].object;
+
                 if (obj.userData && obj.userData.card) {
                     if (obj.userData.isMine) {
                         handleCardClick(obj.userData.card);
@@ -754,20 +770,21 @@ cursor: pointer;
                         
                         const targetX = pos.x + Math.cos(pos.angle) * offset;
                         const targetZ = pos.z - Math.sin(pos.angle) * offset;
-                        let targetY = 0.5;
+                        let targetY = isMine ? 1.5 : 0.5;
                         
-                        let targetRotX = !isMine ? Math.PI : Math.PI / 4;
+                        let targetRotX = !isMine ?
+Math.PI : Math.PI / 4;
                         let targetRotY = -pos.angle;
                         let targetRotZ = 0;
-
-                        if (isMine) {
+if (isMine) {
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
-                            if (isSelected) {
+if (isSelected) {
                                 targetY += 1.0;
-                            }
+}
                         }
 
                         gsap.to(mesh.position, { x: targetX, y: targetY, z: targetZ, duration: 0.5 });
+
                         gsap.to(mesh.rotation, { x: targetRotX, y: targetRotY, z: targetRotZ, duration: 0.5 });
                     });
                 }
