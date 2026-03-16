@@ -1786,13 +1786,19 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
         // --- UI Rendering ---
 function renderGame(roomData) {
-            roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
-            copyRoomIdButton.style.display = 'inline-block';
-            leaveRoomButton.style.display = 'inline-block';
+            if (roomData.gameState === 'playing') {
+                document.getElementById('room-info-container').style.display = 'none';
+            } else {
+                document.getElementById('room-info-container').style.display = 'flex';
+                roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
+                copyRoomIdButton.style.display = 'inline-block';
+                leaveRoomButton.style.display = 'inline-block';
+            }
 
             if (roomData.gameState === 'finished' && !modalOverlay.classList.contains('visible-modal')) {
                 showResultsModal(roomData.players);
             }
+
             
             const amIHost = roomData.players.find(p => p.id === currentPlayer.id)?.isHost;
 
@@ -1825,9 +1831,9 @@ function renderGame(roomData) {
             }
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
-            
             const isWaiting = roomData.gameState === 'waiting';
             document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
+            document.getElementById('webgl-canvas').style.display = (isWaiting || roomData.gameState === 'finished') ? 'none' : 'block';
 
             playersContainerDiv.innerHTML = '';
             if (isWaiting) {
@@ -2615,11 +2621,19 @@ modalCancelButton.textContent = cancelText;
 
         async function returnToWaitingRoom() {
             if (!currentRoomId) return;
+
+            Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
+            cardMeshes = {};
+            Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
+            playerNameSprites = {};
+            selectedCards = [];
+
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
                     const roomSnap = await transaction.get(roomRef);
                     if (!roomSnap.exists()) return;
+
                     const roomData = roomSnap.data();
                     
                     if (roomData.gameState === 'waiting') return;
