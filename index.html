@@ -1837,8 +1837,15 @@ function renderGame(roomData) {
 
             playersContainerDiv.innerHTML = '';
             if (isWaiting) {
+                Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
+                cardMeshes = {};
+                Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
+                playerNameSprites = {};
+                selectedCards = [];
+
                 playersContainerDiv.style.display = 'block';
                 playersContainerDiv.className = 'waiting-players-list';
+
                 const header = document.createElement('h3');
                 header.textContent = `参加者 (${roomData.players.length}/6人)`;
                 playersContainerDiv.appendChild(header);
@@ -2621,16 +2628,10 @@ modalCancelButton.textContent = cancelText;
 
         async function returnToWaitingRoom() {
             if (!currentRoomId) return;
-
-            Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
-            cardMeshes = {};
-            Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
-            playerNameSprites = {};
-            selectedCards = [];
-
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
+
                     const roomSnap = await transaction.get(roomRef);
                     if (!roomSnap.exists()) return;
 
