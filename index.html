@@ -974,7 +974,7 @@ for (let i = 0; i < intersects.length; i++) {
             if (passModeContext.active || stealMiniGameContext.active) return;
             const viewerId = spectatingPlayerId || me.id;
             const numPlayers = roomData.players.length;
-            const myIndex = roomData.players.findIndex(p => p.id === viewerId);
+            const myIndex = roomData.players.findIndex(p => p.id === me.id);
             const radius = 9;
             playerPositions = []
             for (let i = 0; i < numPlayers; i++) {
@@ -986,9 +986,24 @@ for (let i = 0; i < intersects.length; i++) {
                 });
             }
 
+            const viewerIndex = roomData.players.findIndex(p => p.id === viewerId);
+            const viewerPosIndex = (viewerIndex - myIndex + numPlayers) % numPlayers;
+            const viewerAngle = (viewerPosIndex / numPlayers) * Math.PI * 2;
+            const targetCamX = -Math.sin(viewerAngle) * 20;
+            const targetCamZ = Math.cos(viewerAngle) * 20;
+            
+            gsap.to(camera.position, {
+                x: targetCamX,
+                y: 15,
+                z: targetCamZ,
+                duration: 1.0,
+                onUpdate: () => camera.lookAt(0, 0, 0)
+            });
+
             
             const newCardMeshes = {};
             const uidsInScene = new Set();
+
             const activePlayerIds = new Set();
             const animationsToRun = [];
             roomData.players.forEach((player, i) => {
