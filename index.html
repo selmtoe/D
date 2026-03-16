@@ -542,6 +542,7 @@ cursor: pointer;
         <div id="room-info-container">
             <span id="room-info"></span>
             <button id="copy-room-id-button" style="display: none;">IDコピー</button>
+            <button id="leave-room-button" style="display: none; background-color: #d32f2f;">退出する</button>
         </div>
     </div>
 
@@ -629,6 +630,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         const lastPlayerInfoSpan = document.getElementById('last-player-info');
         const roomInfoSpan = document.getElementById('room-info');
         const copyRoomIdButton = document.getElementById('copy-room-id-button');
+        const leaveRoomButton = document.getElementById('leave-room-button');
         const startGameButton = document.getElementById('start-game-button');
         const playButton = document.getElementById('play-button');
         const passButton = document.getElementById('pass-button');
@@ -919,6 +921,7 @@ const mesh = new THREE.Mesh(geometry, materials);
         function onCanvasClick(event) {
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
             if (document.getElementById('modal-overlay').classList.contains('visible-modal')) return;
+            if (passModeContext.active) return;
             let clientX = event.clientX;
 
             let clientY = event.clientY;
@@ -1072,17 +1075,16 @@ if (isMine) {
             const isInitialDeal = newHandCards.length >= 10;
 
             if (isInitialDeal) {
+                const totalNewCards = newHandCards.length;
                 newHandCards.forEach((anim, idx) => {
-                    anim.mesh.position.set(0, 0.26 + idx * 0.01, 0);
+                    anim.mesh.position.set(0, 0.26 + (totalNewCards - 1 - idx) * 0.01, 0);
                     anim.mesh.rotation.set(Math.PI, 0, 0);
                 });
-
-                
                 newHandCards.forEach((anim, idx) => {
-                    gsap.to(anim.mesh.position, { y: 4 + idx * 0.01, duration: 1.0, ease: "power2.out" });
+                    gsap.to(anim.mesh.position, { y: 4 + (totalNewCards - 1 - idx) * 0.01, duration: 1.0, ease: "power2.out" });
                 });
-
                 animationsToRun.forEach((anim, idx) => {
+
                     if (anim.isNew) {
                         gsap.to(anim.mesh.position, { 
                             x: anim.targetX, y: anim.targetY, z: anim.targetZ, 
@@ -1403,7 +1405,56 @@ joinRoomButton.addEventListener('click', async () => {
             });
         });
 
+        leaveRoomButton.addEventListener('click', async () => {
+            if (!currentRoomId) return;
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) return;
+                    const roomData = roomSnap.data();
+                    const meIndex = roomData.players.findIndex(p => p.id === currentPlayer.id);
+                    if (meIndex === -1) return;
+
+                    const me = roomData.players[meIndex];
+                    let newPlayers = [...roomData.players];
+                    newPlayers.splice(meIndex, 1);
+
+                    if (newPlayers.length === 0) {
+                        transaction.delete(roomRef);
+                        return;
+                    }
+
+                    if (me.isHost && newPlayers.length > 0) {
+                        newPlayers[0].isHost = true;
+                    }
+
+                    transaction.update(roomRef, {
+                        players: newPlayers,
+                        log: arrayUnion({ timestamp: Date.now(), message: `${me.name}さんが退出しました。` })
+                    });
+                });
+
+                if (unsubscribeRoom) {
+                    unsubscribeRoom();
+                    unsubscribeRoom = null;
+                }
+                currentRoomId = null;
+                
+                Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
+                cardMeshes = {};
+                Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
+                playerNameSprites = {};
+                selectedCards = [];
+
+                showScreen('room');
+            } catch (e) {
+                showAlert('退出処理に失敗しました: ' + e.message);
+            }
+        });
+
         // --- Game Start ---
+
         startGameButton.addEventListener('click', async () => {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
@@ -1737,12 +1788,14 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 function renderGame(roomData) {
             roomInfoSpan.textContent = `ルームID: ${currentRoomId}`;
             copyRoomIdButton.style.display = 'inline-block';
+            leaveRoomButton.style.display = 'inline-block';
 
             if (roomData.gameState === 'finished' && !modalOverlay.classList.contains('visible-modal')) {
                 showResultsModal(roomData.players);
             }
             
             const amIHost = roomData.players.find(p => p.id === currentPlayer.id)?.isHost;
+
             if (amIHost && (roomData.gameState === 'waiting' || roomData.gameState === 'finished')) {
                 startGameButton.style.display = 'block';
                 startGameButton.textContent = roomData.gameState === 'finished' ? '次のゲームを開始' : 'ゲーム開始';
@@ -1762,8 +1815,14 @@ function renderGame(roomData) {
                 shibariIcon.style.display = 'none';
             }
             
+
             const me = roomData.players.find(p => p.id === currentPlayer.id);
-if (!me) return;
+            if (!me) return;
+
+            if (me.hand) {
+                const myHandUids = new Set(me.hand.map(c => c.uid));
+                selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
+            }
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
             
@@ -2549,12 +2608,54 @@ modalCancelButton.textContent = cancelText;
             showModal('ゲーム結果', tableHtml, { confirmText: 'ルームに戻る', showCancel: false })
               .then(() => {
                   closeModal();
+                  returnToWaitingRoom();
               })
               .catch(() => {});
         }
 
+        async function returnToWaitingRoom() {
+            if (!currentRoomId) return;
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) return;
+                    const roomData = roomSnap.data();
+                    
+                    if (roomData.gameState === 'waiting') return;
+
+                    let playersReset = roomData.players.map(p => ({
+                        ...p,
+                        hand: [],
+                        rank: null,
+                        order: -1
+                    }));
+
+                    transaction.update(roomRef, {
+                        gameState: 'waiting',
+                        players: playersReset,
+                        field: [],
+                        discardPile: [],
+                        roundPile: [],
+                        lastPlayed: { player: null, cards: [] },
+                        turnPlayerId: null,
+                        passCount: 0,
+                        isRevolution: false,
+                        isJBackActive: false,
+                        turnDirection: 1,
+                        shibariSuits: [],
+                        pendingActions: [],
+                        log: arrayUnion({ timestamp: Date.now(), message: `ルームに戻りました。` })
+                    });
+                });
+            } catch (error) {
+                console.error("Error returning to waiting room: ", error);
+            }
+        }
+
 
         // --- Game Logic Helpers ---
+
         function handlePlayerFinish(players, finishedPlayerId) {
             const finishedCount = players.filter(p => p.rank !== null).length;
             const newRank = finishedCount + 1;
