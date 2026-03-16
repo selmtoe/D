@@ -471,7 +471,7 @@ cursor: pointer;
             top: 50%;
             right: -100%;
             color: white;
-            font-size: 24px;
+            font-size: 36px;
             font-weight: bold;
             text-shadow: 2px 2px 4px #000, -2px -2px 4px #000, 2px -2px 4px #000, -2px 2px 4px #000;
             white-space: nowrap;
@@ -3247,11 +3247,12 @@ return p;
             document.body.appendChild(chatDiv);
             gsap.to(chatDiv, {
                 right: '100%',
-                duration: 5 + Math.random() * 2,
+                duration: 12 + Math.random() * 4,
                 ease: 'none',
                 onComplete: () => {
                     document.body.removeChild(chatDiv);
-                }
+     
+                 }
             });
         }
 
@@ -3268,10 +3269,10 @@ return p;
             }, 1500);
         }
         
-showLogButton.addEventListener('click', () => logPanel.classList.add('visible'));
-        logCloseButton.addEventListener('click', () => logPanel.classList.remove('visible'));
-
+        showLogButton.addEventListener('click', () => { logPanel.classList.add('visible'); showLogButton.style.display = 'none'; });
+        logCloseButton.addEventListener('click', () => { logPanel.classList.remove('visible'); showLogButton.style.display = 'block'; });
         chatSendBtn.addEventListener('click', async () => {
+
             const text = chatInput.value.trim();
             if (!text || !currentRoomId) return;
             chatInput.value = '';
