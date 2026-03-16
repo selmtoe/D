@@ -525,11 +525,13 @@ cursor: pointer;
                  <div id="my-hand" class="card-container"></div>
             </div>
 
-            <div id="controls" class="controls" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;">
+            <div id="controls" class="controls" style="position: fixed;
+bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;">
                 <button id="play-button" disabled>出す</button>
    
                 <button id="pass-button" disabled>パス</button>
             </div>
+            <div id="spectator-controls" class="controls" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100; display: none; gap: 5px;"></div>
         </div>
 
         
@@ -596,6 +598,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         let currentPlayer = { id: null, name: null };
+        let spectatingPlayerId = null;
         let currentRoomId = null;
         let unsubscribeRoom = null;
         let selectedCards = [];
@@ -917,12 +920,13 @@ const materials = [
 const mesh = new THREE.Mesh(geometry, materials);
             mesh.userData = { card: card, isSelected: false };
             return mesh;
-}
-        function onCanvasClick(event) {
+}        function onCanvasClick(event) {
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
             if (document.getElementById('modal-overlay').classList.contains('visible-modal')) return;
             if (passModeContext.active) return;
+            if (spectatingPlayerId) return;
             let clientX = event.clientX;
+
 
             let clientY = event.clientY;
 
@@ -968,8 +972,9 @@ for (let i = 0; i < intersects.length; i++) {
 
         function update3DScene(roomData, me) {
             if (passModeContext.active || stealMiniGameContext.active) return;
+            const viewerId = spectatingPlayerId || me.id;
             const numPlayers = roomData.players.length;
-            const myIndex = roomData.players.findIndex(p => p.id === me.id);
+            const myIndex = roomData.players.findIndex(p => p.id === viewerId);
             const radius = 9;
             playerPositions = []
             for (let i = 0; i < numPlayers; i++) {
@@ -1033,10 +1038,10 @@ for (let i = 0; i < intersects.length; i++) {
                         mesh.visible = true;
                         newCardMeshes[uid] = mesh;
 
-                        const isMine = player.id === me.id;
+                        const isMine = player.id === viewerId;
+                 
                         mesh.userData.isMine = isMine;
-   
-                        
+
                         const spread = isMine ? 1.0 : 0.3;
                         const offset = (j - player.hand.length / 2) * spread;
                
@@ -1823,14 +1828,52 @@ function renderGame(roomData) {
             
 
             const me = roomData.players.find(p => p.id === currentPlayer.id);
-            if (!me) return;
+if (!me) return;
 
             if (me.hand) {
                 const myHandUids = new Set(me.hand.map(c => c.uid));
-                selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
+selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
+            }
+
+            const spectatorControls = document.getElementById('spectator-controls');
+            if (me.rank !== null && roomData.gameState === 'playing') {
+                document.getElementById('controls').style.display = 'none';
+                spectatorControls.style.display = 'flex';
+                spectatorControls.innerHTML = '';
+                const titleSpan = document.createElement('span');
+                titleSpan.textContent = '観戦:';
+                titleSpan.style.color = 'white';
+                titleSpan.style.alignSelf = 'center';
+                spectatorControls.appendChild(titleSpan);
+                const activePlayers = roomData.players.filter(p => p.rank === null);
+                if (activePlayers.length > 0) {
+                    if (!spectatingPlayerId || !activePlayers.find(p => p.id === spectatingPlayerId)) {
+                        spectatingPlayerId = activePlayers[0].id;
+                    }
+                    activePlayers.forEach(p => {
+                        const btn = document.createElement('button');
+                        btn.textContent = p.name;
+                        if (spectatingPlayerId === p.id) {
+                            btn.style.backgroundColor = '#80cbc4';
+                            btn.style.color = '#004d40';
+                        }
+                        btn.onclick = () => {
+                            spectatingPlayerId = p.id;
+                            renderGame(roomData);
+                        };
+                        spectatorControls.appendChild(btn);
+                    });
+                } else {
+                    spectatorControls.style.display = 'none';
+                }
+            } else {
+                spectatorControls.style.display = 'none';
+                spectatingPlayerId = null;
+                document.getElementById('controls').style.display = 'block';
             }
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
+
             const isWaiting = roomData.gameState === 'waiting';
             document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
             document.getElementById('webgl-canvas').style.display = (isWaiting || roomData.gameState === 'finished') ? 'none' : 'block';
