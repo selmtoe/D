@@ -1066,13 +1066,14 @@ for (let i = 0; i < intersects.length; i++) {
                         const targetZ = pos.z - Math.sin(pos.angle) * offset - Math.cos(pos.angle) * depthOffset;
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
-                        let targetRotY = isMine ? -pos.angle : pos.angle;
+                        let targetRotY = pos.angle;
                         let targetRotZ = 0;
 
 
 
 
 if (isMine) {
+
                             mesh.userData.originalPos = new THREE.Vector3(targetX, targetY, targetZ);
                             mesh.userData.originalRot = new THREE.Vector3(targetRotX, targetRotY, targetRotZ);
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
