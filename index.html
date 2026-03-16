@@ -3215,7 +3215,8 @@ return p;
         }
 
 
-        // --- Log and Cut-in ---        function renderLog(log) {
+        // --- Log and Cut-in ---        
+        function renderLog(log) {
             if (log.length === lastKnownLogCount) return;
             logMessagesDiv.innerHTML = '';
             log.forEach(entry => {
