@@ -1028,18 +1028,41 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
                 ctx.font = 'bold 24px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText('JOKER', canvas.width / 2, canvas.height / 2);
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText('J', 20, 24);
+                ctx.save();
+                ctx.translate(canvas.width - 20, canvas.height - 10);
+                ctx.rotate(Math.PI);
+                ctx.fillText('J', 0, 0);
+                ctx.restore();
             } else {
-                const displayCard = card.mimics ? card.mimics : card;
+                const displayCard = card.mimics ?
+card.mimics : card;
                 const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
                 const color = (displayCard.suit === 'heart' || displayCard.suit === 'diamond') ? '#ff0000' : '#000000';
                 ctx.fillStyle = color;
+                
                 ctx.font = 'bold 36px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(suitSymbols[displayCard.suit], canvas.width / 2, 60);
+                ctx.fillText(suitSymbols[displayCard.suit], canvas.width / 2, 80);
                 ctx.font = 'bold 48px Arial';
                 ctx.fillText(numberToString(displayCard.number), canvas.width / 2, 140);
                 ctx.font = 'bold 36px Arial';
-                ctx.fillText(suitSymbols[displayCard.suit], canvas.width / 2, 220);
+                ctx.fillText(suitSymbols[displayCard.suit], canvas.width / 2, 200);
+
+                ctx.font = 'bold 18px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(suitSymbols[displayCard.suit], 10, 24);
+                ctx.fillText(numberToString(displayCard.number), 10, 44);
+
+                ctx.save();
+                ctx.translate(canvas.width - 10, canvas.height - 10);
+                ctx.rotate(Math.PI);
+                ctx.textAlign = 'left';
+                ctx.fillText(suitSymbols[displayCard.suit], 0, 0);
+                ctx.fillText(numberToString(displayCard.number), 0, 20);
+                ctx.restore();
+
                 if (card.mimics) {
                     ctx.fillStyle = '#00796b';
                     ctx.font = '16px Arial';
@@ -1110,6 +1133,10 @@ for (let i = 0; i < intersects.length; i++) {
                     stealMiniGameContext.pulledCount++;
                     const index = stealMiniGameContext.targetMeshes.indexOf(obj);
                     if (index > -1) stealMiniGameContext.targetMeshes.splice(index, 1);
+                    
+                    if (!stealMiniGameContext.stolenUids) stealMiniGameContext.stolenUids = [];
+                    stealMiniGameContext.stolenUids.push(obj.userData.card.uid);
+
                     if (stealMiniGameContext.pulledCount >= stealMiniGameContext.requiredCount) {
                         stealMiniGameContext.active = false;
                         setTimeout(() => {
@@ -1227,13 +1254,20 @@ for (let i = 0; i < intersects.length; i++) {
                         newCardMeshes[uid] = mesh;
 
                         const isMine = player.id === viewerId;
-                 
+               
+  
  
                         mesh.userData.isMine = isMine;
                         mesh.userData.isBlind = card.isBlind;
+                        mesh.userData.ownerId = player.id;
                         
                      
-                        mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
+ 
+                        if (isMine && card.isBlind) {
+                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: getCardBackTexture() });
+                        } else {
+                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
+                        }
 
                         const normalCount = player.hand.filter(c => !c.isBlind).length;
                         const spread = isMine ? 1.0 : 0.3;
@@ -1715,10 +1749,9 @@ joinRoomButton.addEventListener('click', async () => {
                                     c.isBlind = false;
                                 }
                             });
-                            let normalCards = p.hand.filter(c => !c.isBlind);
-                            let blindCards = p.hand.filter(c => c.isBlind);
-                            p.hand = [...normalCards, ...blindCards];
-                        }
+let normalCards = p.hand.filter(c => !c.isBlind);
+                            let blindCards = p.hand.filter(c => c.isBlind).sort(() => Math.random() - 0.5);
+                            p.hand = [...normalCards, ...blindCards];                        }
                     });
  transaction.update(roomRef, {
                         players: sortedPlayers, gameState: 'playing',
@@ -2436,6 +2469,12 @@ if (currentIndex === -1) {
         function createCardElement(card) {
             const el = document.createElement('div');
             el.className = 'card';
+            if (card.isBlind) {
+                el.style.background = '#002244';
+                el.style.border = '2px solid white';
+                el.innerHTML = '';
+                return el;
+            }
             const suitSymbols = { spade: '♠', heart: '♥', diamond: '♦', club: '♣' };
             
             if (card.suit === 'joker' && !card.mimics) {
@@ -2673,19 +2712,23 @@ if (action.count > 1 && validTargets.length > 0) {
                         showStealDistributionModal('カードを奪う相手と枚数を指定してください', validTargets, action.count)
                             .then(distribution => {
                                 if (distribution.length > 0) 
+ 
                                 {
-                                    startStealMiniGame(distribution, () => executeDistributedSteal(distribution));
-                                
+                                    startStealMiniGame(distribution, (stolenUids) => executeDistributedSteal(distribution, stolenUids));
+                             
+   
 } else {
                               
                                      clearPendingActions();
-                               
+                            
+   
  }
                             });
 } else if (validTargets.length > 0) {
                          showPlayerSelectionModal('カードを奪う相手を選んでください', validTargets, action.count)
-                            .then(targetId => startStealMiniGame([{playerId: targetId, count: action.count}], () => executeStealCard(targetId, action.count)))
-                            .catch(() => clearPendingActions());
+                            .then(targetId => startStealMiniGame([{playerId: targetId, count: action.count}], (stolenUids) => executeStealCard(targetId, action.count, stolenUids)))
+                            .catch(() => 
+clearPendingActions());
 } else {
                         showModal("対象不在", "カードを奪える相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
                             .then(() => { closeModal(); clearPendingActions(); });
@@ -2707,13 +2750,14 @@ if (action.count > 1 && validTargets.length > 0) {
             stealMiniGameContext.targets = distribution;
             stealMiniGameContext.currentTargetIndex = 0;
             stealMiniGameContext.finalActionCallback = finalActionCallback;
+            stealMiniGameContext.stolenUids = [];
             proceedNextStealMiniGame();
         }
 
         function proceedNextStealMiniGame() {
             if (stealMiniGameContext.currentTargetIndex >= stealMiniGameContext.targets.length) {
                 gsap.to(camera.position, { x: stealMiniGameContext.originalCamPos.x, y: stealMiniGameContext.originalCamPos.y, z: stealMiniGameContext.originalCamPos.z, duration: 1, onUpdate: () => camera.lookAt(0,0,0) });
-                stealMiniGameContext.finalActionCallback();
+                stealMiniGameContext.finalActionCallback(stealMiniGameContext.stolenUids);
                 return;
             }
             const currentObj = stealMiniGameContext.targets[stealMiniGameContext.currentTargetIndex];
@@ -2733,12 +2777,12 @@ if (action.count > 1 && validTargets.length > 0) {
                 stealMiniGameContext.targetMeshes = [];
                 const targetCards = [];
                 Object.values(cardMeshes).forEach(mesh => {
-                    const dist = new THREE.Vector2(mesh.position.x, mesh.position.z).distanceTo(new THREE.Vector2(targetPos.x, targetPos.z));
-                    if (dist < 3) {
+                    if (mesh.userData.ownerId === currentObj.playerId) {
                         targetCards.push(mesh);
                     }
                 });
                 
+ 
                 for (let i = targetCards.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
                     [targetCards[i], targetCards[j]] = [targetCards[j], targetCards[i]];
@@ -2762,12 +2806,24 @@ if (action.count > 1 && validTargets.length > 0) {
 
         async function clearPendingActions() {
             if (currentRoomId) {
-                await updateDoc(doc(db, 'rooms', currentRoomId), { pendingActions: [] });
-}
-        }
-
-
-       function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true, myHand = null } = {}) {
+                await runTransaction(db, async (transaction) => {
+                    const roomRef = doc(db, 'rooms', currentRoomId);
+                    const roomSnap = await transaction.get(roomRef);
+                    if (roomSnap.exists()) {
+                        const roomData = roomSnap.data();
+                        const newPendingActions = roomData.pendingActions && roomData.pendingActions.length > 0 ? roomData.pendingActions.slice(1) : [];
+                        let nextTurnPlayerId = roomData.turnPlayerId;
+                        if (newPendingActions.length === 0) {
+                            const me = roomData.players.find(p => p.id === currentPlayer.id);
+                            if (me && me.rank !== null) {
+                                nextTurnPlayerId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection, 0);
+                            }
+                        }
+                        transaction.update(roomRef, { pendingActions: newPendingActions, turnPlayerId: nextTurnPlayerId });
+                    }
+                });
+            }
+        } function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true, myHand = null } = {}) {
             modalTitle.textContent = title;
             modalBody.innerHTML = '';
             if (typeof bodyHtml === 'string') modalBody.innerHTML = bodyHtml;
@@ -3263,19 +3319,34 @@ tempPlayers.forEach(p => {
         }
 
         
-        function executeStealCard(targetId, count) {
+        function executeStealCard(targetId, count, stolenUids) {
             executeAction(
                 (roomData, me) => {
                     let target = roomData.players.find(p => p.id === targetId);
-                    if (!target || target.hand.length === 0) throw new Error("対象にカードがありません。");
+                    if (!target || 
+target.hand.length === 0) throw new Error("対象にカードがありません。");
                     let targetHand = [...target.hand];
                     let stolenCards = [];
-                    for(let i=0; i<count && targetHand.length > 0; i++) {
-                        let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
-                        c.isBlind = false;
-                        stolenCards.push(c);
+                    
+                    if (stolenUids && stolenUids.length > 0) {
+                        for (let uid of stolenUids) {
+                            let idx = targetHand.findIndex(c => c.uid === uid);
+                            if (idx > -1) {
+                                let c = targetHand.splice(idx, 1)[0];
+                                c.isBlind = false;
+                                stolenCards.push(c);
+                            }
+                        }
+                    } else {
+                        for(let i=0; i<count && targetHand.length > 0; i++) {
+                         
+        let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
+                            c.isBlind = false;
+                            stolenCards.push(c);
+                        }
                     }
-                    const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
+                    const 
+newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
                                 if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { id: Date.now(), type: 'steal_success', target: target.name, cards: stolenCards } };
                         if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { id: Date.now() + 1, type: 'stolen', actor: me.name, cards: stolenCards } };
@@ -3288,27 +3359,44 @@ return p;
 );
 
         }
-                function executeDistributedSteal(distribution) {
+                function executeDistributedSteal(distribution, stolenUids) {
             executeAction(
                 (roomData, me) => {
                     let players = [...roomData.players];
                     let logDetails = [];
-                    let allStolenCardsForMe = [];
+     
+                 let allStolenCardsForMe = [];
 
                     distribution.forEach(({playerId, count}) => {
                         if (count <= 0) return;
                         
-                        let target = players.find(p => p.id === playerId);
+       
+                         let target = players.find(p => p.id === playerId);
                         if (!target || target.hand.length < count) {
                             throw new Error(`${target.name}から指定された枚数を奪えません。`);
-                        }
+                
+                         }
                         
                         let targetHand = [...target.hand];
                         let stolenCards = [];
-                        for(let i=0; i < count && targetHand.length > 0; i++) {
-                            let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
-                            c.isBlind = false;
-                            stolenCards.push(c);
+                        
+                        let uidsForThisTarget = stolenUids ? stolenUids.filter(uid => targetHand.some(c => c.uid === uid)) : [];
+                        
+                        if (uidsForThisTarget.length > 0) {
+                            for (let uid of uidsForThisTarget) {
+                                let idx = targetHand.findIndex(c => c.uid === uid);
+                                if (idx > -1) {
+                                    let c = targetHand.splice(idx, 1)[0];
+                                    c.isBlind = false;
+                                    stolenCards.push(c);
+                                }
+                            }
+                        } else {
+                             for(let i=0; i < count && targetHand.length > 0; i++) {
+                                let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
+                                c.isBlind = false;
+stolenCards.push(c);
+                            }
                         }
                         
                         allStolenCardsForMe.push(...stolenCards);
