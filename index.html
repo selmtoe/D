@@ -1023,17 +1023,22 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
             ctx.strokeStyle = '#cccccc';
             ctx.lineWidth = 4;
             ctx.strokeRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+
             if (card.suit === 'joker' && !card.mimics) {
                 ctx.fillStyle = '#333333';
                 ctx.font = 'bold 24px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText('JOKER', canvas.width / 2, canvas.height / 2);
                 ctx.font = 'bold 16px Arial';
-                ctx.fillText('J', 20, 24);
+                ctx.textAlign = 'right';
+                ctx.fillText('J', canvas.width - 8, 24);
                 ctx.save();
-                ctx.translate(canvas.width - 20, canvas.height - 10);
+                ctx.translate(canvas.width, canvas.height);
                 ctx.rotate(Math.PI);
-                ctx.fillText('J', 0, 0);
+                ctx.textAlign = 'right';
+                ctx.fillText('J', canvas.width - 8, 24);
                 ctx.restore();
             } else {
                 const displayCard = card.mimics ?
@@ -1051,16 +1056,16 @@ card.mimics : card;
                 ctx.fillText(suitSymbols[displayCard.suit], canvas.width / 2, 200);
 
                 ctx.font = 'bold 18px Arial';
-                ctx.textAlign = 'left';
-                ctx.fillText(suitSymbols[displayCard.suit], 10, 24);
-                ctx.fillText(numberToString(displayCard.number), 10, 44);
+                ctx.textAlign = 'right';
+                ctx.fillText(numberToString(displayCard.number), canvas.width - 8, 24);
+                ctx.fillText(suitSymbols[displayCard.suit], canvas.width - 8, 44);
 
                 ctx.save();
-                ctx.translate(canvas.width - 10, canvas.height - 10);
+                ctx.translate(canvas.width, canvas.height);
                 ctx.rotate(Math.PI);
-                ctx.textAlign = 'left';
-                ctx.fillText(suitSymbols[displayCard.suit], 0, 0);
-                ctx.fillText(numberToString(displayCard.number), 0, 20);
+                ctx.textAlign = 'right';
+                ctx.fillText(numberToString(displayCard.number), canvas.width - 8, 24);
+                ctx.fillText(suitSymbols[displayCard.suit], canvas.width - 8, 44);
                 ctx.restore();
 
                 if (card.mimics) {
@@ -1355,7 +1360,10 @@ for (let i = 0; i < intersects.length; i++) {
                     scene.add(mesh);
                 }
                 mesh.visible = true;
+            
                 mesh.userData.isMine = false;
+                mesh.userData.ownerId = null;
+                mesh.userData.isBlind = false;
                 mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
                 newCardMeshes[uid] = mesh;
       
@@ -1380,7 +1388,10 @@ for (let i = 0; i < intersects.length; i++) {
                     }
                     mesh.visible = true;
                     mesh.userData.isMine = false;
+                    mesh.userData.ownerId = null;
+                    mesh.userData.isBlind = false;
                     mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
+          
                     newCardMeshes[uid] = mesh;
                     gsap.to(mesh.position, { x: -4, y: 0.26 + j * 0.05, z: 0, duration: 0.5 });
                     gsap.to(mesh.rotation, { x: Math.PI, y: 0, z: 0, duration: 0.5 });
@@ -3137,8 +3148,8 @@ modalCancelButton.textContent = cancelText;
         // --- Game Logic Helpers ---
 
         function handlePlayerFinish(players, finishedPlayerId) {
-            const finishedCount = players.filter(p => p.rank !== null).length;
-            const newRank = finishedCount + 1;
+            const normalFinishedCount = players.filter(p => p.rank !== null && !p.isDisqualified).length;
+            const newRank = normalFinishedCount + 1;
             const logs = [];
             const updatedPlayers = players.map(p => {
                 if (p.id === finishedPlayerId && p.rank === null) {
@@ -3160,7 +3171,7 @@ modalCancelButton.textContent = cancelText;
                 state.pendingActions = [];
                 if (activePlayers.length === 1) {
                     const lastPlayer = activePlayers[0];
-                    const rankCount = state.players.filter(p => p.rank !== null).length;
+                    const rankCount = state.players.filter(p => p.rank !== null && !p.isDisqualified).length;
                     state.players = state.players.map(p => p.id === lastPlayer.id ? {...p, rank: rankCount + 1} : p);
                 }
             }
@@ -3234,15 +3245,19 @@ tempPlayers.forEach(p => {
                     const targetPlayer = roomData.players.find(p => p.id === targetId);
                     const players = roomData.players.map(p => {
                         if (p.id === me.id) return { ...p, hand: newMyHand };
+    
                         if (p.id === targetId) {
+                                                        const tempHand = [...p.hand, ...cardsToGive.map(c => ({...c, isBlind: false}))];
                                                         return {
-                                ...p,
-                                hand: [...p.hand, ...cardsToGive].sort((a,b) => getCardStrength(a) - getCardStrength(b)),
+                   
+                             ...p,
+                                hand: [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a) - getCardStrength(b)), ...tempHand.filter(c => c.isBlind)],
                                 privateEvent: { id: Date.now(), type: 'receive_cards', actor: me.name, cards: cardsToGive }
-                            };
+       
+                             };
                         }
                         return p;
-                    });
+});                    });
                     return { players, logContext: { target: targetPlayer.name, cards: cardsToGive } };
                 },
 
@@ -3298,8 +3313,10 @@ tempPlayers.forEach(p => {
             executeAction(
                 (roomData, me) => {
                     const collectUids = new Set(cardsToCollect.map(c => c.uid));
-                    const newMyHand = [...me.hand, ...cardsToCollect].sort((a,b) => getCardStrength(a)-getCardStrength(b));
+                    const tempHand = [...me.hand, ...cardsToCollect.map(c => ({...c, isBlind: false}))];
+                    const newMyHand = [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a)-getCardStrength(b)), ...tempHand.filter(c => c.isBlind)];
        
+ 
                      const players = roomData.players.map(p => p.id === me.id ? { ...p, hand: newMyHand } : p);
                     return {
                         players,
@@ -3345,8 +3362,8 @@ target.hand.length === 0) throw new Error("対象にカードがありません�
                             stolenCards.push(c);
                         }
                     }
-                    const 
-newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
+                    const tempHand = [...me.hand, ...stolenCards.map(c => ({...c, isBlind: false}))];
+                    const newMyHand = [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a)-getCardStrength(b)), ...tempHand.filter(c => c.isBlind)];
                     const players = roomData.players.map(p => {
                                 if (p.id === me.id) return { ...p, hand: newMyHand, privateEvent: { id: Date.now(), type: 'steal_success', target: target.name, cards: stolenCards } };
                         if (p.id === targetId) return { ...p, hand: targetHand, privateEvent: { id: Date.now() + 1, type: 'stolen', actor: me.name, cards: stolenCards } };
@@ -3400,19 +3417,21 @@ stolenCards.push(c);
                         }
                         
                         allStolenCardsForMe.push(...stolenCards);
-                        logDetails.push({ name: target.name, count });
+ logDetails.push({ name: target.name, count });
 
                         const targetIndex = players.findIndex(p => p.id === playerId);
-                        players[targetIndex] = {
+ players[targetIndex] = {
                             ...players[targetIndex],
                             hand: targetHand,
                             privateEvent: { id: Date.now() + Math.random(), type: 'stolen', actor: me.name, cards: stolenCards }
-                        };
-                    });
+ 
+                         };
+ });
 
                     const myIndex = players.findIndex(p => p.id === me.id);
-                    const newMyHand = [...me.hand, ...allStolenCardsForMe].sort((a,b) => getCardStrength(a)-getCardStrength(b));
-                    players[myIndex] = {
+                    const tempHand = [...me.hand, ...allStolenCardsForMe.map(c => ({...c, isBlind: false}))];
+                    const newMyHand = [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a)-getCardStrength(b)), ...tempHand.filter(c => c.isBlind)];
+ players[myIndex] = {                 players[myIndex] = {
                         ...players[myIndex],
                         hand: newMyHand,
                         privateEvent: { id: Date.now(), type: 'steal_success', target: '複数人', cards: allStolenCardsForMe }
