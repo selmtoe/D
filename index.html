@@ -1232,11 +1232,8 @@ for (let i = 0; i < intersects.length; i++) {
                         mesh.userData.isMine = isMine;
                         mesh.userData.isBlind = card.isBlind;
                         
-                        if (card.isBlind) {
-                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: getCardBackTexture() });
-                        } else {
-                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
-                        }
+                     
+                        mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
 
                         const normalCount = player.hand.filter(c => !c.isBlind).length;
                         const spread = isMine ? 1.0 : 0.3;
@@ -1257,12 +1254,8 @@ for (let i = 0; i < intersects.length; i++) {
                         let targetY = isMine ? 1.5 : 2.5;
                         let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
                         let targetRotY = pos.angle;
-                        let targetRotZ = 0;
-
-
-
-
-if (isMine) {
+                        let targetRotZ = card.isBlind ? Math.PI : 0;
+                        if (isMine) {
 
                             mesh.userData.originalPos = new THREE.Vector3(targetX, targetY, targetZ);
                             mesh.userData.originalRot = new THREE.Vector3(targetRotX, targetRotY, targetRotZ);
@@ -1716,7 +1709,12 @@ joinRoomButton.addEventListener('click', async () => {
                                 let r = Math.floor(Math.random() * p.hand.length);
                                 if(!blindIndices.includes(r)) blindIndices.push(r);
                             }
-                            p.hand.forEach((c, i) => { c.isBlind = blindIndices.includes(i); });
+                            p.hand.forEach((c, i) => { 
+                                c.isBlind = blindIndices.includes(i); 
+                                if (c.suit === 'diamond' && c.number === 3) {
+                                    c.isBlind = false;
+                                }
+                            });
                             let normalCards = p.hand.filter(c => !c.isBlind);
                             let blindCards = p.hand.filter(c => c.isBlind);
                             p.hand = [...normalCards, ...blindCards];
@@ -1966,8 +1964,15 @@ joinRoomButton.addEventListener('click', async () => {
                                     nextState.pendingActions.push({ type: actionTypeMap[num], actorId: me.id, count: 1 });
                                     break;
                             }
-                                                });
-
+                                        });
+                        if (skipCount > 0) {
+                            const activePlayersCount = roomData.players.filter(p => p.rank === null).length;
+                            const totalMoves = 1 + skipCount;
+                            if (activePlayersCount > 1 && totalMoves % activePlayersCount === 0) {
+                                clearField = true;
+                                logEntries.push({timestamp: Date.now(), message: "5スキップの効果で場が流れました！"});
+                            }
+                        }
                         if (hasEightCut) {
                             nextState.pendingActions.push({ type: 'eight_cut', actorId: me.id, count: 1 });
                             logEntries.push({ timestamp: Date.now(), message: `階段効果: 8 - 8切り`, effect: {card:"8", name: "8切り"}});
@@ -3094,8 +3099,9 @@ modalCancelButton.textContent = cancelText;
         
         function checkGameEnd(state) {
             const activePlayers = state.players.filter(p => p.rank === null);
-            if (activePlayers.length <= 1 && (!state.pendingActions || state.pendingActions.length === 0)) {
+            if (activePlayers.length <= 1) {
                 state.gameState = 'finished';
+                state.pendingActions = [];
                 if (activePlayers.length === 1) {
                     const lastPlayer = activePlayers[0];
                     const rankCount = state.players.filter(p => p.rank !== null).length;
@@ -3265,7 +3271,9 @@ tempPlayers.forEach(p => {
                     let targetHand = [...target.hand];
                     let stolenCards = [];
                     for(let i=0; i<count && targetHand.length > 0; i++) {
-                        stolenCards.push(targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0]);
+                        let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
+                        c.isBlind = false;
+                        stolenCards.push(c);
                     }
                     const newMyHand = [...me.hand, ...stolenCards].sort((a,b) => getCardStrength(a)-getCardStrength(b));
                     const players = roomData.players.map(p => {
@@ -3298,7 +3306,9 @@ return p;
                         let targetHand = [...target.hand];
                         let stolenCards = [];
                         for(let i=0; i < count && targetHand.length > 0; i++) {
-                            stolenCards.push(targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0]);
+                            let c = targetHand.splice(Math.floor(Math.random() * targetHand.length), 1)[0];
+                            c.isBlind = false;
+                            stolenCards.push(c);
                         }
                         
                         allStolenCardsForMe.push(...stolenCards);
