@@ -521,11 +521,6 @@ cursor: pointer;
         <div id="room-screen" class="container screen">
         <h1>ルーム選択</h1>
         <p>ようこそ、<span id="player-name-display"></span>さん</p>
-        <div style="margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 10px;">
-            <label>ブラインド手札: <span id="blind-count-display" style="font-weight:bold; font-size: 1.2em;">0</span> 枚</label>
-            <button id="blind-minus-btn" style="padding: 5px 15px;">-</button>
-            <button id="blind-plus-btn" style="padding: 5px 15px;">+</button>
-        </div>
         <button id="create-room-button">ルームを作成する</button>
         <div id="public-rooms-section" style="margin-top: 20px; text-align: 
 left;">
@@ -562,6 +557,22 @@ fill: #fff; filter: drop-shadow(0 0 5px #0ff);">
              </svg>
              <span id="shibari-icon" title="縛り" style="display:none;
 font-size: 24px; text-shadow: 0 0 5px white;"></span>
+        </div>
+
+        <div id="room-settings" class="waiting-players-list ui-overlay" style="display: none;">
+            <h3>ルール設定</h3>
+            <div style="margin-bottom: 10px;">
+                <label>モード: </label>
+                <select id="game-mode-select">
+                    <option value="normal">通常の大富豪</option>
+                    <option value="blind">ブラインド</option>
+                </select>
+            </div>
+            <div id="blind-count-setting-area" style="display: none;">
+                <label>ブラインド枚数: <span id="in-room-blind-count-display" style="font-weight:bold; font-size: 1.2em;">1</span> 枚</label>
+                <button id="in-room-blind-minus-btn" style="padding: 5px 15px;">-</button>
+                <button id="in-room-blind-plus-btn" style="padding: 5px 15px;">+</button>
+            </div>
         </div>
 
         
@@ -678,13 +689,34 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
 
         const nameInput = document.getElementById('name-input');
         const loginButton = document.getElementById('login-button');
-        let blindCountSetting = 0;
-        document.getElementById('blind-minus-btn').addEventListener('click', () => {
-            if (blindCountSetting > 0) { blindCountSetting--; document.getElementById('blind-count-display').textContent = blindCountSetting; }
+        
+        const gameModeSelect = document.getElementById('game-mode-select');
+        const inRoomBlindCountDisplay = document.getElementById('in-room-blind-count-display');
+        const inRoomBlindMinusBtn = document.getElementById('in-room-blind-minus-btn');
+        const inRoomBlindPlusBtn = document.getElementById('in-room-blind-plus-btn');
+
+        gameModeSelect.addEventListener('change', async (e) => {
+            if (!currentRoomId) return;
+            const blindCount = e.target.value === 'blind' ? parseInt(inRoomBlindCountDisplay.textContent) || 1 : 0;
+            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: blindCount });
         });
-        document.getElementById('blind-plus-btn').addEventListener('click', () => {
-            if (blindCountSetting < 10) { blindCountSetting++; document.getElementById('blind-count-display').textContent = blindCountSetting; }
+
+        inRoomBlindMinusBtn.addEventListener('click', async () => {
+            if (!currentRoomId) return;
+            let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
+            if (currentCount > 1) {
+                await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount - 1 });
+            }
         });
+
+        inRoomBlindPlusBtn.addEventListener('click', async () => {
+            if (!currentRoomId) return;
+            let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
+            if (currentCount < 10) {
+                await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount + 1 });
+            }
+        });
+
         const playerNameDisplay = document.getElementById('player-name-display');
         const createRoomButton = document.getElementById('create-room-button');
         const joinRoomButton = document.getElementById('join-room-button');
@@ -1142,7 +1174,7 @@ for (let i = 0; i < intersects.length; i++) {
                         mesh.userData.isMine = isMine;
                         mesh.userData.isBlind = card.isBlind;
                         
-                        if (isMine && card.isBlind) {
+                        if (card.isBlind) {
                             mesh.material[2] = new THREE.MeshStandardMaterial({ map: getCardBackTexture() });
                         } else {
                             mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
@@ -1239,6 +1271,7 @@ if (isMine) {
                 }
                 mesh.visible = true;
                 mesh.userData.isMine = false;
+                mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
                 newCardMeshes[uid] = mesh;
       
                 const offset = (j - roomData.field.length / 2) * 1.0;
@@ -1262,6 +1295,7 @@ if (isMine) {
                     }
                     mesh.visible = true;
                     mesh.userData.isMine = false;
+                    mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
                     newCardMeshes[uid] = mesh;
                     gsap.to(mesh.position, { x: -4, y: 0.26 + j * 0.05, z: 0, duration: 0.5 });
                     gsap.to(mesh.rotation, { x: Math.PI, y: 0, z: 0, duration: 0.5 });
@@ -1334,7 +1368,7 @@ if (isMine) {
                        
   await setDoc(roomRef, {
                 id: currentRoomId,
-                blindCount: blindCountSetting,
+                blindCount: 0,
                 players: [newPlayer],
                 gameState: 'waiting', // waiting, playing, finished
                 field: [], discardPile: [], roundPile: [],
@@ -2130,9 +2164,26 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
             const isWaiting = roomData.gameState === 'waiting';
             document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
             document.getElementById('webgl-canvas').style.display = (isWaiting || roomData.gameState === 'finished') ? 'none' : 'block';
+            document.getElementById('room-settings').style.display = 'none';
 
             playersContainerDiv.innerHTML = '';
             if (isWaiting) {
+                document.getElementById('room-settings').style.display = 'block';
+                const currentBlindCount = roomData.blindCount || 0;
+                
+                gameModeSelect.disabled = !amIHost;
+                inRoomBlindMinusBtn.disabled = !amIHost;
+                inRoomBlindPlusBtn.disabled = !amIHost;
+                
+                if (currentBlindCount > 0) {
+                    gameModeSelect.value = 'blind';
+                    document.getElementById('blind-count-setting-area').style.display = 'block';
+                    inRoomBlindCountDisplay.textContent = currentBlindCount;
+                } else {
+                    gameModeSelect.value = 'normal';
+                    document.getElementById('blind-count-setting-area').style.display = 'none';
+                }
+
                 Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
                 cardMeshes = {};
                 Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
