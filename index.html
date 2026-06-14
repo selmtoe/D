@@ -521,8 +521,14 @@ cursor: pointer;
         <div id="room-screen" class="container screen">
         <h1>ルーム選択</h1>
         <p>ようこそ、<span id="player-name-display"></span>さん</p>
+        <div style="margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 10px;">
+            <label>ブラインド手札: <span id="blind-count-display" style="font-weight:bold; font-size: 1.2em;">0</span> 枚</label>
+            <button id="blind-minus-btn" style="padding: 5px 15px;">-</button>
+            <button id="blind-plus-btn" style="padding: 5px 15px;">+</button>
+        </div>
         <button id="create-room-button">ルームを作成する</button>
-        <div id="public-rooms-section" style="margin-top: 20px; text-align: left;">
+        <div id="public-rooms-section" style="margin-top: 20px; text-align: 
+left;">
             <h2>参加可能なルーム一覧 <button id="refresh-rooms-button" style="font-size: 14px; padding: 5px 10px; margin-left: 10px;">更新</button></h2>
             <div id="public-rooms-list" style="margin-top: 10px; max-height: 250px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; border-radius: 5px; background-color: #f9f9f9;">
                 <p>ルームを検索中...</p>
@@ -672,6 +678,13 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
 
         const nameInput = document.getElementById('name-input');
         const loginButton = document.getElementById('login-button');
+        let blindCountSetting = 0;
+        document.getElementById('blind-minus-btn').addEventListener('click', () => {
+            if (blindCountSetting > 0) { blindCountSetting--; document.getElementById('blind-count-display').textContent = blindCountSetting; }
+        });
+        document.getElementById('blind-plus-btn').addEventListener('click', () => {
+            if (blindCountSetting < 10) { blindCountSetting++; document.getElementById('blind-count-display').textContent = blindCountSetting; }
+        });
         const playerNameDisplay = document.getElementById('player-name-display');
         const createRoomButton = document.getElementById('create-room-button');
         const joinRoomButton = document.getElementById('join-room-button');
@@ -1113,21 +1126,40 @@ for (let i = 0; i < intersects.length; i++) {
                         let mesh = cardMeshes[uid];
                         let isNew = false;
                         if (!mesh) {
-                            mesh = createCardMesh3D(card);
+                    
+         mesh = createCardMesh3D(card);
                             isNew = true;
                             scene.add(mesh);
                         }
-          
+        
+   
                         mesh.visible = true;
                         newCardMeshes[uid] = mesh;
 
                         const isMine = player.id === viewerId;
                  
+ 
                         mesh.userData.isMine = isMine;
+                        mesh.userData.isBlind = card.isBlind;
+                        
+                        if (isMine && card.isBlind) {
+                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: getCardBackTexture() });
+                        } else {
+                            mesh.material[2] = new THREE.MeshStandardMaterial({ map: generateCardTexture(card) });
+                        }
 
+                        const normalCount = player.hand.filter(c => !c.isBlind).length;
                         const spread = isMine ? 1.0 : 0.3;
-                        const offset = (j - player.hand.length / 2) * spread;
-               
+                        let offset = 0;
+                        if (card.isBlind) {
+                            const blindIndex = player.hand.filter(c => c.isBlind).findIndex(c => c.uid === uid);
+                            offset = (normalCount / 2 + 1 + blindIndex) * spread;
+                        } else {
+                            const normalIndex = player.hand.filter(c => !c.isBlind).findIndex(c => c.uid === uid);
+                            offset = (normalIndex - normalCount / 2) * spread;
+                        }
+          
+       
                         mesh.rotation.order = 'YXZ';
                         const depthOffset = j * 0.01;
                         const targetX = pos.x + Math.cos(pos.angle) * offset - Math.sin(pos.angle) * depthOffset;
@@ -1299,8 +1331,10 @@ if (isMine) {
 
             const roomRef = doc(db, 'rooms', currentRoomId);
             const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, isHost: true, hand: [], order: -1, rank: null };
-                        await setDoc(roomRef, {
+                       
+  await setDoc(roomRef, {
                 id: currentRoomId,
+                blindCount: blindCountSetting,
                 players: [newPlayer],
                 gameState: 'waiting', // waiting, playing, finished
                 field: [], discardPile: [], roundPile: [],
@@ -1575,15 +1609,28 @@ joinRoomButton.addEventListener('click', async () => {
                     const firstPlayerId = dia3PlayerId || players[0].id;
                     const firstPlayerIndex = players.findIndex(p => p.id === firstPlayerId);
                     const sortedPlayers = [];
-                    for (let i = 0; i < players.length; i++) {
+ for (let i = 0; i < players.length; i++) {
                         const p = players[(firstPlayerIndex + i) % players.length];
-                        p.order = i + 1;
+ p.order = i + 1;
                         sortedPlayers.push(p);
                     }
                     
-                    sortedPlayers.forEach(p => p.hand.sort((a, b) => getCardStrength(a) - getCardStrength(b)));
-                    
-                    transaction.update(roomRef, {
+                    const blindCount = roomData.blindCount || 0;
+                    sortedPlayers.forEach(p => { 
+                        p.hand.sort((a, b) => getCardStrength(a) - getCardStrength(b));
+                        let blindIndices = [];
+                        if (blindCount > 0) {
+                            while(blindIndices.length < blindCount && blindIndices.length < p.hand.length) {
+                                let r = Math.floor(Math.random() * p.hand.length);
+                                if(!blindIndices.includes(r)) blindIndices.push(r);
+                            }
+                            p.hand.forEach((c, i) => { c.isBlind = blindIndices.includes(i); });
+                            let normalCards = p.hand.filter(c => !c.isBlind);
+                            let blindCards = p.hand.filter(c => c.isBlind);
+                            p.hand = [...normalCards, ...blindCards];
+                        }
+                    });
+ transaction.update(roomRef, {
                         players: sortedPlayers, gameState: 'playing',
                         turnPlayerId: firstPlayerId, field: [],
                         discardPile: [], passCount: 0,
@@ -1603,13 +1650,135 @@ joinRoomButton.addEventListener('click', async () => {
             if (selectedCards.length === 0) return;
             const roomRef = doc(db, 'rooms', currentRoomId);
 
+            const roomSnapLocal = await getDoc(roomRef);
+            if (!roomSnapLocal.exists()) return;
+            const roomDataLocal = roomSnapLocal.data();
+            const meLocal = roomDataLocal.players.find(p => p.id === currentPlayer.id);
+
+            let finalCards = JSON.parse(JSON.stringify(selectedCards));
+            const hasBlindSelected = finalCards.some(c => c.isBlind);
+            let disqualification = false;
+
+            if (hasBlindSelected) {
+                finalCards.forEach(c => c.isBlind = false);
+                const jokers = finalCards.filter(c => c.suit === 'joker' && !c.mimics);
+                const nonJokers = finalCards.filter(c => c.suit !== 'joker');
+                
+                let isLegalPlay = false;
+                if (jokers.length > 0 && nonJokers.length > 0) {
+                    const suits = ['spade', 'heart', 'diamond', 'club'];
+                    const ranks = [3,4,5,6,7,8,9,10,11,12,13,1,2];
+                    const tryMimic = (jokerIndex, currentCards) => {
+                        if (isLegalPlay) return;
+                        if (jokerIndex >= jokers.length) {
+                            if (isValidPlay(currentCards, meLocal.hand, roomDataLocal).valid) isLegalPlay = true;
+                            return;
+                        }
+                        for (let s of suits) {
+                            for (let r of ranks) {
+                                currentCards.find(c => c.uid === jokers[jokerIndex].uid).mimics = { suit: s, number: r };
+                                tryMimic(jokerIndex + 1, currentCards);
+                            }
+                        }
+                        currentCards.find(c => c.uid === jokers[jokerIndex].uid).mimics = undefined;
+                    };
+                    tryMimic(0, finalCards);
+                } else {
+                    isLegalPlay = isValidPlay(finalCards, meLocal.hand, roomDataLocal).valid;
+                }
+
+                if (!isLegalPlay) {
+                    disqualification = true;
+                } else {
+                    selectedCards.forEach(c => c.isBlind = false);
+                    renderMyHand(meLocal, roomDataLocal);
+
+                    const realJokers = selectedCards.filter(c => c.suit === 'joker' && !c.mimics);
+                    const realNonJokers = selectedCards.filter(c => c.suit !== 'joker');
+                    if (realJokers.length > 0 && realNonJokers.length > 0) {
+                        for (let joker of realJokers) {
+                            try {
+                                const mimicData = await showJokerTransformModal(realNonJokers[0]?.number);
+                                joker.mimics = mimicData;
+                            } catch (e) {
+                                const roomSnapCancel = await getDoc(roomRef);
+                                renderGame(roomSnapCancel.data());
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             try {
                 await runTransaction(db, async (transaction) => {
-                    const roomSnap = await transaction.get(roomRef);
+                 
+    const roomSnap = await transaction.get(roomRef);
                     if (!roomSnap.exists()) throw new Error("Room does not exist.");
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
-                    const validation = isValidPlay(selectedCards, me.hand, roomData);
+                
+                    if (disqualification) {
+                        const targetRank = roomData.players.length - roomData.players.filter(p => p.isDisqualified).length;
+                        const discarded = me.hand.map(c => cleanCard(c));
+                        let playersCopy = roomData.players.map(p => {
+                            if (p.id === me.id) return { ...p, hand: [], rank: targetRank, isDisqualified: true };
+                            return p;
+                        });
+                        
+                        let newPassCount = roomData.passCount + 1;
+                        let newTurnPlayerId = getNextPlayerId(playersCopy, me.id, roomData.turnDirection, 0);
+                        let newDiscardPile = [...roomData.discardPile, ...discarded];
+                        let newField = roomData.field.map(c => cleanCard(c));
+                        let newJBack = roomData.isJBackActive;
+                        let newShibariSuits = roomData.shibariSuits;
+                        let newRoundPile = roomData.roundPile;
+                        let flow = false;
+
+                        const activePlayers = playersCopy.filter(p => p.rank === null);
+                        const lastPlayer = playersCopy.find(p => p.id === roomData.lastPlayed.player);
+                        const lastPlayerHasFinished = lastPlayer && lastPlayer.rank !== null;
+
+                        if (roomData.field.length > 0 && activePlayers.length > 0) {
+                            if (lastPlayerHasFinished) {
+                                if (newPassCount >= activePlayers.length) flow = true;
+                            } else {
+                                if (newTurnPlayerId === roomData.lastPlayed.player && activePlayers.length > 1) flow = true;
+                            }
+                        }
+
+                        if (flow) {
+                            newDiscardPile = [...newDiscardPile, ...newRoundPile, ...newField];
+                            newField = [];
+                            newPassCount = 0;
+                            newJBack = false;
+                            newShibariSuits = [];
+                            newRoundPile = [];
+                            let nextTurnHolder = playersCopy.find(p => p.id === roomData.lastPlayed.player);
+                            if (!nextTurnHolder || nextTurnHolder.rank !== null) {
+                                newTurnPlayerId = getNextPlayerId(playersCopy, roomData.lastPlayed.player, roomData.turnDirection, 0);
+                            } else {
+                                newTurnPlayerId = roomData.lastPlayed.player;
+                            }
+                        }
+
+                        const finalState = checkGameEnd({
+                            players: playersCopy, field: newField, passCount: newPassCount,
+                            lastPlayed: roomData.lastPlayed, isRevolution: roomData.isRevolution,
+                            isJBackActive: newJBack, shibariSuits: newShibariSuits,
+                            turnDirection: roomData.turnDirection, turnPlayerId: newTurnPlayerId,
+                            discardPile: newDiscardPile, roundPile: newRoundPile, pendingActions: roomData.pendingActions
+                        });
+
+                        transaction.update(roomRef, {
+                            ...finalState,
+                            log: arrayUnion({ timestamp: Date.now(), message: `${me.name}はブラインド出しに失敗し、失格（${targetRank}位）となりました。手札はすべて捨て札になります。` })
+                        });
+                        selectedCards = [];
+                        return;
+                    }
+
+     const validation = isValidPlay(selectedCards, me.hand, roomData);
                     if (!validation.valid) throw new Error(validation.message);
 
                     const playedCardUids = new Set(selectedCards.map(c => c.uid));
@@ -2054,11 +2223,12 @@ if (index > -1) { // Card is already selected -> Deselect it
             }
             
             const jokers = selectedCards.filter(c => c.suit === 'joker');
-            const nonJokers = selectedCards.filter(c => c.suit !== 'joker');
+ const nonJokers = selectedCards.filter(c => c.suit !== 'joker');
+            const hasBlindSelected = selectedCards.some(c => c.isBlind);
 
-            if (jokers.length > 0 && nonJokers.length > 0) {
+            if (jokers.length > 0 && nonJokers.length > 0 && !hasBlindSelected) {
                 const untransformedJokers = jokers.filter(j => !j.mimics);
-                for (const joker of untransformedJokers) {
+ for (const joker of untransformedJokers) {
                     try {
                         const recommendedNumber = nonJokers[0].number;
                         const mimicData = await showJokerTransformModal(recommendedNumber);
@@ -2769,12 +2939,15 @@ modalCancelButton.textContent = cancelText;
 
                     let playersReset = roomData.players.map(p => ({
                         ...p,
-                        hand: [],
+          
+               hand: [],
                         rank: null,
-                        order: -1
+                        order: -1,
+                        isDisqualified: false
                     }));
 
-                    transaction.update(roomRef, {
+               
+     transaction.update(roomRef, {
                         gameState: 'waiting',
                         players: playersReset,
                         field: [],
