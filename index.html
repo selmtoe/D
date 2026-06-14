@@ -3431,7 +3431,7 @@ stolenCards.push(c);
                     const myIndex = players.findIndex(p => p.id === me.id);
                     const tempHand = [...me.hand, ...allStolenCardsForMe.map(c => ({...c, isBlind: false}))];
                     const newMyHand = [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a)-getCardStrength(b)), ...tempHand.filter(c => c.isBlind)];
- players[myIndex] = {                 players[myIndex] = {
+ players[myIndex] = {
                         ...players[myIndex],
                         hand: newMyHand,
                         privateEvent: { id: Date.now(), type: 'steal_success', target: '複数人', cards: allStolenCardsForMe }
