@@ -98,6 +98,25 @@
         .waiting-player-item:last-child {
             border-bottom: none;
         }
+
+        .tab-container { display: flex; border-bottom: 2px solid #ddd; margin-bottom: 15px; }
+        .tab-button { background: transparent; color: #666; border: none; padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; outline: none; transition: 0.2s; margin-bottom: -2px; }
+        .tab-button.active { color: #00796b; border-bottom: 2px solid #00796b; }
+        .tab-button:hover { color: #004d40; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .setting-item { display: flex; align-items: center; margin-bottom: 15px; font-size: 16px; font-weight: bold; color: #333; }
+        .setting-item label { width: 140px; }
+        .custom-toggle { display: flex; border: 1px solid #00796b; border-radius: 5px; overflow: hidden; }
+        .toggle-btn { background: white; color: #00796b; border: none; padding: 8px 15px; font-size: 14px; cursor: pointer; transition: 0.3s; margin: 0; border-radius: 0; }
+        .toggle-btn.active { background: #00796b; color: white; }
+        .toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .number-stepper { display: flex; align-items: center; border: 1px solid #ccc; border-radius: 5px; overflow: hidden; }
+        .number-stepper button { background: #f0f0f0; border: none; padding: 8px 15px; font-size: 16px; cursor: pointer; margin: 0; color: #333; transition: 0.2s; }
+        .number-stepper button:hover { background: #e0e0e0; }
+        .number-stepper span { padding: 0 20px; font-size: 16px; font-weight: bold; background: white; color: #333; }
+        .number-stepper button:disabled { background: #f9f9f9; color: #ccc; cursor: not-allowed; }
+
         .player-number {
             font-weight: bold;
             color: #00796b;
@@ -559,23 +578,35 @@ fill: #fff; filter: drop-shadow(0 0 5px #0ff);">
 font-size: 24px; text-shadow: 0 0 5px white;"></span>
         </div>
 
-        <div id="room-settings" class="waiting-players-list ui-overlay" style="display: none;">
-            <h3>ルール設定</h3>
-            <div style="margin-bottom: 10px;">
-                <label>モード: </label>
-                <select id="game-mode-select">
-                    <option value="normal">通常の大富豪</option>
-                    <option value="blind">ブラインド</option>
-                </select>
+        <div id="waiting-room-container" class="waiting-players-list ui-overlay" style="display: none; position: relative; z-index: 20; margin-top: 20px;">
+            <div class="tab-container">
+                <button id="tab-btn-players" class="tab-button active">参加者</button>
+                <button id="tab-btn-settings" class="tab-button">設定</button>
             </div>
-            <div id="blind-count-setting-area" style="display: none;">
-                <label>ブラインド枚数: <span id="in-room-blind-count-display" style="font-weight:bold; font-size: 1.2em;">1</span> 枚</label>
-                <button id="in-room-blind-minus-btn" style="padding: 5px 15px;">-</button>
-                <button id="in-room-blind-plus-btn" style="padding: 5px 15px;">+</button>
+            <div id="tab-content-players" class="tab-content active">
+                <h3 id="waiting-players-header" style="margin-top: 0; border-bottom: 2px solid #00796b; padding-bottom: 10px; color: #004d40;">参加者</h3>
+                <ul id="waiting-players-ul" style="list-style: none; padding: 0; margin: 0;"></ul>
+            </div>
+            <div id="tab-content-settings" class="tab-content">
+                <h3 style="margin-top: 0; border-bottom: 2px solid #00796b; padding-bottom: 10px; color: #004d40;">ルール設定</h3>
+                <div class="setting-item">
+                    <label>モード:</label>
+                    <div class="custom-toggle">
+                        <button id="mode-normal-btn" class="toggle-btn active">通常の大富豪</button>
+                        <button id="mode-blind-btn" class="toggle-btn">ブラインド</button>
+                    </div>
+                </div>
+                <div id="blind-count-setting-area" class="setting-item" style="display: none;">
+                    <label>ブラインド枚数:</label>
+                    <div class="number-stepper">
+                        <button id="in-room-blind-minus-btn">-</button>
+                        <span id="in-room-blind-count-display">1</span>
+                        <button id="in-room-blind-plus-btn">+</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        
         <div id="players-container" class="players-container" style="display: none;"></div>
         
         <div id="game-playing-area" class="ui-overlay">
@@ -690,19 +721,46 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         const nameInput = document.getElementById('name-input');
         const loginButton = document.getElementById('login-button');
         
-        const gameModeSelect = document.getElementById('game-mode-select');
+        const waitingRoomContainer = document.getElementById('waiting-room-container');
+        const tabBtnPlayers = document.getElementById('tab-btn-players');
+        const tabBtnSettings = document.getElementById('tab-btn-settings');
+        const tabContentPlayers = document.getElementById('tab-content-players');
+        const tabContentSettings = document.getElementById('tab-content-settings');
+        const waitingPlayersHeader = document.getElementById('waiting-players-header');
+        const waitingPlayersUl = document.getElementById('waiting-players-ul');
+
+        tabBtnPlayers.addEventListener('click', () => {
+            tabBtnPlayers.classList.add('active');
+            tabBtnSettings.classList.remove('active');
+            tabContentPlayers.classList.add('active');
+            tabContentSettings.classList.remove('active');
+        });
+        tabBtnSettings.addEventListener('click', () => {
+            tabBtnSettings.classList.add('active');
+            tabBtnPlayers.classList.remove('active');
+            tabContentSettings.classList.add('active');
+            tabContentPlayers.classList.remove('active');
+        });
+
+        const modeNormalBtn = document.getElementById('mode-normal-btn');
+        const modeBlindBtn = document.getElementById('mode-blind-btn');
         const inRoomBlindCountDisplay = document.getElementById('in-room-blind-count-display');
         const inRoomBlindMinusBtn = document.getElementById('in-room-blind-minus-btn');
         const inRoomBlindPlusBtn = document.getElementById('in-room-blind-plus-btn');
 
-        gameModeSelect.addEventListener('change', async (e) => {
-            if (!currentRoomId) return;
-            const blindCount = e.target.value === 'blind' ? parseInt(inRoomBlindCountDisplay.textContent) || 1 : 0;
-            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: blindCount });
+        modeNormalBtn.addEventListener('click', async () => {
+            if (!currentRoomId || modeNormalBtn.disabled) return;
+            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: 0 });
+        });
+
+        modeBlindBtn.addEventListener('click', async () => {
+            if (!currentRoomId || modeBlindBtn.disabled) return;
+            const currentCount = parseInt(inRoomBlindCountDisplay.textContent) || 1;
+            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount });
         });
 
         inRoomBlindMinusBtn.addEventListener('click', async () => {
-            if (!currentRoomId) return;
+            if (!currentRoomId || inRoomBlindMinusBtn.disabled) return;
             let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
             if (currentCount > 1) {
                 await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount - 1 });
@@ -710,7 +768,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         });
 
         inRoomBlindPlusBtn.addEventListener('click', async () => {
-            if (!currentRoomId) return;
+            if (!currentRoomId || inRoomBlindPlusBtn.disabled) return;
             let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
             if (currentCount < 10) {
                 await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount + 1 });
@@ -2160,27 +2218,29 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
             }
 
             const sortedPlayers = [...roomData.players].sort((a, b) => a.order - b.order);
-
             const isWaiting = roomData.gameState === 'waiting';
             document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
             document.getElementById('webgl-canvas').style.display = (isWaiting || roomData.gameState === 'finished') ? 'none' : 'block';
-            document.getElementById('room-settings').style.display = 'none';
 
             playersContainerDiv.innerHTML = '';
             if (isWaiting) {
-                document.getElementById('room-settings').style.display = 'block';
+                waitingRoomContainer.style.display = 'block';
+                playersContainerDiv.style.display = 'none';
                 const currentBlindCount = roomData.blindCount || 0;
                 
-                gameModeSelect.disabled = !amIHost;
+                modeNormalBtn.disabled = !amIHost;
+                modeBlindBtn.disabled = !amIHost;
                 inRoomBlindMinusBtn.disabled = !amIHost;
                 inRoomBlindPlusBtn.disabled = !amIHost;
                 
                 if (currentBlindCount > 0) {
-                    gameModeSelect.value = 'blind';
-                    document.getElementById('blind-count-setting-area').style.display = 'block';
+                    modeBlindBtn.classList.add('active');
+                    modeNormalBtn.classList.remove('active');
+                    document.getElementById('blind-count-setting-area').style.display = 'flex';
                     inRoomBlindCountDisplay.textContent = currentBlindCount;
                 } else {
-                    gameModeSelect.value = 'normal';
+                    modeNormalBtn.classList.add('active');
+                    modeBlindBtn.classList.remove('active');
                     document.getElementById('blind-count-setting-area').style.display = 'none';
                 }
 
@@ -2190,27 +2250,19 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
                 playerNameSprites = {};
                 selectedCards = [];
 
-                playersContainerDiv.style.display = 'block';
-                playersContainerDiv.className = 'waiting-players-list';
-
-                const header = document.createElement('h3');
-                header.textContent = `参加者 (${roomData.players.length}/6人)`;
-                playersContainerDiv.appendChild(header);
+                waitingPlayersHeader.textContent = `参加者 (${roomData.players.length}/6人)`;
+                waitingPlayersUl.innerHTML = '';
                 
-                const ul = document.createElement('ul');
-                ul.style.listStyle = 'none';
-                ul.style.padding = '0';
-                ul.style.margin = '0';
                 roomData.players.forEach((player, index) => {
                     const li = document.createElement('li');
                     li.className = 'waiting-player-item';
                     const hostBadge = player.isHost ? '<span class="host-badge">👑 ホスト</span>' : '';
                     
                     li.innerHTML = `<span class="player-number">Player ${index + 1}</span><span class="player-name-waiting">${player.name} ${player.id === me.id ? '<b>(あなた)</b>' : ''}</span>${hostBadge}`;
-                    ul.appendChild(li);
+                    waitingPlayersUl.appendChild(li);
                 });
-                playersContainerDiv.appendChild(ul);
             } else {
+                waitingRoomContainer.style.display = 'none';
                 playersContainerDiv.style.display = 'none';
                 update3DScene(roomData, me);
             }
