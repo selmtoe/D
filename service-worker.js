@@ -1,11 +1,11 @@
-const CACHE_NAME = 'daifugo-luxe-v6';
+const CACHE_NAME = 'daifugo-luxe-v7';
 // キャッシュするファイルのリスト
 const FILES_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './styles/daifugo-luxe.css',
-  './src/avatar-studio.js',
+  './styles/daifugo-luxe.css?v=7',
+  './src/avatar-studio.js?v=7',
   './assets/luxury-card-salon.png',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png'
