@@ -1,0 +1,120 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isV2RoomMember(roomId, uid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/v2Rooms/$(roomId))
+        && get(/databases/$(database)/documents/v2Rooms/$(roomId)).data.members.keys().hasAny([uid])
+        && get(/databases/$(database)/documents/v2Rooms/$(roomId)).data.members[uid].connectionStatus != 'left';
+    }
+
+    // Legacy v1 namespace. The deployed legacy policy is not present in this
+    // repository. Keeping its direct-client access preserves the running app;
+    // do not tighten this match until the documented migration is complete.
+    match /rooms/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Full card state is server-authoritative. Admin SDK access bypasses Rules.
+    match /v2Rooms/{document=**} {
+      allow read, write: if false;
+    }
+
+    // The room-level document is a deliberately small public lobby projection.
+    match /v2RoomViews/{roomId} {
+      allow read: if signedIn();
+      allow write: if false;
+
+      // Every private projection is addressed by Auth UID. A client cannot
+      // enumerate or read another player's/spectator's view.
+      match /viewers/{viewerUid} {
+        allow get: if isOwner(viewerUid);
+        allow list: if false;
+        allow write: if false;
+      }
+    }
+
+    // Idempotency records and audit events can include authoritative details.
+    match /v2Events/{document=**} {
+      allow read, write: if false;
+    }
+
+    // WebRTC is non-authoritative signaling only. Payloads are short-lived,
+    // addressed to a room member, and cannot be updated after creation.
+    match /webrtcRooms/{roomId}/signals/{signalId} {
+      allow get, list: if isV2RoomMember(roomId, request.auth.uid)
+        && (resource.data.senderUid == request.auth.uid
+          || resource.data.targetUid == request.auth.uid);
+      allow create: if roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && signalId.size() <= 128
+        && isV2RoomMember(roomId, request.auth.uid)
+        && request.resource.data.keys().hasOnly([
+          'senderUid', 'targetUid', 'kind', 'payload', 'createdAt', 'expiresAt'
+        ])
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.targetUid is string
+        && isV2RoomMember(roomId, request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && request.resource.data.kind in ['offer', 'answer', 'ice']
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 32768
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(10, 'm');
+      allow update, delete: if false;
+    }
+
+    // Firebase fallback for ephemeral presentation cues. These messages may
+    // animate UI only; no card, turn, rank, or timer authority is accepted.
+    match /webrtcRooms/{roomId}/cues/{cueId} {
+      allow get, list: if isV2RoomMember(roomId, request.auth.uid);
+      allow create: if roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && cueId.size() <= 128
+        && isV2RoomMember(roomId, request.auth.uid)
+        && request.resource.data.keys().hasOnly([
+          'senderUid', 'kind', 'payload', 'createdAt', 'expiresAt'
+        ])
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.kind in ['emote', 'focus', 'animation']
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 2048
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(2, 'm');
+      allow update, delete: if false;
+    }
+
+    // Versioned user/avatar records are scoped to their authenticated owner.
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly([
+          'schemaVersion', 'displayName', 'avatarId', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.schemaVersion == 1;
+      allow delete: if false;
+    }
+
+    match /avatars/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      // Saved only through saveAvatarProfile so catalog IDs, ranges and size
+      // are validated in the authoritative backend.
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

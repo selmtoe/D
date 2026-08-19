@@ -1,0 +1,27 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "v2Presence": {
+      "$roomId": {
+        ".read": "auth != null && $roomId.matches(/^[A-HJ-NP-Z2-9]{5}$/)",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && $roomId.matches(/^[A-HJ-NP-Z2-9]{5}$/)",
+          ".validate": "!newData.exists() || newData.hasChildren(['online', 'connectionId', 'lastChanged'])",
+          "online": {
+            ".validate": "newData.isBoolean()"
+          },
+          "connectionId": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+          },
+          "lastChanged": {
+            ".validate": "newData.isNumber()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    }
+  }
+}

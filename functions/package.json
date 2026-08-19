@@ -1,0 +1,29 @@
+{
+  "name": "@daifugo/functions",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude tests/emulator/**",
+    "test:emulator": "vitest run tests/emulator",
+    "lint": "eslint src tests",
+    "serve": "pnpm build && firebase emulators:start --only functions,firestore,database,auth"
+  },
+  "dependencies": {
+    "@daifugo/rules": "workspace:*",
+    "firebase-admin": "^14.2.0",
+    "firebase-functions": "^7.3.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "firebase": "^12.17.1",
+    "vitest": "^3.2.0"
+  }
+}
