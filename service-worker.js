@@ -1,4 +1,4 @@
-const CACHE_NAME = 'daifugo-luxe-v4';
+const CACHE_NAME = 'daifugo-luxe-v5';
 // キャッシュするファイルのリスト
 const FILES_TO_CACHE = [
   './',

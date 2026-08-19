@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
         <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>大富豪オンライン</title>
     <style>
         #error-display-container {
@@ -604,7 +604,9 @@ cursor: pointer;
             <div class="luxe-turn-display"><small>CURRENT TURN</small><strong id="luxe-turn-copy">卓を準備しています</strong></div>
             <div class="luxe-game-profile"><span data-luxe-avatar></span><div><small>YOU</small><b id="luxe-player-copy">PLAYER</b></div></div>
         </header>
-        <canvas id="webgl-canvas"></canvas>
+        <canvas id="webgl-canvas" tabindex="0" role="application" aria-label="3D大富豪テーブル。左右キーで手札を移動、スペースで選択、Enterで出します。"></canvas>
+        <div id="accessible-hand" class="sr-only" aria-label="自分の手札"></div>
+        <div id="game-live-status" class="sr-only" role="status" aria-live="polite"></div>
         <div class="game-info-bar ui-overlay" style="display: none;">
             <div>
                 <h2>大富豪</h2>
@@ -629,15 +631,15 @@ font-size: 24px; text-shadow: 0 0 5px white;"></span>
         </div>
 
         <div id="waiting-room-container" class="waiting-players-list ui-overlay" style="display: none; position: relative; z-index: 20; margin-top: 20px;">
-            <div class="tab-container">
-                <button id="tab-btn-players" class="tab-button active">参加者</button>
-                <button id="tab-btn-settings" class="tab-button">設定</button>
+            <div class="tab-container" role="tablist" aria-label="待機室メニュー">
+                <button id="tab-btn-players" class="tab-button active" role="tab" aria-selected="true" aria-controls="tab-content-players">参加者</button>
+                <button id="tab-btn-settings" class="tab-button" role="tab" aria-selected="false" aria-controls="tab-content-settings">設定</button>
             </div>
-            <div id="tab-content-players" class="tab-content active">
+            <div id="tab-content-players" class="tab-content active" role="tabpanel" aria-labelledby="tab-btn-players">
                 <h3 id="waiting-players-header" style="margin-top: 0; border-bottom: 2px solid #00796b; padding-bottom: 10px; color: #004d40;">参加者</h3>
                 <ul id="waiting-players-ul" style="list-style: none; padding: 0; margin: 0;"></ul>
             </div>
-            <div id="tab-content-settings" class="tab-content">
+            <div id="tab-content-settings" class="tab-content" role="tabpanel" aria-labelledby="tab-btn-settings">
                 <h3 style="margin-top: 0; border-bottom: 2px solid #00796b; padding-bottom: 10px; color: #004d40;">ルール設定</h3>
                 <div class="setting-item">
                     <label>モード:</label>
@@ -719,7 +721,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         </div>
         <div id="log-messages"></div>
         <div id="chat-input-container">
-            <input type="text" id="chat-input" placeholder="メッセージを入力">
+            <input type="text" id="chat-input" maxlength="120" aria-label="チャットメッセージ" placeholder="メッセージを入力">
             <button id="chat-send-btn">送信</button>
         </div>
     </div>
@@ -741,7 +743,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         // ▲▲▲ ここまで ▲▲▲
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
         const showAlert = (message) => {
             let overlay = document.getElementById('luxe-alert-overlay');
             if (!overlay) {
@@ -759,6 +761,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
             setTimeout(() => overlay.querySelector('button').focus(), 0);
         };
         const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+        const appendRoomLog = (roomData, ...entries) => [...(roomData.log || []), ...entries].slice(-300);
 
 
         const app = initializeApp(firebaseConfig);
@@ -768,10 +771,14 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         let currentRoomId = null;
         let unsubscribeRoom = null;
         let selectedCards = [];
+        let latestRoomData = null;
+        let keyboardCardIndex = 0;
+        let pendingActionTimerKey = null;
         let cardUidsInHand = new Set();
         let currentModal = { resolve: null, reject: null };
-        let lastKnownLogCount = 0;
+        let lastKnownLogKey = null;
         let scene, camera, renderer, raycaster, mouse;
+        let animationFrameId = null;
         let cameraTween = null;
         let cardMeshes = {};
         let tableMesh;
@@ -820,12 +827,16 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
             tabBtnSettings.classList.remove('active');
             tabContentPlayers.classList.add('active');
             tabContentSettings.classList.remove('active');
+            tabBtnPlayers.setAttribute('aria-selected', 'true');
+            tabBtnSettings.setAttribute('aria-selected', 'false');
         });
         tabBtnSettings.addEventListener('click', () => {
             tabBtnSettings.classList.add('active');
             tabBtnPlayers.classList.remove('active');
             tabContentSettings.classList.add('active');
             tabContentPlayers.classList.remove('active');
+            tabBtnSettings.setAttribute('aria-selected', 'true');
+            tabBtnPlayers.setAttribute('aria-selected', 'false');
         });
 
         const modeNormalBtn = document.getElementById('mode-normal-btn');
@@ -834,22 +845,40 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         const inRoomBlindMinusBtn = document.getElementById('in-room-blind-minus-btn');
         const inRoomBlindPlusBtn = document.getElementById('in-room-blind-plus-btn');
 
+        async function updateBlindCount(nextCount) {
+            if (!currentRoomId) return;
+            const normalizedCount = Math.max(0, Math.min(10, Number(nextCount) || 0));
+            const roomRef = doc(db, 'rooms', currentRoomId);
+            try {
+                await runTransaction(db, async transaction => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) throw new Error('部屋が見つかりません。');
+                    const roomData = roomSnap.data();
+                    const me = roomData.players.find(player => player.id === currentPlayer.id);
+                    if (!me?.isHost || roomData.gameState !== 'waiting') throw new Error('待機中のホストだけが設定を変更できます。');
+                    transaction.update(roomRef, { blindCount: normalizedCount });
+                });
+            } catch (error) {
+                showAlert(error.message);
+            }
+        }
+
         modeNormalBtn.addEventListener('click', async () => {
             if (!currentRoomId || modeNormalBtn.disabled) return;
-            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: 0 });
+            await updateBlindCount(0);
         });
 
         modeBlindBtn.addEventListener('click', async () => {
             if (!currentRoomId || modeBlindBtn.disabled) return;
             const currentCount = parseInt(inRoomBlindCountDisplay.textContent) || 1;
-            await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount });
+            await updateBlindCount(currentCount);
         });
 
         inRoomBlindMinusBtn.addEventListener('click', async () => {
             if (!currentRoomId || inRoomBlindMinusBtn.disabled) return;
             let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
             if (currentCount > 1) {
-                await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount - 1 });
+                await updateBlindCount(currentCount - 1);
             }
         });
 
@@ -857,7 +886,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
             if (!currentRoomId || inRoomBlindPlusBtn.disabled) return;
             let currentCount = parseInt(inRoomBlindCountDisplay.textContent);
             if (currentCount < 10) {
-                await updateDoc(doc(db, 'rooms', currentRoomId), { blindCount: currentCount + 1 });
+                await updateBlindCount(currentCount + 1);
             }
         });
 
@@ -1009,12 +1038,13 @@ if (debugCheckbox) {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
+                const me = latestRoomData?.players?.find(player => player.id === currentPlayer.id);
+                if (me && latestRoomData.gameState === 'playing' && screens.game.classList.contains('active')) update3DScene(latestRoomData, me);
             });
             window.addEventListener('pointerdown', onPointerDown, { passive: false });
             window.addEventListener('pointermove', onPointerMove, { passive: false });
             window.addEventListener('pointerup', onPointerUp, { passive: false });
             window.addEventListener('click', onCanvasClick);
-            window.addEventListener('touchstart', onCanvasClick, { passive: false });
             window.addEventListener('touchmove', function(event) {
                 const gameScreen = document.getElementById('game-screen');
                 const modalOverlay = document.getElementById('modal-overlay');
@@ -1025,7 +1055,7 @@ if (debugCheckbox) {
                     event.preventDefault();
                 }
             }, { passive: false });
-            animateThreeJS();
+            startAnimationLoop();
         }
 
 
@@ -1154,13 +1184,19 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
 
 
 
+        function startAnimationLoop() {
+            if (animationFrameId === null) animationFrameId = requestAnimationFrame(animateThreeJS);
+        }
+
         function animateThreeJS() {
-            requestAnimationFrame(animateThreeJS);
+            animationFrameId = null;
+            if (!screens.game.classList.contains('active') || renderer.domElement.style.display === 'none') return;
             if (turnIndicator && turnIndicator.visible) {
                 const time = Date.now() * 0.005;
                 turnIndicator.position.y = turnIndicator.userData.baseY + Math.sin(time) * 0.5;
             }
             renderer.render(scene, camera);
+            animationFrameId = requestAnimationFrame(animateThreeJS);
         }
 
 
@@ -1327,6 +1363,30 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
             return mesh;
         }
 
+        function stopCardTweens(mesh) {
+            if (!mesh) return;
+            gsap.killTweensOf(mesh.position);
+            gsap.killTweensOf(mesh.rotation);
+        }
+
+        function disposeCardMesh(mesh) {
+            if (!mesh || mesh.userData.disposed) return;
+            mesh.userData.disposed = true;
+            stopCardTweens(mesh);
+            scene?.remove(mesh);
+            mesh.geometry?.dispose();
+            const materials = Array.isArray(mesh.material) ? [...new Set(mesh.material)] : [mesh.material];
+            materials.filter(Boolean).forEach(material => material.dispose());
+        }
+
+        function disposePlayerSprite(sprite) {
+            if (!sprite || sprite.userData.disposed) return;
+            sprite.userData.disposed = true;
+            scene?.remove(sprite);
+            sprite.material?.map?.dispose();
+            sprite.material?.dispose();
+        }
+
         function createPlayerNameSprite(player, isTurnPlayer) {
             const canvas = document.createElement('canvas');
             canvas.width = 720;
@@ -1369,6 +1429,7 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
             if (player.avatar && window.LuxeAvatar) {
                 const avatar = new Image();
                 avatar.onload = () => {
+                    if (sprite.userData.disposed) return;
                     drawPlate();
                     ctx.save();
                     ctx.beginPath(); ctx.arc(115, 104, 66, 0, Math.PI * 2); ctx.clip();
@@ -1443,7 +1504,8 @@ for (let i = 0; i < intersects.length; i++) {
             const viewerId = spectatingPlayerId || me.id;
             const numPlayers = roomData.players.length;
             const myIndex = roomData.players.findIndex(p => p.id === me.id);
-            const radius = 9;
+            const isPortraitLayout = window.innerWidth <= 700 && window.innerHeight > window.innerWidth;
+            const radius = isPortraitLayout ? 7.5 : 8.3;
             playerPositions = []
             for (let i = 0; i < numPlayers; i++) {
                 const angle = (i / numPlayers) * Math.PI * 2;
@@ -1467,8 +1529,8 @@ for (let i = 0; i < intersects.length; i++) {
             targetViewerAngle = currentViewerAngle + diff;
 
             const proxy = { angle: currentViewerAngle };
-            const cameraDistance = spectatingPlayerId ? 21.5 : 20;
-            const cameraHeight = spectatingPlayerId ? 17.2 : 13.5;
+            const cameraDistance = isPortraitLayout ? (spectatingPlayerId ? 25 : 24) : (spectatingPlayerId ? 24.5 : 23);
+            const cameraHeight = isPortraitLayout ? (spectatingPlayerId ? 19 : 17) : (spectatingPlayerId ? 18 : 16);
             if (cameraTween) cameraTween.kill();
             cameraTween = gsap.to(proxy, {
                 angle: targetViewerAngle,
@@ -1477,7 +1539,7 @@ for (let i = 0; i < intersects.length; i++) {
                     camera.position.x = -Math.sin(proxy.angle) * cameraDistance;
                     camera.position.z = Math.cos(proxy.angle) * cameraDistance;
                     camera.position.y = cameraHeight;
-                    camera.lookAt(0, 0.4, 0);
+                    camera.lookAt(0, isPortraitLayout ? 1.1 : 0.8, 0);
                 },
                 onComplete: () => { cameraTween = null; }
             });
@@ -1498,7 +1560,7 @@ for (let i = 0; i < intersects.length; i++) {
                     const isTurnPlayer = player.id === roomData.turnPlayerId;
                     const spriteSignature = `${isTurnPlayer}|${player.name}|${player.hand?.length ?? 0}|${JSON.stringify(player.avatar || {})}`;
                     if (!playerNameSprites[player.id] || playerNameSprites[player.id].userData.signature !== spriteSignature) {
-                        if (playerNameSprites[player.id]) scene.remove(playerNameSprites[player.id]);
+                        if (playerNameSprites[player.id]) disposePlayerSprite(playerNameSprites[player.id]);
                         const sprite = createPlayerNameSprite(player, isTurnPlayer);
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
@@ -1543,9 +1605,12 @@ for (let i = 0; i < intersects.length; i++) {
                             mesh.material[2].map = generateCardTexture(card);
                         }
                         mesh.material[2].needsUpdate = true;
+                        if (!isNew) stopCardTweens(mesh);
 
                         const normalCount = player.hand.filter(c => !c.isBlind).length;
-                        const spread = isMine ? 1.0 : 0.3;
+                        const spread = isMine
+                            ? (isPortraitLayout ? Math.min(0.64, 4.2 / Math.max(player.hand.length - 1, 1)) : Math.min(1, 10.5 / Math.max(player.hand.length - 1, 1)))
+                            : 0.3;
                         let offset = 0;
                         if (card.isBlind) {
                             const blindIndex = player.hand.filter(c => c.isBlind).findIndex(c => c.uid === uid);
@@ -1560,8 +1625,8 @@ for (let i = 0; i < intersects.length; i++) {
                         const depthOffset = j * 0.01;
                         const targetX = pos.x + Math.cos(pos.angle) * offset - Math.sin(pos.angle) * depthOffset;
                         const targetZ = pos.z - Math.sin(pos.angle) * offset - Math.cos(pos.angle) * depthOffset;
-                        let targetY = isMine ? 1.5 : 2.5;
-                        let targetRotX = isMine ? Math.PI / 4 : Math.PI / 2;
+                        let targetY = isMine ? (isPortraitLayout ? 2.2 : 2) : 2.5;
+                        let targetRotX = isMine ? (isPortraitLayout ? Math.PI / 3 : Math.PI / 4) : Math.PI / 2;
                         let targetRotY = pos.angle;
                         let targetRotZ = card.isBlind ? Math.PI : 0;
                         if (isMine) {
@@ -1571,6 +1636,9 @@ for (let i = 0; i < intersects.length; i++) {
                             const isSelected = selectedCards.some(sc => sc.uid === uid);
                             if (isSelected) {
                                 targetY += 1.0;
+                            }
+                            if (player.id === currentPlayer.id && player.hand[keyboardCardIndex]?.uid === uid && document.activeElement === renderer.domElement) {
+                                targetY += 0.35;
                             }
                         }
 
@@ -1589,23 +1657,28 @@ for (let i = 0; i < intersects.length; i++) {
 
             if (isInitialDeal) {
                 const totalNewCards = newHandCards.length;
+                const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                const riseDuration = reduceMotion ? 0.01 : 0.5;
+                const dealDuration = reduceMotion ? 0.01 : 0.45;
+                const dealBaseDelay = reduceMotion ? 0 : 0.55;
+                const dealStagger = reduceMotion ? 0 : 0.012;
                 newHandCards.forEach((anim, idx) => {
                     anim.mesh.position.set(0, 0.54 + (totalNewCards - 1 - idx) * 0.01, 0);
                     anim.mesh.rotation.set(Math.PI, 0, 0);
                 });
                 newHandCards.forEach((anim, idx) => {
-                    gsap.to(anim.mesh.position, { y: 4 + (totalNewCards - 1 - idx) * 0.01, duration: 1.0, ease: "power2.out" });
+                    gsap.to(anim.mesh.position, { y: 4 + (totalNewCards - 1 - idx) * 0.01, duration: riseDuration, ease: "power2.out" });
                 });
                 animationsToRun.forEach((anim, idx) => {
 
                     if (anim.isNew) {
                         gsap.to(anim.mesh.position, {
                             x: anim.targetX, y: anim.targetY, z: anim.targetZ,
-                            duration: 0.6, delay: 1.2 + idx * 0.05, ease: "power2.out"
+                            duration: dealDuration, delay: dealBaseDelay + idx * dealStagger, ease: "power2.out"
                         });
                         gsap.to(anim.mesh.rotation, {
                             x: anim.targetRotX, y: anim.targetRotY, z: anim.targetRotZ,
-                            duration: 0.6, delay: 1.2 + idx * 0.05, ease: "power2.out"
+                            duration: dealDuration, delay: dealBaseDelay + idx * dealStagger, ease: "power2.out"
                         });
                     } else {
                         gsap.to(anim.mesh.position, { x: anim.targetX, y: anim.targetY, z: anim.targetZ, duration: 0.5 });
@@ -1636,6 +1709,7 @@ for (let i = 0; i < intersects.length; i++) {
                 mesh.userData.isBlind = false;
                 mesh.material[2].map = generateCardTexture(card);
                 mesh.material[2].needsUpdate = true;
+                stopCardTweens(mesh);
                 newCardMeshes[uid] = mesh;
 
                 const offset = (j - roomData.field.length / 2) * 1.0;
@@ -1663,6 +1737,7 @@ for (let i = 0; i < intersects.length; i++) {
                     mesh.userData.isBlind = false;
                     mesh.material[2].map = generateCardTexture(card);
                     mesh.material[2].needsUpdate = true;
+                    stopCardTweens(mesh);
 
                     newCardMeshes[uid] = mesh;
                     gsap.to(mesh.position, { x: -4, y: 0.54 + j * 0.05, z: 0, duration: 0.5 });
@@ -1673,7 +1748,7 @@ for (let i = 0; i < intersects.length; i++) {
 
             Object.keys(playerNameSprites).forEach(pid => {
                 if (!activePlayerIds.has(pid)) {
-                    scene.remove(playerNameSprites[pid]);
+                    disposePlayerSprite(playerNameSprites[pid]);
                     delete playerNameSprites[pid];
                 }
             });
@@ -1683,8 +1758,7 @@ for (let i = 0; i < intersects.length; i++) {
                 if (!uidsInScene.has(uid)) {
                     const meshToRemove = cardMeshes[uid];
                     gsap.delayedCall(0.5, () => {
-                        scene.remove(meshToRemove);
-
+                        if (!Object.values(cardMeshes).includes(meshToRemove)) disposeCardMesh(meshToRemove);
                     });
                 }
             });
@@ -1714,10 +1788,17 @@ for (let i = 0; i < intersects.length; i++) {
                 showLogButton.style.display = 'none';
             }
             if (screenName === 'room') {
+                latestRoomData = null;
+                createRoomButton.disabled = false;
+                joinRoomButton.disabled = false;
+                createRoomButton.innerHTML = '<span>新しい部屋を作る</span><b>＋</b>';
+                joinRoomButton.textContent = '参加';
                 fetchPublicRooms();
             }
             if (screenName === 'game' && !renderer) {
                 initThreeJS();
+            } else if (screenName === 'game') {
+                startAnimationLoop();
             }
         }
         // --- Login ---
@@ -1794,7 +1875,7 @@ for (let i = 0; i < intersects.length; i++) {
                     const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: false, hand: [], order: -1, rank: null };
                     transaction.update(roomRef, {
                         players: [...roomData.players, newPlayer],
-                        log: [...(roomData.log || []), { timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` }]
+                        log: appendRoomLog(roomData, { timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
                     });
                 });
                 joinRoom(normalizedRoomId);
@@ -1829,8 +1910,11 @@ for (let i = 0; i < intersects.length; i++) {
                 );
                 const querySnapshot = await getDocs(q);
                 const rooms = [];
-                querySnapshot.forEach((doc) => {
-                    rooms.push(doc.data());
+                const freshRoomCutoff = Date.now() - 24 * 60 * 60 * 1000;
+                querySnapshot.forEach((roomDoc) => {
+                    const room = roomDoc.data();
+                    const createdAt = room.createdAt?.toMillis?.() || 0;
+                    if (createdAt >= freshRoomCutoff) rooms.push({ ...room, id: room.id || roomDoc.id });
                 });
                 renderPublicRooms(rooms);
             } catch (error) {
@@ -1874,6 +1958,8 @@ for (let i = 0; i < intersects.length; i++) {
 
                 const joinBtn = document.createElement('button');
                 joinBtn.textContent = '参加';
+                joinBtn.type = 'button';
+                joinBtn.setAttribute('aria-label', `${hostName}のルーム（ID ${room.id}）に参加`);
                 joinBtn.onclick = () => joinExistingRoom(room.id, joinBtn);
 
 
@@ -1954,7 +2040,8 @@ for (let i = 0; i < intersects.length; i++) {
 
                     const update = {
                         players: newPlayers,
-                        log: [...(roomData.log || []), { timestamp: Date.now(), message: `${me.name}さんが退出しました。` }]
+                        log: appendRoomLog(roomData, { timestamp: Date.now(), message: `${me.name}さんが退出しました。` }),
+                        pendingActions: (roomData.pendingActions || []).filter(action => action.actorId !== me.id)
                     };
                     if (roomData.gameState === 'playing') {
                         update.discardPile = [...(roomData.discardPile || []), ...(me.hand || []).map(cleanCard)];
@@ -1968,6 +2055,8 @@ for (let i = 0; i < intersects.length; i++) {
                             update.roundPile = [];
                             update.passCount = 0;
                             update.lastPlayed = { player: null, cards: [] };
+                            update.shibariSuits = [];
+                            update.isJBackActive = false;
                         }
                     }
                     transaction.update(roomRef, update);
@@ -1979,9 +2068,9 @@ for (let i = 0; i < intersects.length; i++) {
                 }
                 currentRoomId = null;
 
-                Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
+                Object.values(cardMeshes).forEach(disposeCardMesh);
                 cardMeshes = {};
-                Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
+                Object.values(playerNameSprites).forEach(disposePlayerSprite);
                 playerNameSprites = {};
                 selectedCards = [];
 
@@ -2010,6 +2099,9 @@ for (let i = 0; i < intersects.length; i++) {
                     const roomData = roomSnap.data();
 
                     if (roomData.players.length < 3) throw new Error('3人以上でゲームを開始できます。');
+                    const starter = roomData.players.find(player => player.id === currentPlayer.id);
+                    if (!starter?.isHost) throw new Error('ゲームを開始できるのはホストだけです。');
+                    if (!['waiting', 'finished'].includes(roomData.gameState)) throw new Error('ゲームはすでに開始されています。');
 
                     const suits = ['spade', 'heart', 'diamond', 'club'];
                     let deck = [];
@@ -2061,11 +2153,12 @@ let normalCards = p.hand.filter(c => !c.isBlind);
                         players: sortedPlayers, gameState: 'playing',
                         turnPlayerId: firstPlayerId, field: [],
                         discardPile: [], passCount: 0,
+                        roundPile: [],
                         lastPlayed: { player: null, cards: [] },
                         isRevolution: false, isJBackActive: false, turnDirection: 1,
                         shibariSuits: [],
                         pendingActions: [],
-                        log: arrayUnion({ timestamp: Date.now(), message: `ゲームが開始されました。最初のプレイヤーは${sortedPlayers.find(p=>p.id===firstPlayerId).name}さんです。` })
+                        log: appendRoomLog(roomData, { timestamp: Date.now(), message: `ゲームが開始されました。最初のプレイヤーは${sortedPlayers.find(p=>p.id===firstPlayerId).name}さんです。` })
                     });
 
                 });
@@ -2075,12 +2168,19 @@ let normalCards = p.hand.filter(c => !c.isBlind);
         // --- Game Actions ---
         playButton.addEventListener('click', async () => {
             if (selectedCards.length === 0) return;
+            if (currentRoomId === 'SHOWROOM') return;
+            const selectedCardClaims = selectedCards.map(card => ({ uid: card.uid, suit: card.suit, number: card.number, isBlind: Boolean(card.isBlind) }));
             const roomRef = doc(db, 'rooms', currentRoomId);
 
             const roomSnapLocal = await getDoc(roomRef);
-            if (!roomSnapLocal.exists()) return;
+            if (!roomSnapLocal.exists()) return showAlert('部屋が見つかりません。');
             const roomDataLocal = roomSnapLocal.data();
             const meLocal = roomDataLocal.players.find(p => p.id === currentPlayer.id);
+            if (!meLocal || roomDataLocal.gameState !== 'playing' || roomDataLocal.turnPlayerId !== currentPlayer.id || roomDataLocal.pendingActions?.length) {
+                selectedCards = [];
+                renderGame(roomDataLocal);
+                return showAlert('現在はカードを出せません。最新の卓を確認してください。');
+            }
 
             let finalCards = JSON.parse(JSON.stringify(selectedCards));
             const hasBlindSelected = finalCards.some(c => c.isBlind);
@@ -2144,6 +2244,21 @@ let normalCards = p.hand.filter(c => !c.isBlind);
                     if (!roomSnap.exists()) throw new Error("Room does not exist.");
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    if (roomData.gameState !== 'playing') throw new Error('対局中ではありません。');
+                    if (!me || me.rank !== null) throw new Error('このプレイヤーは現在操作できません。');
+                    if (roomData.turnPlayerId !== currentPlayer.id) throw new Error('あなたのターンではありません。');
+                    if (roomData.pendingActions?.length) throw new Error('先にカード効果を処理してください。');
+                    const selectedUids = selectedCards.map(card => card.uid);
+                    if (new Set(selectedUids).size !== selectedUids.length) throw new Error('同じカードが重複して選択されています。');
+                    const serverHandByUid = new Map(me.hand.map(card => [card.uid, card]));
+                    if (!selectedCardClaims.every(claim => {
+                        const serverCard = serverHandByUid.get(claim.uid);
+                        return serverCard && serverCard.suit === claim.suit && serverCard.number === claim.number && Boolean(serverCard.isBlind) === claim.isBlind;
+                    })) throw new Error('選択したカードが手札と一致しません。');
+                    if (selectedCards.some(card => card.mimics && card.suit !== 'joker')) throw new Error('ジョーカー以外のカードは別の札として扱えません。');
+                    if (selectedCards.some(card => card.mimics && (!['spade', 'heart', 'diamond', 'club'].includes(card.mimics.suit) || ![1,2,3,4,5,6,7,8,9,10,11,12,13].includes(card.mimics.number)))) {
+                        throw new Error('ジョーカーの変身先が不正です。');
+                    }
 
                     if (disqualification) {
                         const targetRank = roomData.players.length - roomData.players.filter(p => p.isDisqualified).length;
@@ -2199,7 +2314,7 @@ let normalCards = p.hand.filter(c => !c.isBlind);
 
                         transaction.update(roomRef, {
                             ...finalState,
-                            log: arrayUnion({ timestamp: Date.now(), message: `${me.name}はブラインド出しに失敗し、失格（${targetRank}位）となりました。手札はすべて捨て札になります。` })
+                            log: appendRoomLog(roomData, { timestamp: Date.now(), message: `${me.name}はブラインド出しに失敗し、失格（${targetRank}位）となりました。手札はすべて捨て札になります。` })
                         });
                         selectedCards = [];
                         return;
@@ -2401,7 +2516,7 @@ nextState.pendingActions = nextState.pendingActions.filter(a => a.type === 'bomb
 
                     const finalState = checkGameEnd(nextState);
 
-                    transaction.update(roomRef, {...finalState, log: arrayUnion(...logEntries)});
+                    transaction.update(roomRef, {...finalState, log: appendRoomLog(roomData, ...logEntries)});
                 });
                 selectedCards = [];
             } catch (error) { showAlert(error.message); }
@@ -2415,9 +2530,16 @@ nextState.pendingActions = nextState.pendingActions.filter(a => a.type === 'bomb
                 await runTransaction(db, async (transaction) => {
                     const roomSnap = await transaction.get(roomRef);
 
-                    if (!roomSnap.exists()) return;
+                    if (!roomSnap.exists()) throw new Error('部屋が見つかりません。');
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    if (roomData.gameState !== 'playing') throw new Error('対局中ではありません。');
+                    if (!me || me.rank !== null) throw new Error('このプレイヤーは現在操作できません。');
+                    if (roomData.turnPlayerId !== currentPlayer.id) throw new Error('あなたのターンではありません。');
+                    if (roomData.pendingActions?.length) throw new Error('先にカード効果を処理してください。');
+                    if (roomData.field.length === 0 && !me.hand.every(card => card.number === 2 || card.suit === 'joker')) {
+                        throw new Error('場が空のときはパスできません。');
+                    }
 
                     let newPassCount = roomData.passCount + 1;
                     let newTurnPlayerId = getNextPlayerId(roomData.players, currentPlayer.id, roomData.turnDirection, 0);
@@ -2466,7 +2588,7 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
                         shibariSuits: flow ? [] : roomData.shibariSuits,
                         roundPile: flow ? [] : roomData.roundPile,
 
-                   discardPile: newDiscardPile, log: arrayUnion(...logEntries)
+                   discardPile: newDiscardPile, log: appendRoomLog(roomData, ...logEntries)
                     });
 
 });
@@ -2478,6 +2600,7 @@ if (!nextTurnHolder || nextTurnHolder.rank !== null) {
 
         // --- UI Rendering ---
 function renderGame(roomData) {
+            latestRoomData = roomData;
             if (roomData.gameState === 'playing') {
                 document.getElementById('room-info-container').style.display = 'none';
             } else {
@@ -2541,6 +2664,9 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
                     activePlayers.forEach(p => {
                         const btn = document.createElement('button');
                         btn.textContent = p.name;
+                        btn.type = 'button';
+                        btn.setAttribute('aria-pressed', spectatingPlayerId === p.id ? 'true' : 'false');
+                        btn.setAttribute('aria-label', `${p.name}の手札を観戦`);
                         if (spectatingPlayerId === p.id) {
                             btn.style.backgroundColor = '#80cbc4';
                             btn.style.color = '#004d40';
@@ -2565,6 +2691,7 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
             const isWaiting = roomData.gameState === 'waiting';
             document.getElementById('game-playing-area').style.display = isWaiting ? 'none' : 'block';
             document.getElementById('webgl-canvas').style.display = (isWaiting || roomData.gameState === 'finished') ? 'none' : 'block';
+            if (!isWaiting && roomData.gameState !== 'finished') startAnimationLoop();
 
             playersContainerDiv.innerHTML = '';
             if (isWaiting) {
@@ -2588,9 +2715,9 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
                     document.getElementById('blind-count-setting-area').style.display = 'none';
                 }
 
-                Object.values(cardMeshes).forEach(mesh => scene.remove(mesh));
+                Object.values(cardMeshes).forEach(disposeCardMesh);
                 cardMeshes = {};
-                Object.values(playerNameSprites).forEach(sprite => scene.remove(sprite));
+                Object.values(playerNameSprites).forEach(disposePlayerSprite);
                 playerNameSprites = {};
                 selectedCards = [];
 
@@ -2642,6 +2769,7 @@ if (!disablePass && roomData.field.length === 0) {
             } else {
                 document.body.classList.remove('is-my-turn-bg');
             }
+            renderAccessibleGameState(roomData, me);
         }
 
 
@@ -2652,10 +2780,43 @@ if (!disablePass && roomData.field.length === 0) {
             update3DScene(roomData, me);
         }
 
+        function accessibleCardName(card) {
+            if (card.isBlind) return '裏向きカード';
+            if (card.suit === 'joker') return 'ジョーカー';
+            const suits = { spade: 'スペード', heart: 'ハート', diamond: 'ダイヤ', club: 'クラブ' };
+            return `${suits[card.suit] || card.suit}の${numberToString(card.number)}`;
+        }
+
+        function renderAccessibleGameState(roomData, me) {
+            const accessibleHand = document.getElementById('accessible-hand');
+            const viewer = spectatingPlayerId ? roomData.players.find(player => player.id === spectatingPlayerId) : me;
+            accessibleHand.innerHTML = '';
+            accessibleHand.setAttribute('aria-label', spectatingPlayerId ? `${viewer?.name || ''}の手札` : '自分の手札');
+            (viewer?.hand || []).forEach((card, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = `${index + 1}枚目 ${accessibleCardName(card)}`;
+                const selectable = !spectatingPlayerId && roomData.gameState === 'playing' && roomData.turnPlayerId === me.id && me.rank === null && !roomData.pendingActions?.length;
+                button.disabled = !selectable;
+                button.setAttribute('aria-pressed', selectedCards.some(selected => selected.uid === card.uid) ? 'true' : 'false');
+                if (selectable) button.addEventListener('click', () => handleCardClick(card));
+                accessibleHand.appendChild(button);
+            });
+            const turnPlayer = roomData.players.find(player => player.id === roomData.turnPlayerId);
+            const fieldText = roomData.field?.length ? cardsToString(roomData.field) : '場は空です';
+            const selectionText = !spectatingPlayerId && selectedCards.length ? `。${selectedCards.length}枚選択中` : '';
+            const liveText = `${turnPlayer ? `${turnPlayer.name}のターン` : '対局終了'}。${fieldText}${selectionText}`;
+            const liveStatus = document.getElementById('game-live-status');
+            if (liveStatus.textContent !== liveText) liveStatus.textContent = liveText;
+        }
+
 
         // ★修正(7): Jokerの選択処理を全面的に修正
 async function handleCardClick(card) {
             if (passModeContext.active) return;
+            const roomData = latestRoomData;
+            const me = roomData?.players?.find(player => player.id === currentPlayer.id);
+            if (!roomData || !me || spectatingPlayerId || roomData.gameState !== 'playing' || roomData.turnPlayerId !== currentPlayer.id || me.rank !== null || roomData.pendingActions?.length) return;
             const index = selectedCards.findIndex(c => c.uid === card.uid);
 if (index > -1) { // Card is already selected -> Deselect it
 
@@ -2687,10 +2848,33 @@ if (index > -1) { // Card is already selected -> Deselect it
                 }
             }
 
-            const roomData = (await getDoc(doc(db, 'rooms', currentRoomId))).data();
-            const me = roomData.players.find(p => p.id === currentPlayer.id);
             renderMyHand(me, roomData);
+            playButton.disabled = selectedCards.length === 0;
+            renderAccessibleGameState(roomData, me);
         }
+
+        document.getElementById('webgl-canvas').addEventListener('keydown', async (event) => {
+            const roomData = latestRoomData;
+            const me = roomData?.players?.find(player => player.id === currentPlayer.id);
+            if (!roomData || !me?.hand?.length || spectatingPlayerId || roomData.turnPlayerId !== currentPlayer.id || me.rank !== null || roomData.pendingActions?.length) return;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                event.preventDefault();
+                keyboardCardIndex = (keyboardCardIndex + (event.key === 'ArrowRight' ? 1 : -1) + me.hand.length) % me.hand.length;
+                document.getElementById('game-live-status').textContent = `${keyboardCardIndex + 1}枚目、${accessibleCardName(me.hand[keyboardCardIndex])}`;
+                renderMyHand(me, roomData);
+            } else if (event.key === ' ' || event.key === 'Spacebar') {
+                event.preventDefault();
+                await handleCardClick(me.hand[Math.min(keyboardCardIndex, me.hand.length - 1)]);
+            } else if (event.key === 'Enter' && !playButton.disabled) {
+                event.preventDefault();
+                playButton.click();
+            } else if (event.key === 'Escape' && selectedCards.length) {
+                event.preventDefault();
+                selectedCards = [];
+                renderMyHand(me, roomData);
+                renderAccessibleGameState(roomData, me);
+            }
+        });
 
         // --- Helper Functions ---
         function generatePlayerId() { return Math.random().toString(36).substring(2, 10); }
@@ -2985,14 +3169,7 @@ if (!cardsToEval.every(c => c.number === playedNumber)) {
                         passModeContext.active = false;
                         document.body.removeChild(uiDiv);
                         if (passModeContext.assignments.length === passModeContext.requiredCount) {
-                            let newActions = [...roomData.pendingActions];
-
-                            let currentAssignments = [...passModeContext.assignments];
-                            await clearPendingActions();
-                            for (const a of currentAssignments) {
-                                await new Promise(r => setTimeout(r, 100));
-                                await executeGiveCards(a.targetId, [a.card]);
-                            }
+                            await executeGiveAssignments([...passModeContext.assignments]);
                         }
                     };
                     uiDiv.appendChild(confirmBtn);
@@ -3026,7 +3203,7 @@ if (action.count > 1 && validTargets.length > 0) {
 
 } else {
 
-                                     clearPendingActions();
+                                     clearPendingActions('steal_select_player');
 
 
  }
@@ -3035,24 +3212,35 @@ if (action.count > 1 && validTargets.length > 0) {
                          showPlayerSelectionModal('カードを奪う相手を選んでください', validTargets, action.count)
                             .then(targetId => startStealMiniGame([{playerId: targetId, count: action.count}], (stolenUids) => executeStealCard(targetId, action.count, stolenUids)))
                             .catch(() =>
-clearPendingActions());
+clearPendingActions('steal_select_player'));
 } else {
                         showModal("対象不在", "カードを奪える相手がいません。", {showConfirm: true, confirmText: "OK", showCancel: false})
-                            .then(() => { closeModal(); clearPendingActions(); });
+                            .then(() => { closeModal(); clearPendingActions('steal_select_player'); });
 }
                     break;
 
                 case 'eight_cut':
-                    setTimeout(() => executeEightCut(), 1500);
+                    if (pendingActionTimerKey !== `${action.type}:${action.actorId}`) {
+                        pendingActionTimerKey = `${action.type}:${action.actorId}`;
+                        setTimeout(() => executeEightCut().finally(() => { pendingActionTimerKey = null; }), 1500);
+                    }
                     break;
                 case 'auto_clear_field':
-                    setTimeout(() => executeAutoClearField(), 1500);
+                    if (pendingActionTimerKey !== `${action.type}:${action.actorId}`) {
+                        pendingActionTimerKey = `${action.type}:${action.actorId}`;
+                        setTimeout(() => executeAutoClearField().finally(() => { pendingActionTimerKey = null; }), 1500);
+                    }
                     break;
             }
         }
 
 
         function startStealMiniGame(distribution, finalActionCallback) {
+            if (cameraTween) {
+                cameraTween.kill();
+                cameraTween = null;
+            }
+            gsap.killTweensOf(camera.position);
             stealMiniGameContext.originalCamPos.copy(camera.position);
             stealMiniGameContext.targets = distribution;
             stealMiniGameContext.currentTargetIndex = 0;
@@ -3111,13 +3299,18 @@ clearPendingActions());
             stealMiniGameContext.currentTargetIndex++;
         }
 
-        async function clearPendingActions() {
-            if (currentRoomId) {
+        async function clearPendingActions(expectedType) {
+            if (!currentRoomId) return;
+            try {
                 await runTransaction(db, async (transaction) => {
                     const roomRef = doc(db, 'rooms', currentRoomId);
                     const roomSnap = await transaction.get(roomRef);
                     if (roomSnap.exists()) {
                         const roomData = roomSnap.data();
+                        const currentAction = roomData.pendingActions?.[0];
+                        if (!currentAction) return;
+                        if (currentAction.actorId !== currentPlayer.id) throw new Error('この効果を処理できるプレイヤーではありません。');
+                        if (expectedType && currentAction.type !== expectedType) throw new Error('この効果はすでに切り替わっています。');
                         const newPendingActions = roomData.pendingActions && roomData.pendingActions.length > 0 ? roomData.pendingActions.slice(1) : [];
                         let nextTurnPlayerId = roomData.turnPlayerId;
                         if (newPendingActions.length === 0) {
@@ -3129,6 +3322,8 @@ clearPendingActions());
                         transaction.update(roomRef, { pendingActions: newPendingActions, turnPlayerId: nextTurnPlayerId });
                     }
                 });
+            } catch (error) {
+                console.warn('Pending action was not cleared:', error.message);
             }
         } function showModal(title, bodyHtml, { confirmText = '決定', cancelText = 'キャンセル', showConfirm = true, showCancel = true, myHand = null } = {}) {
             modalTitle.textContent = title;
@@ -3209,7 +3404,7 @@ modalCancelButton.textContent = cancelText;
                 container.className = 'modal-player-selection';
                  if (players.length === 0) {
                     container.textContent = "対象となるプレイヤーがいません。効果は不発に終わります。";
-                    setTimeout(() => { closeModal(); reject(); clearPendingActions(); }, 2000);
+                    setTimeout(() => { closeModal(); reject(); clearPendingActions('steal_select_player'); }, 2000);
                  }
                 players.forEach(p => {
                     const btn = document.createElement('button');
@@ -3432,7 +3627,7 @@ modalCancelButton.textContent = cancelText;
                         turnDirection: 1,
                         shibariSuits: [],
                         pendingActions: [],
-                        log: arrayUnion({ timestamp: Date.now(), message: `ルームに戻りました。` })
+                        log: appendRoomLog(roomData, { timestamp: Date.now(), message: `ルームに戻りました。` })
                     });
                 });
             } catch (error) {
@@ -3450,8 +3645,7 @@ modalCancelButton.textContent = cancelText;
             const updatedPlayers = players.map(p => {
                 if (p.id === finishedPlayerId && p.rank === null) {
                     const message = `${p.name}が${newRank}位で上がりました！`;
-                    logs.push({ timestamp: Date.now(), message: message });
-                    showCutIn(p.name, `${newRank}位でゴール！`);
+                    logs.push({ timestamp: Date.now(), message: message, effect: { card: p.name, name: `${newRank}位でゴール！` } });
                     return { ...p, rank: newRank };
                 }
                 return p;
@@ -3476,7 +3670,7 @@ modalCancelButton.textContent = cancelText;
 
 
         // --- Action Execution Functions ---
-                async function executeAction(actionFn, logMessageFn, logContext) {
+                async function executeAction(expectedType, actionFn, logMessageFn, logContext) {
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
                 await runTransaction(db, async (transaction) => {
@@ -3484,8 +3678,14 @@ modalCancelButton.textContent = cancelText;
                     if (!roomSnap.exists()) throw new Error("Room not found");
                     let roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    const currentAction = roomData.pendingActions?.[0];
+                    if (roomData.gameState !== 'playing') throw new Error('対局中ではありません。');
+                    if (!me) throw new Error('プレイヤーが見つかりません。');
+                    if (!currentAction || currentAction.actorId !== currentPlayer.id || currentAction.type !== expectedType) {
+                        throw new Error('この効果はすでに処理済みか、操作期限が切れています。');
+                    }
 
-                    let { players, discardPile, logContext: actionLogContext } = await actionFn(roomData, me);
+                    let { players, discardPile, logContext: actionLogContext } = await actionFn(roomData, me, currentAction);
                     const finalLogContext = logContext || actionLogContext || {};
                     const logMessage = logMessageFn(finalLogContext);
 
@@ -3525,57 +3725,77 @@ tempPlayers.forEach(p => {
                     }
 
                     const finalState = checkGameEnd(nextState);
-                    transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: arrayUnion(...logEntries)});
+                    transaction.update(doc(db, 'rooms', currentRoomId), {...finalState, log: appendRoomLog(roomData, ...logEntries)});
                 });
             } catch (e) {
                 showAlert(`エラー: ${e.message}`);
-                await clearPendingActions();
             }
         }
 
-        function executeGiveCards(targetId, cardsToGive) {
-            executeAction(
-                (roomData, me) => {
-                    const giveUids = new Set(cardsToGive.map(c => c.uid));
-                    const newMyHand = me.hand.filter(c => !giveUids.has(c.uid));
-                    const targetPlayer = roomData.players.find(p => p.id === targetId);
-                    const players = roomData.players.map(p => {
-                        if (p.id === me.id) return { ...p, hand: newMyHand };
+        function executeGiveAssignments(assignments) {
+            return executeAction(
+                'pass_select_player',
+                (roomData, me, action) => {
+                    const expectedCount = Math.min(action.count, me.hand.length);
+                    if (assignments.length !== expectedCount) throw new Error(`渡すカードを${expectedCount}枚選んでください。`);
+                    const assignmentUids = assignments.map(item => item.card?.uid);
+                    if (assignmentUids.some(uid => !uid) || new Set(assignmentUids).size !== assignmentUids.length) throw new Error('渡すカードの選択が不正です。');
+                    const handByUid = new Map(me.hand.map(card => [card.uid, card]));
+                    if (!assignmentUids.every(uid => handByUid.has(uid))) throw new Error('渡すカードが手札にありません。');
+                    const targetIds = new Set(roomData.players.filter(player => player.id !== me.id && player.rank === null).map(player => player.id));
+                    if (!assignments.every(item => targetIds.has(item.targetId))) throw new Error('カードを渡す相手が無効です。');
 
-                        if (p.id === targetId) {
-                                                        const tempHand = [...p.hand, ...cardsToGive.map(c => ({...c, isBlind: false}))];
-                                                        return {
-
-                             ...p,
-                                hand: [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a) - getCardStrength(b)), ...tempHand.filter(c => c.isBlind)],
-                                privateEvent: { id: Date.now(), type: 'receive_cards', actor: me.name, cards: cardsToGive }
-
-                             };
-                        }
-                        return p;
+                    const grouped = new Map();
+                    assignments.forEach(item => {
+                        const cards = grouped.get(item.targetId) || [];
+                        cards.push({ ...handByUid.get(item.card.uid), isBlind: false });
+                        grouped.set(item.targetId, cards);
                     });
-                    return { players, logContext: { target: targetPlayer.name, cards: cardsToGive } };
+                    const giveUids = new Set(assignmentUids);
+                    const players = roomData.players.map(player => {
+                        if (player.id === me.id) return { ...player, hand: player.hand.filter(card => !giveUids.has(card.uid)) };
+                        const received = grouped.get(player.id);
+                        if (!received) return player;
+                        const tempHand = [...player.hand, ...received];
+                        return {
+                            ...player,
+                            hand: [...tempHand.filter(card => !card.isBlind).sort((a, b) => getCardStrength(a) - getCardStrength(b)), ...tempHand.filter(card => card.isBlind)],
+                            privateEvent: { id: Date.now(), type: 'receive_cards', actor: me.name, cards: received }
+                        };
+                    });
+                    const summary = [...grouped.entries()].map(([targetId, cards]) => ({ name: roomData.players.find(player => player.id === targetId).name, count: cards.length }));
+                    return { players, logContext: { summary } };
                 },
-
-                (ctx) => `${currentPlayer.name}が${ctx.target}にカードを${ctx.cards.length}枚渡しました。`
+                ctx => `${currentPlayer.name}が${ctx.summary.map(item => `${item.name}に${item.count}枚`).join('、')}カードを渡しました。`
             );
         }
 
         function executeDiscardCards(cardsToDiscard) {
-             executeAction(
-                (roomData, me) => {
+             return executeAction(
+                'discard_select_cards',
+                (roomData, me, action) => {
+                    const expectedCount = Math.min(action.count, me.hand.length);
+                    const discardUidsList = cardsToDiscard.map(card => card.uid);
+                    if (discardUidsList.length !== expectedCount || new Set(discardUidsList).size !== discardUidsList.length) throw new Error(`捨てるカードを${expectedCount}枚選んでください。`);
+                    const handByUid = new Map(me.hand.map(card => [card.uid, card]));
+                    if (!discardUidsList.every(uid => handByUid.has(uid))) throw new Error('捨てるカードが手札にありません。');
+                    const serverCards = discardUidsList.map(uid => handByUid.get(uid));
                     const discardUids = new Set(cardsToDiscard.map(c => c.uid));
                     const newMyHand = me.hand.filter(c => !discardUids.has(c.uid));
                     const players = roomData.players.map(p => p.id === me.id ? { ...p, hand: newMyHand } : p);
-                    return { players, discardPile: [...roomData.discardPile, ...cardsToDiscard.map(c => cleanCard(c))], logContext: { cards: cardsToDiscard } };
+                    return { players, discardPile: [...roomData.discardPile, ...serverCards.map(c => cleanCard(c))], logContext: { cards: serverCards } };
                 },
                 (ctx) => `${currentPlayer.name}がカード(${cardsToString(ctx.cards)})を捨てました。`
             );
         }
 
         function executeBomber(ranks) {
-            executeAction(
-                (roomData, me) => {
+            return executeAction(
+                'bomber_select_rank',
+                (roomData, me, action) => {
+                    if (ranks.length !== action.count || new Set(ranks).size !== ranks.length || ranks.some(rank => !Number.isInteger(rank) || rank < 1 || rank > 15 || rank === 14)) {
+                        throw new Error(`破壊する数字を${action.count}種類選んでください。`);
+                    }
                     const rankSet = new Set(ranks);
                     let allDiscarded = [];
                     let finishedPlayerIds = [];
@@ -3606,10 +3826,17 @@ tempPlayers.forEach(p => {
 
 
         function executeCollectCards(cardsToCollect) {
-            executeAction(
-                (roomData, me) => {
+            return executeAction(
+                'collect_select_cards',
+                (roomData, me, action) => {
+                    const expectedCount = Math.min(action.count, roomData.discardPile.length);
+                    const collectUidList = cardsToCollect.map(card => card.uid);
+                    if (collectUidList.length !== expectedCount || new Set(collectUidList).size !== collectUidList.length) throw new Error(`回収するカードを${expectedCount}枚選んでください。`);
+                    const discardByUid = new Map(roomData.discardPile.map(card => [card.uid, card]));
+                    if (!collectUidList.every(uid => discardByUid.has(uid))) throw new Error('選択したカードは捨て札にありません。');
+                    const serverCards = collectUidList.map(uid => discardByUid.get(uid));
                     const collectUids = new Set(cardsToCollect.map(c => c.uid));
-                    const tempHand = [...me.hand, ...cardsToCollect.map(c => ({...c, isBlind: false}))];
+                    const tempHand = [...me.hand, ...serverCards.map(c => ({...c, isBlind: false}))];
                     const newMyHand = [...tempHand.filter(c => !c.isBlind).sort((a,b) => getCardStrength(a)-getCardStrength(b)), ...tempHand.filter(c => c.isBlind)];
 
 
@@ -3618,10 +3845,10 @@ tempPlayers.forEach(p => {
                         players,
                         discardPile: roomData.discardPile.filter(c => !collectUids.has(c.uid)),
                         logContext: {
-                            cards: cardsToCollect,
+                            cards: serverCards,
                             effect: {
                                 card: me.name,
-                                name: `${cardsToString(cardsToCollect)}を回収`
+                                name: `${cardsToString(serverCards)}を回収`
                             }
                         }
                     };
@@ -3633,15 +3860,20 @@ tempPlayers.forEach(p => {
 
 
         function executeStealCard(targetId, count, stolenUids) {
-            executeAction(
-                (roomData, me) => {
+            return executeAction(
+                'steal_select_player',
+                (roomData, me, action) => {
+                    if (count !== action.count) throw new Error('奪う枚数が現在の効果と一致しません。');
                     let target = roomData.players.find(p => p.id === targetId);
-                    if (!target ||
-target.hand.length === 0) throw new Error("対象にカードがありません。");
+                    if (!target || target.id === me.id || target.rank !== null || target.hand.length === 0) throw new Error("対象にカードがありません。");
                     let targetHand = [...target.hand];
                     let stolenCards = [];
 
                     if (stolenUids && stolenUids.length > 0) {
+                        const expectedCount = Math.min(count, targetHand.length);
+                        if (stolenUids.length !== expectedCount || new Set(stolenUids).size !== stolenUids.length || !stolenUids.every(uid => targetHand.some(card => card.uid === uid))) {
+                            throw new Error('選択したカードが対象の手札と一致しません。');
+                        }
                         for (let uid of stolenUids) {
                             let idx = targetHand.findIndex(c => c.uid === uid);
                             if (idx > -1) {
@@ -3673,8 +3905,21 @@ return p;
 
         }
                 function executeDistributedSteal(distribution, stolenUids) {
-            executeAction(
-                (roomData, me) => {
+            return executeAction(
+                'steal_select_player',
+                (roomData, me, action) => {
+                    const ids = distribution.map(item => item.playerId);
+                    if (new Set(ids).size !== ids.length || distribution.some(item => !Number.isInteger(item.count) || item.count <= 0)) throw new Error('奪う相手と枚数の指定が不正です。');
+                    const expectedTotal = Math.min(action.count, roomData.players.filter(player => player.id !== me.id && player.rank === null).reduce((sum, player) => sum + player.hand.length, 0));
+                    if (distribution.reduce((sum, item) => sum + item.count, 0) !== expectedTotal) throw new Error(`奪う枚数は合計${expectedTotal}枚です。`);
+                    if (stolenUids?.length) {
+                        if (stolenUids.length !== expectedTotal || new Set(stolenUids).size !== stolenUids.length) throw new Error('選択したカードの枚数が一致しません。');
+                        for (const item of distribution) {
+                            const target = roomData.players.find(player => player.id === item.playerId);
+                            const selectedForTarget = stolenUids.filter(uid => target?.hand.some(card => card.uid === uid));
+                            if (selectedForTarget.length !== item.count) throw new Error('選択したカードと対象プレイヤーが一致しません。');
+                        }
+                    }
                     let players = [...roomData.players];
                     let logDetails = [];
 
@@ -3685,8 +3930,8 @@ return p;
 
 
                          let target = players.find(p => p.id === playerId);
-                        if (!target || target.hand.length < count) {
-                            throw new Error(`${target.name}から指定された枚数を奪えません。`);
+                         if (!target || target.id === me.id || target.rank !== null || target.hand.length < count) {
+                            throw new Error(`${target?.name || '対象'}から指定された枚数を奪えません。`);
 
                          }
 
@@ -3839,8 +4084,12 @@ stolenCards.push(c);
                     if (!roomSnap.exists()) throw new Error("Room not found");
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    const currentAction = roomData.pendingActions?.[0];
+                    if (!me || roomData.gameState !== 'playing' || !currentAction || currentAction.type !== 'eight_cut' || currentAction.actorId !== currentPlayer.id) {
+                        throw new Error('この8切りはすでに処理済みです。');
+                    }
 
-                    const newDiscard = [...roomData.discardPile, ...roomData.field.map(c => cleanCard(c))];
+                    const newDiscard = [...roomData.discardPile, ...(roomData.roundPile || []).map(c => cleanCard(c)), ...roomData.field.map(c => cleanCard(c))];
                     const logEntry = { timestamp: Date.now(), message: `${me.name}の(階段効果)8切りにより場が流れ、リセットされます。` };
 
                     const newPendingActions = roomData.pendingActions.slice(1);
@@ -3852,19 +4101,19 @@ stolenCards.push(c);
 
                     transaction.update(roomRef, {
                         field: [],
+                        roundPile: [],
                         passCount: 0,
                         isJBackActive: false,
                         shibariSuits: [], // 縛り解除
                         discardPile: newDiscard,
                         pendingActions: newPendingActions,
                         turnPlayerId: nextTurnPlayerId,
-                        log: arrayUnion(logEntry)
+                        log: appendRoomLog(roomData, logEntry)
                      });
 
                 });
             } catch (e) {
                 showAlert(`8切り処理エラー: ${e.message}`);
-                await clearPendingActions();
             }
         }
 
@@ -3876,6 +4125,10 @@ stolenCards.push(c);
                     if (!roomSnap.exists()) throw new Error("Room not found");
                     const roomData = roomSnap.data();
                     const me = roomData.players.find(p => p.id === currentPlayer.id);
+                    const currentAction = roomData.pendingActions?.[0];
+                    if (!me || roomData.gameState !== 'playing' || !currentAction || currentAction.type !== 'auto_clear_field' || currentAction.actorId !== currentPlayer.id) {
+                        throw new Error('この場流しはすでに処理済みです。');
+                    }
 
                     const newDiscard = [...roomData.discardPile, ...roomData.roundPile, ...roomData.field.map(c => cleanCard(c))];
 
@@ -3899,16 +4152,19 @@ stolenCards.push(c);
                 });
             } catch (e) {
                 showAlert(`自動流し処理エラー: ${e.message}`);
-                await clearPendingActions();
             }
         }
 
 
         // --- Log and Cut-in ---
         function renderLog(log) {
-            if (log.length === lastKnownLogCount) return;
+            const entryKey = entry => entry ? `${entry.timestamp}:${entry.message}:${entry.isChat ? 1 : 0}` : '';
+            const tailKey = entryKey(log.at(-1));
+            if (tailKey === lastKnownLogKey) return;
+            const previousTailIndex = lastKnownLogKey ? log.findIndex(entry => entryKey(entry) === lastKnownLogKey) : log.length - 1;
             logMessagesDiv.innerHTML = '';
-            log.forEach(entry => {
+            const visibleStart = Math.max(0, log.length - 200);
+            log.slice(visibleStart).forEach((entry, visibleIndex) => {
                 const p = document.createElement('p');
                 p.textContent = entry.message;
                 if (entry.isChat) {
@@ -3916,7 +4172,7 @@ stolenCards.push(c);
                 }
                 logMessagesDiv.prepend(p);
 
-                if (log.indexOf(entry) >= lastKnownLogCount) {
+                if (lastKnownLogKey && previousTailIndex >= 0 && visibleStart + visibleIndex > previousTailIndex) {
                     if (entry.effect) {
                         showCutIn(entry.effect.card, entry.effect.name);
                     }
@@ -3925,7 +4181,7 @@ stolenCards.push(c);
                     }
                 }
             });
-            lastKnownLogCount = log.length;
+            lastKnownLogKey = tailKey;
         }
 
         function showNicoNicoChat(message) {
@@ -3967,12 +4223,16 @@ stolenCards.push(c);
             chatInput.value = '';
             const roomRef = doc(db, 'rooms', currentRoomId);
             try {
-                await updateDoc(roomRef, {
-                    log: arrayUnion({
+                await runTransaction(db, async transaction => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) throw new Error('部屋が見つかりません。');
+                    const roomData = roomSnap.data();
+                    if (!roomData.players.some(player => player.id === currentPlayer.id)) throw new Error('この部屋の参加者ではありません。');
+                    transaction.update(roomRef, { log: appendRoomLog(roomData, {
                         timestamp: Date.now(),
                         message: `<${currentPlayer.name}> ${text}`,
                         isChat: true
-                    })
+                    }) });
                 });
             } catch (e) {
                 console.error(e);

@@ -65,6 +65,8 @@
   let drawingContext;
   let activeStroke = null;
   let activeTab = "face";
+  let previouslyFocusedElement = null;
+  let previousBodyOverflow = "";
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function loadProfile() {
@@ -264,8 +266,8 @@
             <p class="avatar-combination-count">100億通り以上の組み合わせ + 自由描画</p>
           </aside>
           <div class="avatar-editor-column">
-            <nav class="avatar-tabs" aria-label="アバターの編集項目">
-              <button type="button" data-avatar-tab="face">顔</button><button type="button" data-avatar-tab="hair">髪</button><button type="button" data-avatar-tab="expression">表情</button><button type="button" data-avatar-tab="style">装い</button><button type="button" data-avatar-tab="draw">自由に描く</button>
+            <nav class="avatar-tabs" role="tablist" aria-label="アバターの編集項目">
+              <button type="button" role="tab" data-avatar-tab="face">顔</button><button type="button" role="tab" data-avatar-tab="hair">髪</button><button type="button" role="tab" data-avatar-tab="expression">表情</button><button type="button" role="tab" data-avatar-tab="style">装い</button><button type="button" role="tab" data-avatar-tab="draw">自由に描く</button>
             </nav>
             <div id="avatar-parts-panel" class="avatar-parts-panel"></div>
             <div id="avatar-draw-panel" class="avatar-draw-panel" hidden>
@@ -276,7 +278,7 @@
             </div>
           </div>
         </div>
-        <footer class="avatar-studio-footer"><button type="button" class="avatar-cancel">キャンセル</button><button type="button" class="avatar-save">この姿で入室する</button></footer>
+        <footer class="avatar-studio-footer"><button type="button" class="avatar-cancel">キャンセル</button><button type="button" class="avatar-save">保存する</button></footer>
       </section>`;
     document.body.appendChild(overlay);
     drawingCanvas = overlay.querySelector("#avatar-drawing-canvas");
@@ -313,10 +315,36 @@
     drawingCanvas.addEventListener("pointermove", continueStroke);
     drawingCanvas.addEventListener("pointerup", endStroke);
     drawingCanvas.addEventListener("pointercancel", endStroke);
+    overlay.addEventListener("keydown", trapDialogFocus);
+  }
+
+  function trapDialogFocus(event) {
+    if (!overlay?.classList.contains("visible")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...overlay.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(element => !element.hidden && element.getClientRects().length);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function renderEditor() {
-    overlay.querySelectorAll("[data-avatar-tab]").forEach((button) => button.classList.toggle("active", button.dataset.avatarTab === activeTab));
+    overlay.querySelectorAll("[data-avatar-tab]").forEach((button) => {
+      const selected = button.dataset.avatarTab === activeTab;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", selected ? "true" : "false");
+    });
     const parts = overlay.querySelector("#avatar-parts-panel");
     const draw = overlay.querySelector("#avatar-draw-panel");
     parts.hidden = activeTab === "draw";
@@ -372,6 +400,9 @@
 
   function open() {
     if (!overlay) createStudio();
+    previouslyFocusedElement = document.activeElement;
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     draft = clone(profile);
     const nameInput = document.getElementById("name-input");
     draft.name = nameInput?.value.trim() || profile.name || "";
@@ -381,10 +412,14 @@
     overlay.setAttribute("aria-hidden", "false");
     renderEditor();
     renderPreview();
+    requestAnimationFrame(() => overlay.querySelector("#avatar-profile-name")?.focus());
   }
   function close() {
     overlay?.classList.remove("visible");
     overlay?.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = previousBodyOverflow;
+    previouslyFocusedElement?.focus?.();
+    previouslyFocusedElement = null;
   }
   function save() {
     draft.name = overlay.querySelector("#avatar-profile-name").value.trim().slice(0, 12);
