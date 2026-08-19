@@ -10,7 +10,7 @@
 
 既存の大富豪アプリを小手先で改修するのではなく、保守可能な構成でゼロから再構築してください。旧実装は画面と意図を確認するための参考資料に留め、巨大な単一HTMLやクライアント任せのルール判定を踏襲しないでください。
 
-リポジトリ内の docs/DAIFUGO_RULEBOOK.md を最初から最後まで読み、その内容をゲームルールの唯一の正本として扱ってください。コード、旧挙動、一般的な大富豪、あなたの知識と矛盾しても、ルールブックを優先してください。疑問や矛盾があれば勝手に丸めず、所有者へ確認してください。
+リポジトリ内の docs/DAIFUGO_RULEBOOK.md と docs/FIREBASE_HANDOFF.md を最初から最後まで読んでください。ルールブックをゲームルールの唯一の正本とし、Firebase引継ぎ資料を既存クラウド環境の正本として扱ってください。コード、旧挙動、一般的な大富豪、あなたの知識と矛盾しても、ルールブックを優先してください。疑問や矛盾があれば勝手に丸めず、所有者へ確認してください。
 
 ## 最終目標
 
@@ -88,6 +88,38 @@
 - 主要画面のスクリーンショット比較
 - ESLint、Prettier、TypeScript typecheck
 
+## 既存Firebaseプロジェクトをそのまま使う
+
+新しいFirebaseプロジェクトを作らず、現在のアプリと同じ Project ID `daifugo-8e039` を再利用してください。完全な既存schema、collection、index候補、未設定機能、移行方法は docs/FIREBASE_HANDOFF.md に記載しています。
+
+現在のWeb App設定は次です。
+
+~~~js
+export const firebaseConfig = {
+  apiKey: "AIzaSyD1YdTMESZi-ynMzS_p_hdtr1znBI64RmM",
+  authDomain: "daifugo-8e039.firebaseapp.com",
+  projectId: "daifugo-8e039",
+  storageBucket: "daifugo-8e039.firebasestorage.app",
+  messagingSenderId: "979025215319",
+  appId: "1:979025215319:web:1bf381daf1eb647760c812",
+  measurementId: "G-KSQ8LRN4ZE"
+};
+~~~
+
+移行条件:
+
+- 接続先Project IDを変えない
+- 現行のrooms collectionを稼働中に削除・破壊・schema変更しない
+- 新版はv2Roomsなどの別namespaceで並行構築する
+- 現行Web App configをVite環境変数へ移して使用する
+- Firebase Authの匿名認証、Cloud Functions、App Check、必要ならRealtime Databaseを同じprojectへ追加する
+- 旧roomsを読む既存GitHub Pagesアプリを、新版完成前に壊さない
+- 現行Security Rules、Firestore region、billing plan、IAM、既存indexはrepoから確定できないため、project owner権限でConsole確認する
+- service account秘密鍵はrepoにもこの資料にも存在しない。捏造・Git commit・チャット貼付けをしない
+- Functionsのために課金plan変更が必要なら、実行前に所有者へ影響を説明する
+- GitHub Pagesを継続する場合はFirebase Auth Authorized domainsへselmtoe.github.ioを登録する
+- 本番smoke testで作ったroomは正確なIDを記録し、完了後に削除する
+
 ## 推奨リポジトリ構造
 
 旧モノリスへ機能を継ぎ足さず、最低でも次へ分割してください。
@@ -121,6 +153,7 @@
         src/
     docs/
       DAIFUGO_RULEBOOK.md
+      FIREBASE_HANDOFF.md
       ARCHITECTURE.md
       DATA_MODEL.md
       TEST_MATRIX.md
@@ -868,7 +901,7 @@ DOM境界とcanvas投影座標を使い、手札と固定UIの重なりも自動
 - 構造化ログにroomId、gameId、actionId、revision。カードfaceと個人情報は含めない
 - 不変条件違反を検出し、安全にゲームを凍結して復旧情報を残す
 - 作成成功率、参加失敗率、再接続率、平均手番、WebRTCフォールバック率を計測可能にする
-- 開発、staging、本番Firebase projectを分離
+- 開発と通常のstagingはFirebase Emulatorで本番から分離する。別staging projectの新規作成は所有者が明示承認した場合だけ行う
 - 本番smokeで作った部屋は削除
 - PWAとasset versionを一緒に更新し、古いservice worker混在を防ぐ
 
@@ -948,6 +981,8 @@ DOM境界とcanvas投影座標を使い、手札と固定UIの重なりも自動
 - mouse、touch、keyboard、screen readerで対局可能
 - consoleに未処理例外なし
 - Firebase Rules、App Check、入力検証
+- Firebase Project IDがdaifugo-8e039で、Web App IDが引継ぎ資料と一致
+- 旧rooms collectionを壊さず、v2 namespaceで新版が稼働
 - production build成功
 - README、architecture、data model、operations、test手順が最新
 - 変更がcommitされ通常Push済み
