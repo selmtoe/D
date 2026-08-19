@@ -567,28 +567,40 @@ cursor: pointer;
             <div class="luxe-brand"><span class="luxe-brand-mark"><i>♠</i></span><span><strong>大富豪</strong><small>PRIVATE CARD SALON</small></span></div>
             <button type="button" class="room-profile" data-open-avatar-studio><span data-luxe-avatar></span><span><small>WELCOME</small><b id="player-name-display"></b></span></button>
         </header>
-        <div class="luxe-room-grid">
-            <section class="luxe-create-room">
-                <p class="luxe-eyebrow">HOST A TABLE</p><h1>新しい卓を<br>ひらく</h1>
-                <p>あなたがホストになり、参加者とルールを決めます。</p>
-                <button id="create-room-button"><span>プライベートルームを作成</span><b>＋</b></button>
-                <div class="direct-join"><label><span>招待コードをお持ちですか？</span><input type="text" id="room-id-input" maxlength="5" placeholder="ROOM ID"></label><button id="join-room-button">参加する</button></div>
+        <main class="luxe-room-grid">
+            <section class="luxe-create-room" aria-labelledby="room-choice-title">
+                <div class="room-simple-copy">
+                    <p class="luxe-eyebrow">PLAY ONLINE</p>
+                    <h1 id="room-choice-title">遊び方を選ぶ</h1>
+                    <p>新しく部屋を作るか、5文字の部屋IDで参加できます。</p>
+                </div>
+                <div class="room-action-grid">
+                    <div class="room-action-option room-action-primary">
+                        <span class="room-action-number">1</span>
+                        <div><h2>部屋を作る</h2><p>あなたがホストになります</p></div>
+                        <button id="create-room-button"><span>新しい部屋を作る</span><b>＋</b></button>
+                    </div>
+                    <div class="room-action-option">
+                        <span class="room-action-number">2</span>
+                        <div><h2>部屋IDで参加</h2><p>招待でもらった5文字を入力</p></div>
+                        <div class="direct-join"><label><span>部屋ID</span><input type="text" id="room-id-input" maxlength="5" inputmode="text" autocomplete="off" aria-label="部屋ID" placeholder="ABCDE"></label><button id="join-room-button">参加</button></div>
+                    </div>
+                </div>
             </section>
             <section id="public-rooms-section" class="luxe-public-rooms">
-                <div class="luxe-section-title"><div><p class="luxe-eyebrow">OPEN TABLES</p><h2>参加できる卓</h2></div><button id="refresh-rooms-button" aria-label="ルーム一覧を更新">↻</button></div>
+                <div class="luxe-section-title"><div><p class="luxe-eyebrow">OPEN ROOMS</p><h2>募集中の部屋</h2><p>すぐに参加できる部屋です</p></div><button id="refresh-rooms-button" aria-label="ルーム一覧を更新">↻</button></div>
                 <div id="public-rooms-list">
                 <p>ルームを検索中...</p>
                 </div>
             </section>
-        </div>
-        <footer class="luxe-room-footer"><span>SECURE FIREBASE SESSION</span><span>EST. 2026</span></footer>
+        </main>
     </div>
 
     <div id="game-screen" class="container screen">
         <div class="game-salon-background" aria-hidden="true"></div>
         <div class="game-vignette" aria-hidden="true"></div>
         <header class="luxe-game-header ui-overlay">
-            <div class="luxe-brand compact"><span class="luxe-brand-mark"><i>♠</i></span><span><strong>大富豪</strong><small>PRIVATE TABLE</small></span></div>
+            <div class="luxe-game-left"><div class="luxe-brand compact"><span class="luxe-brand-mark"><i>♠</i></span><span><strong>大富豪</strong><small>PRIVATE TABLE</small></span></div><button id="game-leave-button" type="button" aria-label="部屋から退出">退出</button></div>
             <div class="luxe-turn-display"><small>CURRENT TURN</small><strong id="luxe-turn-copy">卓を準備しています</strong></div>
             <div class="luxe-game-profile"><span data-luxe-avatar></span><div><small>YOU</small><b id="luxe-player-copy">PLAYER</b></div></div>
         </header>
@@ -730,7 +742,22 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, serverTimestamp, runTransaction, collection, query, where, orderBy, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        const showAlert = (message) => { alert(message); };
+        const showAlert = (message) => {
+            let overlay = document.getElementById('luxe-alert-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'luxe-alert-overlay';
+                overlay.className = 'luxe-alert-overlay';
+                overlay.innerHTML = `<div class="luxe-alert-card" role="alertdialog" aria-modal="true" aria-labelledby="luxe-alert-title"><small>INFORMATION</small><h2 id="luxe-alert-title">お知らせ</h2><p class="luxe-alert-message"></p><button type="button">閉じる</button></div>`;
+                document.body.appendChild(overlay);
+                const close = () => overlay.classList.remove('visible');
+                overlay.querySelector('button').addEventListener('click', close);
+                overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+            }
+            overlay.querySelector('.luxe-alert-message').textContent = String(message);
+            overlay.classList.add('visible');
+            setTimeout(() => overlay.querySelector('button').focus(), 0);
+        };
         const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 
 
@@ -745,6 +772,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         let currentModal = { resolve: null, reject: null };
         let lastKnownLogCount = 0;
         let scene, camera, renderer, raycaster, mouse;
+        let cameraTween = null;
         let cardMeshes = {};
         let tableMesh;
         let playerPositions = [];
@@ -848,6 +876,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         const roomInfoSpan = document.getElementById('room-info');
         const copyRoomIdButton = document.getElementById('copy-room-id-button');
         const leaveRoomButton = document.getElementById('leave-room-button');
+        const gameLeaveButton = document.getElementById('game-leave-button');
         const startGameButton = document.getElementById('start-game-button');
         const playButton = document.getElementById('play-button');
         const passButton = document.getElementById('pass-button');
@@ -921,7 +950,7 @@ if (debugCheckbox) {
             const tableGroup = new THREE.Group();
             const woodMat = new THREE.MeshPhysicalMaterial({ color: 0x482516, roughness: 0.28, metalness: 0.06, clearcoat: 0.88, clearcoatRoughness: 0.2 });
             const woodBase = new THREE.Mesh(new THREE.CylinderGeometry(11.7, 11.85, 0.92, 96), woodMat);
-            woodBase.scale.set(1.22, 1, 0.77);
+            woodBase.scale.set(1, 1, 1);
             woodBase.position.y = -0.28;
             woodBase.castShadow = true;
             woodBase.receiveShadow = true;
@@ -942,19 +971,19 @@ if (debugCheckbox) {
             feltTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
             const feltMat = new THREE.MeshPhysicalMaterial({ color: 0x1b5a4d, map: feltTexture, roughness: 0.96, clearcoat: 0.04, clearcoatRoughness: 1 });
             tableMesh = new THREE.Mesh(new THREE.CylinderGeometry(10.75, 10.75, 0.28, 96), feltMat);
-            tableMesh.scale.set(1.22, 1, 0.77);
+            tableMesh.scale.set(1, 1, 1);
             tableMesh.position.y = 0.25;
             tableMesh.receiveShadow = true;
             tableGroup.add(tableMesh);
 
             const brassMat = new THREE.MeshPhysicalMaterial({ color: 0xc39343, roughness: 0.24, metalness: 0.92, clearcoat: 0.45 });
             const outerInlay = new THREE.Mesh(new THREE.TorusGeometry(11.12, 0.075, 12, 128), brassMat);
-            outerInlay.scale.set(1.22, .77, 1);
+            outerInlay.scale.set(1, 1, 1);
             outerInlay.rotation.x = Math.PI / 2;
             outerInlay.position.y = .48;
             tableGroup.add(outerInlay);
             const innerInlay = new THREE.Mesh(new THREE.TorusGeometry(10.43, 0.035, 10, 128), brassMat);
-            innerInlay.scale.set(1.22, .77, 1);
+            innerInlay.scale.set(1, 1, 1);
             innerInlay.rotation.x = Math.PI / 2;
             innerInlay.position.y = .43;
             tableGroup.add(innerInlay);
@@ -1002,6 +1031,7 @@ if (debugCheckbox) {
 
         function onPointerDown(event) {
             if (!passModeContext.active) return;
+            if (!renderer || event.target !== renderer.domElement) return;
             event.preventDefault();
             const clientX = event.clientX;
             const clientY = event.clientY;
@@ -1354,6 +1384,7 @@ if (existingIdx > -1) passModeContext.assignments.splice(existingIdx, 1);
         }
 
         function onCanvasClick(event) {
+            if (!renderer || event.target !== renderer.domElement) return;
             if (document.getElementById('game-screen').classList.contains('active') === false) return;
             if (document.getElementById('modal-overlay').classList.contains('visible-modal')) return;
             if (passModeContext.active) return;
@@ -1436,15 +1467,19 @@ for (let i = 0; i < intersects.length; i++) {
             targetViewerAngle = currentViewerAngle + diff;
 
             const proxy = { angle: currentViewerAngle };
-            gsap.to(proxy, {
+            const cameraDistance = spectatingPlayerId ? 21.5 : 20;
+            const cameraHeight = spectatingPlayerId ? 17.2 : 13.5;
+            if (cameraTween) cameraTween.kill();
+            cameraTween = gsap.to(proxy, {
                 angle: targetViewerAngle,
                 duration: 1.0,
                 onUpdate: () => {
-                    camera.position.x = -Math.sin(proxy.angle) * 20;
-                    camera.position.z = Math.cos(proxy.angle) * 20;
-                    camera.position.y = 13.5;
+                    camera.position.x = -Math.sin(proxy.angle) * cameraDistance;
+                    camera.position.z = Math.cos(proxy.angle) * cameraDistance;
+                    camera.position.y = cameraHeight;
                     camera.lookAt(0, 0.4, 0);
-                }
+                },
+                onComplete: () => { cameraTween = null; }
             });
 
 
@@ -1455,11 +1490,11 @@ for (let i = 0; i < intersects.length; i++) {
             const activePlayerIds = new Set();
             const animationsToRun = [];
             roomData.players.forEach((player, i) => {
-                activePlayerIds.add(player.id);
                 const posIndex = (i - myIndex + numPlayers) % numPlayers;
                 const pos = playerPositions[posIndex];
 
-                if (player.id !== me.id) {
+                if (player.id !== viewerId && player.rank === null) {
+                    activePlayerIds.add(player.id);
                     const isTurnPlayer = player.id === roomData.turnPlayerId;
                     const spriteSignature = `${isTurnPlayer}|${player.name}|${player.hand?.length ?? 0}|${JSON.stringify(player.avatar || {})}`;
                     if (!playerNameSprites[player.id] || playerNameSprites[player.id].userData.signature !== spriteSignature) {
@@ -1468,7 +1503,7 @@ for (let i = 0; i < intersects.length; i++) {
                         scene.add(sprite);
                         playerNameSprites[player.id] = sprite;
                     }
-                    playerNameSprites[player.id].position.set(pos.x, 5.4, pos.z);
+                    playerNameSprites[player.id].position.set(pos.x * 0.82, 5.15, pos.z * 0.82);
                 }
 
 
@@ -1672,6 +1707,12 @@ for (let i = 0; i < intersects.length; i++) {
         function showScreen(screenName) {
             Object.values(screens).forEach(screen => screen.classList.remove('active'));
             screens[screenName].classList.add('active');
+            if (screenName === 'game') {
+                showLogButton.style.display = 'flex';
+            } else {
+                logPanel.classList.remove('visible');
+                showLogButton.style.display = 'none';
+            }
             if (screenName === 'room') {
                 fetchPublicRooms();
             }
@@ -1691,52 +1732,90 @@ for (let i = 0; i < intersects.length; i++) {
                 showScreen('room');
                 } else { showAlert('名前を入力してください。'); }
         });
+        nameInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') loginButton.click();
+        });
 
         refreshRoomsButton.addEventListener('click', fetchPublicRooms);
 
         // --- Room Creation/Joining ---
         createRoomButton.addEventListener('click', async () => {
+            const originalMarkup = createRoomButton.innerHTML;
+            createRoomButton.disabled = true;
+            joinRoomButton.disabled = true;
+            createRoomButton.innerHTML = '<span>部屋を準備しています…</span>';
             currentRoomId = generateRoomId();
-
-            const roomRef = doc(db, 'rooms', currentRoomId);
-            const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: true, hand: [], order: -1, rank: null };
-
-  await setDoc(roomRef, {
-                id: currentRoomId,
-                blindCount: 0,
-                players: [newPlayer],
-                gameState: 'waiting', // waiting, playing, finished
-                field: [], discardPile: [], roundPile: [],
-                lastPlayed: { player: null, cards: [] },
-                turnPlayerId: null, passCount: 0,
-                isRevolution: false, isJBackActive: false,
-                turnDirection: 1, // 1 for normal, -1 for reverse
-                shibariSuits: [], // 縛りスート
-                createdAt: serverTimestamp(),
-                pendingActions: [],
-                log: [{ timestamp: Date.now(), message: `ルームが作成されました。` }]
-            });
-            joinRoom(currentRoomId);
+            try {
+                const roomRef = doc(db, 'rooms', currentRoomId);
+                const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: true, hand: [], order: -1, rank: null };
+                await setDoc(roomRef, {
+                    id: currentRoomId,
+                    blindCount: 0,
+                    players: [newPlayer],
+                    gameState: 'waiting',
+                    field: [], discardPile: [], roundPile: [],
+                    lastPlayed: { player: null, cards: [] },
+                    turnPlayerId: null, passCount: 0,
+                    isRevolution: false, isJBackActive: false,
+                    turnDirection: 1,
+                    shibariSuits: [],
+                    createdAt: serverTimestamp(),
+                    pendingActions: [],
+                    log: [{ timestamp: Date.now(), message: 'ルームが作成されました。' }]
+                });
+                joinRoom(currentRoomId);
+            } catch (error) {
+                console.error('Room creation failed', error);
+                currentRoomId = null;
+                showAlert('部屋を作れませんでした。通信状態を確認して、もう一度お試しください。');
+                createRoomButton.disabled = false;
+                joinRoomButton.disabled = false;
+                createRoomButton.innerHTML = originalMarkup;
+            }
         });
 
-joinRoomButton.addEventListener('click', async () => {
-            const roomId = roomIdInput.value.trim();
-            if (!roomId) return showAlert('ルームIDを入力してください。');
-            const roomRef = doc(db, 'rooms', roomId);
-            const roomSnap = await getDoc(roomRef);
+        async function joinExistingRoom(roomId, triggerButton) {
+            const normalizedRoomId = roomId.trim().toUpperCase();
+            if (!normalizedRoomId) return showAlert('部屋IDを入力してください。');
+            const originalText = triggerButton?.textContent;
+            if (triggerButton) {
+                triggerButton.disabled = true;
+                triggerButton.textContent = '確認中…';
+            }
+            try {
+                const roomRef = doc(db, 'rooms', normalizedRoomId);
+                await runTransaction(db, async (transaction) => {
+                    const roomSnap = await transaction.get(roomRef);
+                    if (!roomSnap.exists()) throw new Error('指定された部屋が見つかりません。');
+                    const roomData = roomSnap.data();
+                    if (roomData.players.some(player => player.name === currentPlayer.name)) throw new Error('同じ名前のプレイヤーが既に部屋にいます。');
+                    if (roomData.players.length >= 6) throw new Error('この部屋は満員です。');
+                    if (roomData.gameState !== 'waiting') throw new Error('このゲームはすでに始まっています。');
+                    const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: false, hand: [], order: -1, rank: null };
+                    transaction.update(roomRef, {
+                        players: [...roomData.players, newPlayer],
+                        log: [...(roomData.log || []), { timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` }]
+                    });
+                });
+                joinRoom(normalizedRoomId);
+            } catch (error) {
+                console.error('Room join failed', error);
+                showAlert(error.message || '部屋に参加できませんでした。');
+                if (triggerButton) {
+                    triggerButton.disabled = false;
+                    triggerButton.textContent = originalText;
+                }
+            }
+        }
 
-            if (!roomSnap.exists()) return showAlert('指定されたルームが見つかりません。');
-            const roomData = roomSnap.data();
-            if (roomData.players.find(p => p.name === currentPlayer.name)) return showAlert('同じ名前のプレイヤーが既にルームにいます。');
-            if (roomData.players.length >= 6) return showAlert('このルームは満員です。');
-            if (roomData.gameState === 'playing') return showAlert('このゲームは既に開始されています。');
-
-            const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: false, hand: [], order: -1, rank: null };
-            await updateDoc(roomRef, {
-                players: arrayUnion(newPlayer),
-                                log: arrayUnion({ timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
-            });
-            joinRoom(roomId);
+        joinRoomButton.addEventListener('click', () => {
+            joinExistingRoom(roomIdInput.value, joinRoomButton);
+        });
+        roomIdInput.addEventListener('input', () => {
+            roomIdInput.value = roomIdInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+        });
+        roomIdInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') joinRoomButton.click();
         });
 
         async function fetchPublicRooms() {
@@ -1795,56 +1874,7 @@ joinRoomButton.addEventListener('click', async () => {
 
                 const joinBtn = document.createElement('button');
                 joinBtn.textContent = '参加';
-                joinBtn.onclick = async () => { // ★ asyncキーワードを追加
-    try {
-        // Prevent joining a full room, just in case
-        if (room.players.length >= 6) {
-            showAlert('このルームは満員です。');
-            fetchPublicRooms(); // Refresh list
-            return;
-        }
-         // Prevent joining with a duplicate name
-        if (room.players.find(p => p.name === currentPlayer.name)) {
-            showAlert('同じ名前のプレイヤーが既にルームにいます。');
-            return;
-        }
-
-        const roomId = room.id;
-        const roomRef = doc(db, 'rooms', roomId);
-
-        // 念のため、最新のルーム情報を取得して最終チェック
-        const roomSnap = await getDoc(roomRef);
-        if (!roomSnap.exists()) {
-             showAlert('指定されたルームが見つかりません。リストを更新します。');
-             fetchPublicRooms();
-             return;
-        }
-        const roomData = roomSnap.data();
-        if (roomData.players.length >= 6) {
-            showAlert('このルームは満員です。リストを更新します。');
-            fetchPublicRooms();
-            return;
-        }
-        if (roomData.gameState === 'playing') {
-            showAlert('このゲームは既に開始されています。リストを更新します。');
-            fetchPublicRooms();
-            return;
-        }
-
-        const newPlayer = { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: false, hand: [], order: -1, rank: null };
-
-        await updateDoc(roomRef, {
-            players: arrayUnion(newPlayer),
-            log: arrayUnion({ timestamp: Date.now(), message: `${currentPlayer.name}さんが参加しました。` })
-        });
-
-        joinRoom(roomId);
-
-    } catch (error) {
-        console.error("ルームへの参加に失敗しました: ", error);
-        showAlert("ルームへの参加に失敗しました。");
-    }
-};
+                joinBtn.onclick = () => joinExistingRoom(room.id, joinBtn);
 
 
                 item.appendChild(infoDiv);
@@ -1922,10 +1952,25 @@ joinRoomButton.addEventListener('click', async () => {
                         newPlayers[0].isHost = true;
                     }
 
-                    transaction.update(roomRef, {
+                    const update = {
                         players: newPlayers,
-                        log: arrayUnion({ timestamp: Date.now(), message: `${me.name}さんが退出しました。` })
-                    });
+                        log: [...(roomData.log || []), { timestamp: Date.now(), message: `${me.name}さんが退出しました。` }]
+                    };
+                    if (roomData.gameState === 'playing') {
+                        update.discardPile = [...(roomData.discardPile || []), ...(me.hand || []).map(cleanCard)];
+                        if (roomData.turnPlayerId === me.id) {
+                            const nextId = getNextPlayerId(roomData.players, me.id, roomData.turnDirection || 1, 0);
+                            update.turnPlayerId = newPlayers.some(player => player.id === nextId) ? nextId : (newPlayers.find(player => player.rank === null)?.id || null);
+                        }
+                        if (roomData.lastPlayed?.player === me.id) {
+                            update.discardPile.push(...(roomData.roundPile || []).map(cleanCard), ...(roomData.field || []).map(cleanCard));
+                            update.field = [];
+                            update.roundPile = [];
+                            update.passCount = 0;
+                            update.lastPlayed = { player: null, cards: [] };
+                        }
+                    }
+                    transaction.update(roomRef, update);
                 });
 
                 if (unsubscribeRoom) {
@@ -1943,6 +1988,14 @@ joinRoomButton.addEventListener('click', async () => {
                 showScreen('room');
             } catch (e) {
                 showAlert('退出処理に失敗しました: ' + e.message);
+            }
+        });
+        gameLeaveButton.addEventListener('click', async () => {
+            try {
+                await showModal('部屋から退出しますか？', '<p>対局中の場合、手札は捨て札へ移されます。</p>', { confirmText: '退出する', cancelText: '戻る' });
+                leaveRoomButton.click();
+            } catch (_) {
+                // Cancelled by the player.
             }
         });
 
@@ -2471,6 +2524,7 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
 
             const spectatorControls = document.getElementById('spectator-controls');
             if (me.rank !== null && roomData.gameState === 'playing') {
+                document.body.classList.add('is-spectating');
                 document.getElementById('controls').style.display = 'none';
                 spectatorControls.style.display = 'flex';
                 spectatorControls.innerHTML = '';
@@ -2501,6 +2555,7 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
                     spectatorControls.style.display = 'none';
                 }
             } else {
+                document.body.classList.remove('is-spectating');
                 spectatorControls.style.display = 'none';
                 spectatingPlayerId = null;
                 document.getElementById('controls').style.display = 'block';
@@ -2566,7 +2621,7 @@ selectedCards = selectedCards.filter(c => myHandUids.has(c.uid));
             lastPlayerInfoSpan.textContent = lastPlayer ? `最後に出した人: ${lastPlayer.name}` : "---";
 
             const isMyTurn = roomData.turnPlayerId === me.id && me.rank === null;
-            playButton.disabled = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
+            playButton.disabled = !isMyTurn || selectedCards.length === 0 || (roomData.pendingActions && roomData.pendingActions.length > 0);
 let disablePass = !isMyTurn || (roomData.pendingActions && roomData.pendingActions.length > 0);
 if (!disablePass && roomData.field.length === 0) {
                 // 場が空の時は基本パス不可
@@ -3904,7 +3959,7 @@ stolenCards.push(c);
         }
 
         showLogButton.addEventListener('click', () => { logPanel.classList.add('visible'); showLogButton.style.display = 'none'; });
-        logCloseButton.addEventListener('click', () => { logPanel.classList.remove('visible'); showLogButton.style.display = 'block'; });
+        logCloseButton.addEventListener('click', () => { logPanel.classList.remove('visible'); showLogButton.style.display = 'flex'; });
         chatSendBtn.addEventListener('click', async () => {
 
             const text = chatInput.value.trim();
@@ -3930,6 +3985,7 @@ stolenCards.push(c);
 
         function openLuxuryShowroom() {
             const baseAvatar = window.LuxeAvatar.getProfile();
+            const showroomSpectator = new URLSearchParams(location.search).get('spectator') === '1';
             const makeAvatar = (changes) => ({ ...baseAvatar, strokes: [], ...changes });
             const card = (suit, number, owner) => ({ suit, number, uid: `showroom-${owner}-${suit}-${number}` });
             currentPlayer = { id: 'showroom-you', name: baseAvatar.name || 'あなた', avatar: baseAvatar };
@@ -3944,7 +4000,7 @@ stolenCards.push(c);
                 gameState: 'playing',
                 blindCount: 0,
                 players: [
-                    { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: true, order: 1, rank: null, hand: [card('diamond',3,'you'),card('club',4,'you'),card('heart',5,'you'),card('spade',7,'you'),card('diamond',8,'you'),card('club',10,'you'),card('heart',11,'you'),card('spade',13,'you'),card('joker',15,'you')] },
+                    { id: currentPlayer.id, name: currentPlayer.name, avatar: currentPlayer.avatar, isHost: true, order: 1, rank: showroomSpectator ? 1 : null, hand: showroomSpectator ? [] : [card('diamond',3,'you'),card('club',4,'you'),card('heart',5,'you'),card('spade',7,'you'),card('diamond',8,'you'),card('club',10,'you'),card('heart',11,'you'),card('spade',13,'you'),card('joker',15,'you')] },
                     { id: 'showroom-rei', name: '玲', avatar: makeAvatar({ hair:'bob', hairColor:'#171416', eyes:'cool', mouth:'calm', accessory:'earrings', outfit:'kimono', outfitColor:'#6e2735', background:'wine' }), order: 2, rank: null, hand: [card('spade',4,'rei'),card('heart',8,'rei'),card('club',12,'rei'),card('diamond',13,'rei'),card('heart',2,'rei')] },
                     { id: 'showroom-kohaku', name: '琥珀', avatar: makeAvatar({ skin:'#c8875f', hair:'undercut', hairColor:'#d4a766', eyes:'sharp', mouth:'grin', accessory:'monocle', outfit:'tuxedo', outfitColor:'#17191f', background:'emerald' }), order: 3, rank: null, hand: [card('heart',3,'kohaku'),card('club',6,'kohaku'),card('spade',9,'kohaku'),card('diamond',11,'kohaku'),card('club',2,'kohaku')] },
                     { id: 'showroom-sumire', name: '菫', avatar: makeAvatar({ skin:'#805139', hair:'bun', hairColor:'#9b3d50', eyes:'bright', eyeColor:'#7a4e78', mouth:'smile', accessory:'flower', outfit:'dress', outfitColor:'#5d416d', background:'royal' }), order: 4, rank: null, hand: [card('club',3,'sumire'),card('diamond',6,'sumire'),card('heart',9,'sumire'),card('spade',12,'sumire'),card('diamond',2,'sumire')] },
