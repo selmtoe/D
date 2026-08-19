@@ -1,9 +1,14 @@
-const CACHE_NAME = 'daifugo-v1';
+const CACHE_NAME = 'yugigoten-v3';
 // キャッシュするファイルのリスト
 const FILES_TO_CACHE = [
   './',
   './index.html',
+  './daifugo.html',
   './manifest.json',
+  './styles/clubhouse.css',
+  './src/clubhouse.js',
+  './src/engines.js',
+  './src/p2p.js',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png'
 ];
@@ -35,18 +40,19 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// fetchイベント：リクエストに応答する
-// キャッシュがあればキャッシュから、なければネットワークから取得
+// fetchイベント：更新を優先し、オフライン時だけキャッシュへフォールバック
 self.addEventListener('fetch', (event) => {
-  // Firebaseなど外部へのリクエストはキャッシュしない
-  if (event.request.url.startsWith('https://')) {
+  // FirebaseやCDNなど、別オリジンへのリクエストはキャッシュしない
+  if (new URL(event.request.url).origin !== self.location.origin) {
     return;
   }
   
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        return response || fetch(event.request);
-      })
-  );
+  if (event.request.method !== 'GET') return;
+  event.respondWith(fetch(event.request)
+    .then((response) => {
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      return response;
+    })
+    .catch(() => caches.match(event.request)));
 });

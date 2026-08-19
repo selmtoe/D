@@ -1,11 +1,11 @@
 {
-  "name": "オンライン大富豪 v5",
-  "short_name": "大富豪",
-  "description": "Firebaseを利用したオンライン大富豪ゲームです。",
+  "name": "遊戯御殿 — Game Atelier",
+  "short_name": "遊戯御殿",
+  "description": "大富豪、オセロ、コネクトフォー、神経衰弱、ヨット、エアホッケー、スピードをローカルとP2Pで遊べるゲームコレクションです。",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#004d40",
-  "theme_color": "#00796b",
+  "background_color": "#0b0e19",
+  "theme_color": "#11162a",
   "icons": [
     {
       "src": "icons/icon-192x192.png",
