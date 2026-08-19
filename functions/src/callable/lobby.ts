@@ -6,6 +6,7 @@ import {
   gameIsFinished,
 } from "../game/rules-adapter.js";
 import { applyDefaultPendingMimic } from "../game/pending-mimic.js";
+import { appendPublicEvents, appendPublicGameEvents } from "../logging/public-events.js";
 import type { RoomDocument, RoomMember } from "../model.js";
 import { asHttpsError, CommandError, parseInput } from "../security/command-error.js";
 import { createGameId } from "../security/crypto.js";
@@ -72,8 +73,23 @@ export const leaveRoom = onCall(callableOptions, async (request) => {
 
       if (room.status === "playing" && member.role === "player" && room.game) {
         if (room.pendingMimic?.actorUid === uid) {
-          applyDefaultPendingMimic(room, `${input.clientActionId}_mimic`, now.toMillis());
+          const beforeMimic = room.game;
+          const pendingCardIds = [...room.pendingMimic.cardIds];
+          const blindCardIds =
+            beforeMimic.players
+              .find((player) => player.id === uid)
+              ?.hand.filter((entry) => entry.blind && pendingCardIds.includes(entry.card.id))
+              .map((entry) => entry.card.id) ?? [];
+          const mimicApplied = applyDefaultPendingMimic(
+            room,
+            `${input.clientActionId}_mimic`,
+            now.toMillis(),
+          );
+          appendPublicGameEvents(room, beforeMimic, mimicApplied.events, uid, now, {
+            blindCardIds,
+          });
         }
+        const beforeDisqualification = room.game;
         const applied = disqualifyAfterResolvingEffects(
           room.game,
           uid,
@@ -82,6 +98,9 @@ export const leaveRoom = onCall(callableOptions, async (request) => {
           now.toMillis(),
         );
         room.game = applied.state;
+        appendPublicGameEvents(room, beforeDisqualification, applied.events, uid, now, {
+          disqualificationReason: "exit",
+        });
         if (gameIsFinished(applied.state)) room.status = "finished";
       }
       const membershipOutcome = endMembership(room, uid);
@@ -102,6 +121,22 @@ export const leaveRoom = onCall(callableOptions, async (request) => {
         if (!nextHost) throw new CommandError("internal", "No host successor could be selected.");
         room.hostUid = nextHost.uid;
       }
+      appendPublicEvents(
+        room,
+        [
+          { type: "left", actorUid: uid, detail: { reason: "exit" } },
+          ...(original.hostUid !== room.hostUid
+            ? [
+                {
+                  type: "host-transferred",
+                  actorUid: original.hostUid,
+                  detail: { fromHostUid: original.hostUid, toHostUid: room.hostUid },
+                },
+              ]
+            : []),
+        ],
+        now,
+      );
       return {
         room,
         options: {
@@ -118,7 +153,7 @@ export const transferHost = onCall(callableOptions, async (request) => {
   try {
     const uid = authenticatedUid(request);
     const input = parseInput(transferHostSchema, request.data);
-    return await executeRoomMutation(identity(uid, "transferHost", input), (original) => {
+    return await executeRoomMutation(identity(uid, "transferHost", input), (original, now) => {
       requireHost(original, uid);
       const target = requirePlayer(original, input.targetUid);
       if (target.connectionStatus !== "connected") {
@@ -129,6 +164,17 @@ export const transferHost = onCall(callableOptions, async (request) => {
       }
       const room = cloneRoom(original);
       room.hostUid = target.uid;
+      appendPublicEvents(
+        room,
+        [
+          {
+            type: "host-transferred",
+            actorUid: uid,
+            detail: { fromHostUid: original.hostUid, toHostUid: target.uid },
+          },
+        ],
+        now,
+      );
       return { room, options: { summary: { targetUid: target.uid } } };
     });
   } catch (cause) {
@@ -164,7 +210,7 @@ export const startGame = onCall(callableOptions, async (request) => {
   try {
     const uid = authenticatedUid(request);
     const input = parseInput(simpleCommandSchema, request.data);
-    return await executeRoomMutation(identity(uid, "startGame", input), (original) => {
+    return await executeRoomMutation(identity(uid, "startGame", input), (original, now) => {
       requireHost(original, uid);
       if (original.status !== "waiting" || original.game !== null) {
         throw new CommandError("failed-precondition", "The room is not ready to start.");
@@ -187,6 +233,17 @@ export const startGame = onCall(callableOptions, async (request) => {
       room.cardTokens = createCardTokenMap(room.game);
       room.pendingMimic = null;
       room.status = gameIsFinished(room.game) ? "finished" : "playing";
+      appendPublicEvents(
+        room,
+        [
+          {
+            type: "game-started",
+            actorUid: uid,
+            detail: { count: players.length, kind: room.settings.mode },
+          },
+        ],
+        now,
+      );
       return {
         room,
         response: { gameId: room.gameId },
@@ -205,7 +262,7 @@ export const startRematch = onCall(callableOptions, async (request) => {
   try {
     const uid = authenticatedUid(request);
     const input = parseInput(simpleCommandSchema, request.data);
-    return await executeRoomMutation(identity(uid, "startRematch", input), (original) => {
+    return await executeRoomMutation(identity(uid, "startRematch", input), (original, now) => {
       requireHost(original, uid);
       if (original.status !== "finished") {
         throw new CommandError(
@@ -221,10 +278,14 @@ export const startRematch = onCall(callableOptions, async (request) => {
       room.cardTokens = {};
       room.pendingMimic = null;
       room.turnDeadlineAt = null;
-      room.publicEvents = [];
       for (const [memberUid, member] of Object.entries(room.members)) {
         room.members[memberUid] = { ...member, focusPlayerId: null, timeoutWarnings: 0 };
       }
+      appendPublicEvents(
+        room,
+        [{ type: "rematch-ready", actorUid: uid, detail: { count: room.rematchGeneration } }],
+        now,
+      );
       return { room, options: { summary: { generation: room.rematchGeneration } } };
     });
   } catch (cause) {

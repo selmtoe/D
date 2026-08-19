@@ -3,6 +3,7 @@ import { getDatabase } from "firebase-admin/database";
 import { onValueWritten } from "firebase-functions/v2/database";
 import { RECONNECT_GRACE_MS } from "../config.js";
 import { cloneRoom } from "../callable/command-store.js";
+import { appendPublicEvents } from "../logging/public-events.js";
 import { executeSystemMutation } from "./system-store.js";
 
 interface PresenceValue {
@@ -63,6 +64,17 @@ export const onV2PresenceWritten = onValueWritten(
           disconnectDeadlineAt: Timestamp.fromMillis(now.toMillis() + RECONNECT_GRACE_MS),
           reconnectExpired: false,
         };
+        appendPublicEvents(
+          room,
+          [
+            {
+              type: "connection-grace",
+              actorUid: uid,
+              detail: { graceSeconds: RECONNECT_GRACE_MS / 1_000 },
+            },
+          ],
+          now,
+        );
         return { room, options: { summary: { uid, graceMs: RECONNECT_GRACE_MS } } };
       },
     );

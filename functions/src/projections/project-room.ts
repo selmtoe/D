@@ -317,15 +317,76 @@ export function projectRoomForViewer(
     played: "札を出しました",
     passed: "パスしました",
     "effect-pending": "強制効果を処理しています",
+    "effect-triggered": "特殊効果が発動しました",
+    "effect-resolved": "特殊効果を確定しました",
     "trick-flushed": "場が流れました",
+    "binding-changed": "縛りが更新されました",
+    "revolution-changed": "革命状態が変わりました",
+    "jack-back-changed": "Jバック状態が変わりました",
+    "direction-changed": "進行方向が変わりました",
+    "blind-success": "ブラインド出しに成功しました",
+    "blind-failure": "ブラインド出しに失敗しました",
     finished: "上がりました",
     disqualified: "失格になりました",
     "game-finished": "対局が終了しました",
+    "connection-grace": "切断され、再接続猶予に入りました",
+    reconnected: "再接続しました",
+    "reconnect-expired": "再接続期限を超過しました",
+    "timeout-warning": "時間切れ警告を受けました",
+    left: "退出しました",
+    "host-transferred": "ホスト権限が移譲されました",
+    joined: "入室しました",
+    "game-started": "対局を開始しました",
+    "rematch-ready": "再戦の待機室へ戻りました",
   };
+  function eventDetailText(entry: RoomDocument["publicEvents"][number]): string {
+    const detail = entry.detail ?? {};
+    if (entry.type === "played" && detail.cards?.length) return `（${detail.cards.join("、")}）`;
+    if ((entry.type === "blind-success" || entry.type === "blind-failure") && detail.cards?.length)
+      return `（${detail.cards.join("、")}）`;
+    if (entry.type === "binding-changed")
+      return detail.suits?.length ? `（${detail.suits.join("・")}）` : "（解除）";
+    if (entry.type === "revolution-changed" || entry.type === "jack-back-changed")
+      return detail.enabled ? "（有効）" : "（解除）";
+    if (entry.type === "direction-changed")
+      return detail.direction === "counterclockwise" ? "（反時計回り）" : "（時計回り）";
+    if (
+      entry.type === "effect-triggered" ||
+      entry.type === "effect-pending" ||
+      entry.type === "effect-resolved"
+    ) {
+      const targets =
+        detail.targets?.map((target) => {
+          const separator = target.lastIndexOf(":");
+          const uid = separator >= 0 ? target.slice(0, separator) : target;
+          const count = separator >= 0 ? target.slice(separator + 1) : "";
+          return `${room.members[uid]?.name ?? "参加者"}${count ? `×${count}` : ""}`;
+        }) ?? [];
+      const parts = [
+        `${detail.effect ?? "effect"}${detail.count ? ` ×${detail.count}` : ""}`,
+        ...(detail.cards ?? []),
+        ...(detail.ranks?.map((rank) => `rank ${rank}`) ?? []),
+        ...targets,
+      ];
+      return `（${parts.join("、")}）`;
+    }
+    if (entry.type === "timeout-warning" || entry.type === "reconnect-expired")
+      return detail.warningCount ? `（警告 ${detail.warningCount}回）` : "";
+    if (entry.type === "finished" || entry.type === "disqualified") {
+      const parts = [...(detail.rank ? [`${detail.rank}位`] : []), ...(detail.cards ?? [])];
+      return parts.length ? `（${parts.join("、")}）` : "";
+    }
+    if (entry.type === "host-transferred" && detail.toHostUid)
+      return `（${room.members[detail.toHostUid]?.name ?? "参加者"}へ）`;
+    if (entry.type === "connection-grace" && detail.graceSeconds)
+      return `（猶予 ${detail.graceSeconds}秒）`;
+    if (entry.type === "trick-flushed" && detail.reason) return `（${detail.reason}）`;
+    return "";
+  }
   const log = room.publicEvents.map((entry) => ({
     id: entry.id,
     atMs: entry.createdAt.toMillis(),
-    text: `${entry.actorUid ? `${room.members[entry.actorUid]?.name ?? "参加者"}: ` : ""}${eventLabels[entry.type] ?? entry.type}`,
+    text: `${entry.actorUid ? `${room.members[entry.actorUid]?.name ?? "参加者"}: ` : ""}${eventLabels[entry.type] ?? entry.type}${eventDetailText(entry)}`,
     kind:
       entry.type === "played"
         ? "play"

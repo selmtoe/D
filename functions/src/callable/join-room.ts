@@ -1,6 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { onCall } from "firebase-functions/v2/https";
 import type { MemberRole, RoomMember } from "../model.js";
+import { appendPublicEvents } from "../logging/public-events.js";
 import { MAX_ACTIVE_SPECTATORS, requireSpectatorCapacity } from "../room/member-lifecycle.js";
 import { asHttpsError, CommandError, parseInput } from "../security/command-error.js";
 import { createReconnectToken, hashReconnectToken } from "../security/crypto.js";
@@ -86,6 +87,11 @@ function joinRoom(role: MemberRole) {
             timeoutWarnings: 0,
             lastChatAt: null,
           };
+          appendPublicEvents(
+            room,
+            [{ type: "joined", actorUid: uid, detail: { kind: role } }],
+            now,
+          );
           return {
             room,
             response: { reconnectToken, role },

@@ -41,6 +41,27 @@ export interface PublicEventEntry {
   actorUid: string | null;
   createdAt: Timestamp;
   revision: number;
+  detail?: PublicEventDetail;
+}
+
+/** Strictly public, identifier-free event detail persisted in viewer projections. */
+export interface PublicEventDetail {
+  cardCount?: number;
+  cards?: string[];
+  kind?: string;
+  suits?: string[];
+  enabled?: boolean;
+  direction?: "clockwise" | "counterclockwise";
+  effect?: string;
+  count?: number;
+  ranks?: string[];
+  targets?: string[];
+  rank?: number;
+  reason?: string;
+  warningCount?: number;
+  graceSeconds?: number;
+  fromHostUid?: string;
+  toHostUid?: string;
 }
 
 export interface RoomDocument {

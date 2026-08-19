@@ -9,6 +9,7 @@ import {
   timeoutGame,
 } from "../game/rules-adapter.js";
 import { applyDefaultPendingMimic } from "../game/pending-mimic.js";
+import { appendPublicEvents, appendPublicGameEvents } from "../logging/public-events.js";
 import type { RoomDocument } from "../model.js";
 import { endMembership } from "../room/member-lifecycle.js";
 import { executeSystemMutation } from "./system-store.js";
@@ -41,12 +42,23 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
 
     if (room.status === "playing" && member.role === "player" && room.game) {
       if (room.pendingMimic?.actorUid === uid) {
-        applyDefaultPendingMimic(
+        const beforeMimic = room.game;
+        const pendingCardIds = [...room.pendingMimic.cardIds];
+        const blindCardIds =
+          beforeMimic.players
+            .find((player) => player.id === uid)
+            ?.hand.filter((entry) => entry.blind && pendingCardIds.includes(entry.card.id))
+            .map((entry) => entry.card.id) ?? [];
+        const mimicApplied = applyDefaultPendingMimic(
           room,
           `disconnect_${uid}_${member.disconnectDeadlineAt.toMillis()}_mimic`,
           now.toMillis(),
         );
+        appendPublicGameEvents(room, beforeMimic, mimicApplied.events, uid, now, {
+          blindCardIds,
+        });
       }
+      const beforeDisqualification = room.game;
       const applied = disqualifyAfterResolvingEffects(
         room.game,
         uid,
@@ -55,6 +67,9 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
         now.toMillis(),
       );
       room.game = applied.state;
+      appendPublicGameEvents(room, beforeDisqualification, applied.events, uid, now, {
+        disqualificationReason: "disconnect",
+      });
       gameAdvancedForDisconnect = true;
       resetTurnDeadline = true;
       room.members[uid] = {
@@ -67,6 +82,22 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
     } else {
       endMembership(room, uid);
     }
+    appendPublicEvents(
+      room,
+      [
+        {
+          type: "reconnect-expired",
+          actorUid: uid,
+          detail: { warningCount: member.timeoutWarnings + 1 },
+        },
+        {
+          type: "timeout-warning",
+          actorUid: uid,
+          detail: { warningCount: member.timeoutWarnings + 1, reason: "disconnect" },
+        },
+      ],
+      now,
+    );
   }
 
   const currentHost = room.members[room.hostUid];
@@ -77,6 +108,19 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
       changed = true;
     }
   }
+  if (original.hostUid !== room.hostUid) {
+    appendPublicEvents(
+      room,
+      [
+        {
+          type: "host-transferred",
+          actorUid: original.hostUid,
+          detail: { fromHostUid: original.hostUid, toHostUid: room.hostUid },
+        },
+      ],
+      now,
+    );
+  }
 
   if (
     room.status === "playing" &&
@@ -86,12 +130,34 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
     now.toMillis() > room.turnDeadlineAt.toMillis()
   ) {
     if (room.pendingMimic) {
-      applyDefaultPendingMimic(
+      const actorUid = room.pendingMimic.actorUid;
+      const beforeMimic = room.game;
+      const pendingCardIds = [...room.pendingMimic.cardIds];
+      const blindCardIds =
+        beforeMimic.players
+          .find((player) => player.id === actorUid)
+          ?.hand.filter((entry) => entry.blind && pendingCardIds.includes(entry.card.id))
+          .map((entry) => entry.card.id) ?? [];
+      const mimicApplied = applyDefaultPendingMimic(
         room,
         `timeout_${room.turnDeadlineAt.toMillis()}_mimic`,
         now.toMillis(),
       );
+      appendPublicGameEvents(room, beforeMimic, mimicApplied.events, actorUid, now, {
+        blindCardIds,
+      });
+      const warningCount = (room.members[actorUid]?.timeoutWarnings ?? 0) + 1;
+      if (room.members[actorUid]) {
+        room.members[actorUid] = { ...room.members[actorUid]!, timeoutWarnings: warningCount };
+      }
+      appendPublicEvents(
+        room,
+        [{ type: "timeout-warning", actorUid, detail: { warningCount, reason: "turn" } }],
+        now,
+      );
     } else {
+      const beforeTimeout = room.game;
+      const actorUid = beforeTimeout.pendingEffect?.actorId ?? beforeTimeout.turnPlayerId;
       const applied = timeoutGame(
         room.game,
         `timeout_${room.turnDeadlineAt.toMillis()}`,
@@ -99,6 +165,22 @@ function expireDeadlines(original: RoomDocument, now: Timestamp) {
       );
       room.game = applied.state;
       room.status = gameIsFinished(applied.state) ? "finished" : "playing";
+      if (actorUid) {
+        appendPublicGameEvents(room, beforeTimeout, applied.events, actorUid, now);
+        const warningCount =
+          applied.state.players.find((player) => player.id === actorUid)?.timeoutWarnings ?? 0;
+        if (room.members[actorUid]) {
+          room.members[actorUid] = {
+            ...room.members[actorUid]!,
+            timeoutWarnings: warningCount,
+          };
+        }
+        appendPublicEvents(
+          room,
+          [{ type: "timeout-warning", actorUid, detail: { warningCount, reason: "turn" } }],
+          now,
+        );
+      }
     }
     resetTurnDeadline = room.status === "playing";
     turnExpired = true;

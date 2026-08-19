@@ -4,6 +4,7 @@ import {
   createInitialGameState,
   findLegalJokerMimics,
   type GameCommand,
+  type GameEvent,
   type GameState,
 } from "@daifugo/rules";
 import { CommandError } from "../security/command-error.js";
@@ -11,6 +12,7 @@ import { CommandError } from "../security/command-error.js";
 export interface AppliedGameCommand {
   state: GameState;
   eventTypes: string[];
+  events: GameEvent[];
 }
 
 function secureRandom(): number {
@@ -149,7 +151,7 @@ export function runGameCommand(
           : "illegal-command",
     });
   }
-  return { state: result.state, eventTypes: result.events.map(eventType) };
+  return { state: result.state, eventTypes: result.events.map(eventType), events: result.events };
 }
 
 export function disqualifyGamePlayer(
@@ -181,6 +183,7 @@ export function disqualifyAfterResolvingEffects(
 ): AppliedGameCommand {
   let state = initialState;
   const eventTypes: string[] = [];
+  const events: GameEvent[] = [];
   let resolvedEffects = 0;
   while (state.pendingEffect?.actorId === playerId) {
     if (resolvedEffects >= 32) {
@@ -189,11 +192,12 @@ export function disqualifyAfterResolvingEffects(
     const resolved = timeoutGame(state, `${actionId}_effect_${resolvedEffects}`, nowMs);
     state = resolved.state;
     eventTypes.push(...resolved.eventTypes);
+    events.push(...resolved.events);
     resolvedEffects += 1;
   }
 
   if (!gamePlayerIsActive(state, playerId)) {
-    return { state, eventTypes };
+    return { state, eventTypes, events };
   }
   const disqualified = disqualifyGamePlayer(
     state,
@@ -205,6 +209,7 @@ export function disqualifyAfterResolvingEffects(
   return {
     state: disqualified.state,
     eventTypes: [...eventTypes, ...disqualified.eventTypes],
+    events: [...events, ...disqualified.events],
   };
 }
 

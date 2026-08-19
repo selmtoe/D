@@ -1,5 +1,5 @@
 import { onCall, type CallableRequest } from "firebase-functions/v2/https";
-import type { Timestamp } from "firebase-admin/firestore";
+import type { EffectSelection } from "@daifugo/rules";
 import type { ZodType } from "zod";
 import {
   gameIsFinished,
@@ -10,6 +10,7 @@ import {
   selectionContainsBlindCard,
 } from "../game/rules-adapter.js";
 import { applyPendingMimic } from "../game/pending-mimic.js";
+import { appendPublicEvents, appendPublicGameEvents } from "../logging/public-events.js";
 import type { RoomDocument } from "../model.js";
 import { asHttpsError, CommandError, parseInput } from "../security/command-error.js";
 import {
@@ -36,25 +37,6 @@ interface BaseInput {
   gameId: string | null;
   expectedRevision: number;
   clientActionId: string;
-}
-
-function appendEvents(
-  room: RoomDocument,
-  eventTypes: string[],
-  actorUid: string,
-  now: Timestamp,
-): void {
-  const revision = room.revision + 1;
-  room.publicEvents = [
-    ...room.publicEvents,
-    ...eventTypes.slice(0, 20).map((type, index) => ({
-      id: `${revision}_${index}`,
-      type,
-      actorUid,
-      createdAt: now,
-      revision,
-    })),
-  ].slice(-100);
 }
 
 function transferHostAfterDisqualification(room: RoomDocument): void {
@@ -125,8 +107,25 @@ function gameCallable<TInput extends BaseInput>(
           const room = cloneRoom(original);
           room.game = applied.state;
           room.status = gameIsFinished(applied.state) ? "finished" : "playing";
+          const previousHostUid = room.hostUid;
           transferHostAfterDisqualification(room);
-          appendEvents(room, applied.eventTypes, uid, now);
+          const selection = gameCommand.selection as EffectSelection | undefined;
+          appendPublicGameEvents(room, original.game, applied.events, uid, now, {
+            ...(selection ? { selection } : {}),
+          });
+          if (previousHostUid !== room.hostUid) {
+            appendPublicEvents(
+              room,
+              [
+                {
+                  type: "host-transferred",
+                  actorUid: previousHostUid,
+                  detail: { fromHostUid: previousHostUid, toHostUid: room.hostUid },
+                },
+              ],
+              now,
+            );
+          }
           return {
             room,
             options: {
@@ -179,6 +178,11 @@ export const submitPlay = onCall(callableOptions, async (request) => {
           }>;
         };
         const containsBlind = selectionContainsBlindCard(original.game, uid, actual.cardIds);
+        const blindCardIds =
+          original.game.players
+            .find((player) => player.id === uid)
+            ?.hand.filter((entry) => entry.blind && actual.cardIds.includes(entry.card.id))
+            .map((entry) => entry.card.id) ?? [];
         if (containsBlind && !input.blindConfirmed) {
           throw new CommandError(
             "failed-precondition",
@@ -229,8 +233,25 @@ export const submitPlay = onCall(callableOptions, async (request) => {
         const room = cloneRoom(original);
         room.game = applied.state;
         room.status = gameIsFinished(applied.state) ? "finished" : "playing";
+        const previousHostUid = room.hostUid;
         transferHostAfterDisqualification(room);
-        appendEvents(room, applied.eventTypes, uid, now);
+        appendPublicGameEvents(room, original.game, applied.events, uid, now, {
+          blindCardIds,
+          ...(containsBlind ? { disqualificationReason: "blind-failure" as const } : {}),
+        });
+        if (previousHostUid !== room.hostUid) {
+          appendPublicEvents(
+            room,
+            [
+              {
+                type: "host-transferred",
+                actorUid: previousHostUid,
+                detail: { fromHostUid: previousHostUid, toHostUid: room.hostUid },
+              },
+            ],
+            now,
+          );
+        }
         return {
           room,
           options: {
@@ -288,14 +309,34 @@ export const declareJokerMimic = onCall(callableOptions, async (request) => {
           }>;
         };
         const room = cloneRoom(original);
-        const events = applyPendingMimic(
+        const pendingCardIds = [...original.pendingMimic.cardIds];
+        const blindCardIds =
+          original.game.players
+            .find((player) => player.id === uid)
+            ?.hand.filter((entry) => entry.blind && pendingCardIds.includes(entry.card.id))
+            .map((entry) => entry.card.id) ?? [];
+        const applied = applyPendingMimic(
           room,
           resolved.jokerMimics,
           input.clientActionId,
           now.toMillis(),
         );
+        const previousHostUid = room.hostUid;
         transferHostAfterDisqualification(room);
-        appendEvents(room, events, uid, now);
+        appendPublicGameEvents(room, original.game, applied.events, uid, now, { blindCardIds });
+        if (previousHostUid !== room.hostUid) {
+          appendPublicEvents(
+            room,
+            [
+              {
+                type: "host-transferred",
+                actorUid: previousHostUid,
+                detail: { fromHostUid: previousHostUid, toHostUid: room.hostUid },
+              },
+            ],
+            now,
+          );
+        }
         return {
           room,
           options: {

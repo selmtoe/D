@@ -71,5 +71,15 @@ describe("authoritative reconnect deadline", () => {
     // member instead of accumulating an unbounded `left` tombstone.
     expect(next.members).not.toHaveProperty("alice");
     expect(next.hostUid).toBe("bob");
+    expect(next.publicEvents.map((entry) => entry.type)).toEqual([
+      "reconnect-expired",
+      "timeout-warning",
+      "host-transferred",
+    ]);
+    expect(next.publicEvents[0]).toMatchObject({
+      actorUid: "alice",
+      detail: { warningCount: 1 },
+    });
+    expect(next.publicEvents.every((entry) => entry.createdAt.toMillis() === 120_001)).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import type { JokerMimic } from "@daifugo/rules";
 import type { RoomDocument } from "../model.js";
 import { CommandError } from "../security/command-error.js";
-import { gameIsFinished, runGameCommand } from "./rules-adapter.js";
+import { gameIsFinished, runGameCommand, type AppliedGameCommand } from "./rules-adapter.js";
 
 function normalized(mimics: readonly JokerMimic[]): string {
   return JSON.stringify(
@@ -24,7 +24,7 @@ export function applyPendingMimic(
   declaration: readonly JokerMimic[],
   actionId: string,
   nowMs: number,
-): string[] {
+): AppliedGameCommand {
   const pending = room.pendingMimic;
   if (!pending || !room.game) {
     throw new CommandError("failed-precondition", "There is no pending Joker declaration.");
@@ -51,14 +51,14 @@ export function applyPendingMimic(
   room.game = applied.state;
   room.pendingMimic = null;
   room.status = gameIsFinished(applied.state) ? "finished" : "playing";
-  return applied.eventTypes;
+  return applied;
 }
 
 export function applyDefaultPendingMimic(
   room: RoomDocument,
   actionId: string,
   nowMs: number,
-): string[] {
+): AppliedGameCommand {
   const candidate = room.pendingMimic?.candidates[0];
   if (!candidate) {
     throw new CommandError("internal", "A pending Joker declaration has no legal candidate.");

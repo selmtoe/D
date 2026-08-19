@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import { disqualifyAfterResolvingEffects, gameIsFinished } from "../game/rules-adapter.js";
 import { applyDefaultPendingMimic } from "../game/pending-mimic.js";
+import { appendPublicEvents, appendPublicGameEvents } from "../logging/public-events.js";
 import { asHttpsError, CommandError, parseInput } from "../security/command-error.js";
 import {
   createReconnectToken,
@@ -46,8 +47,23 @@ export const reconnectRoom = onCall(callableOptions, async (request) => {
           room.game
         ) {
           if (room.pendingMimic?.actorUid === uid) {
-            applyDefaultPendingMimic(room, `${input.clientActionId}_mimic`, now.toMillis());
+            const beforeMimic = room.game;
+            const pendingCardIds = [...room.pendingMimic.cardIds];
+            const blindCardIds =
+              beforeMimic.players
+                .find((player) => player.id === uid)
+                ?.hand.filter((entry) => entry.blind && pendingCardIds.includes(entry.card.id))
+                .map((entry) => entry.card.id) ?? [];
+            const mimicApplied = applyDefaultPendingMimic(
+              room,
+              `${input.clientActionId}_mimic`,
+              now.toMillis(),
+            );
+            appendPublicGameEvents(room, beforeMimic, mimicApplied.events, uid, now, {
+              blindCardIds,
+            });
           }
+          const beforeDisqualification = room.game;
           const applied = disqualifyAfterResolvingEffects(
             room.game,
             uid,
@@ -56,6 +72,9 @@ export const reconnectRoom = onCall(callableOptions, async (request) => {
             now.toMillis(),
           );
           room.game = applied.state;
+          appendPublicGameEvents(room, beforeDisqualification, applied.events, uid, now, {
+            disqualificationReason: "disconnect",
+          });
           if (gameIsFinished(applied.state)) room.status = "finished";
         }
 
@@ -97,6 +116,37 @@ export const reconnectRoom = onCall(callableOptions, async (request) => {
             })[0];
           if (successor) room.hostUid = successor.uid;
         }
+        appendPublicEvents(
+          room,
+          [
+            {
+              type: expired ? "reconnect-expired" : "reconnected",
+              actorUid: uid,
+              detail: {
+                ...(expired ? { warningCount: member.timeoutWarnings + 1 } : {}),
+              },
+            },
+            ...(expired
+              ? [
+                  {
+                    type: "timeout-warning",
+                    actorUid: uid,
+                    detail: { warningCount: member.timeoutWarnings + 1, reason: "disconnect" },
+                  },
+                ]
+              : []),
+            ...(original.hostUid !== room.hostUid
+              ? [
+                  {
+                    type: "host-transferred",
+                    actorUid: original.hostUid,
+                    detail: { fromHostUid: original.hostUid, toHostUid: room.hostUid },
+                  },
+                ]
+              : []),
+          ],
+          now,
+        );
         return {
           room,
           response: {
