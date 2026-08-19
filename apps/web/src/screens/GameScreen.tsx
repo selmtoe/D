@@ -166,13 +166,14 @@ function PlayDialog({
 function ChatPanel({ room, sendChat }: { room: RoomView; sendChat: (message: string) => void }) {
   const [message, setMessage] = useState("");
   const [composing, setComposing] = useState(false);
+  const [visiblePages, setVisiblePages] = useState(1);
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!message.trim()) return;
     sendChat(message.trim().slice(0, 120));
     setMessage("");
   };
-  const entries = [
+  const allEntries = [
     ...room.log.map((item) => ({ ...item, label: "対局" })),
     ...(room.chat ?? []).map((item) => ({
       id: item.id,
@@ -181,12 +182,16 @@ function ChatPanel({ room, sendChat }: { room: RoomView; sendChat: (message: str
       kind: "system" as const,
       label: `${item.name}（${item.role === "spectator" ? "観戦" : "参加"}）`,
     })),
-  ]
-    .sort((left, right) => left.atMs - right.atMs)
-    .slice(-60);
+  ].sort((left, right) => left.atMs - right.atMs);
+  const entries = allEntries.slice(-60 * visiblePages);
   return (
     <section className="chat-panel" aria-labelledby="log-title">
       <h2 id="log-title">ログ／チャット</h2>
+      {entries.length < allEntries.length && (
+        <button type="button" onClick={() => setVisiblePages((pages) => pages + 1)}>
+          古いログをさらに60件表示
+        </button>
+      )}
       <ol>
         {entries.map((item) => (
           <li key={`${item.label}-${item.id}`}>
@@ -361,6 +366,7 @@ export function GameScreen({
           onToggleCard={readOnly ? undefined : selectCard}
           lowPower={lowPower}
           reducedMotion={reducedMotion}
+          dealing={dealing}
         />
       </div>
       <header className="game-topbar">
@@ -452,7 +458,7 @@ export function GameScreen({
         <section className="dealing-overlay" aria-live="polite">
           <p className="eyebrow">DEALING</p>
           <h2>カードを配っています</h2>
-          <p>権威状態は確定済みです。</p>
+          <p>中央のデックから各席へ順番に配札中。権威状態は確定済みです。</p>
           <button type="button" onClick={skipDeal}>
             配札演出をスキップ
           </button>

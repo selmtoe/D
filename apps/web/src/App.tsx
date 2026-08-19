@@ -24,6 +24,7 @@ import { LobbyScreen } from "./screens/LobbyScreen";
 import { ResultScreen } from "./screens/ResultScreen";
 import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
+import { useVisualViewport } from "./app/visualViewport";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -37,6 +38,7 @@ function commandBase(room: RoomView): Record<string, unknown> {
 }
 
 export default function App() {
+  useVisualViewport();
   const app = useUiStore((state) => state.app);
   const rooms = useUiStore((state) => state.publicRooms);
   const dispatch = useUiStore((state) => state.dispatch);

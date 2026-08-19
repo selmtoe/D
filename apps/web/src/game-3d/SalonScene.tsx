@@ -1,8 +1,15 @@
 import { ContactShadows, Environment } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { ACESFilmicToneMapping, BackSide, MathUtils, type PerspectiveCamera } from "three";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ACESFilmicToneMapping,
+  BackSide,
+  MathUtils,
+  type Group,
+  type PerspectiveCamera,
+} from "three";
 import type { CardView, PlayerView, RoomView } from "../app/model";
+import { useVisualViewport } from "../app/visualViewport";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import { Card3D } from "./Card3D";
 
@@ -12,30 +19,32 @@ function CameraRig({
   reducedMotion,
   focusIndex,
   playerCount,
+  keyboardOpen,
 }: {
   spectator: boolean;
   mobile: boolean;
   reducedMotion: boolean;
   focusIndex: number;
   playerCount: number;
+  keyboardOpen: boolean;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const target = useMemo(() => {
-    const radius = mobile ? 9.7 : 10.8;
+    const radius = mobile ? (keyboardOpen ? 11.4 : 9.7) : 10.8;
     const angle =
       spectator && playerCount > 0
         ? (focusIndex / playerCount) * Math.PI * 2 + Math.PI / 2
         : Math.PI / 2;
     return {
-      y: spectator ? 8.2 : mobile ? 7.3 : 6.4,
+      y: spectator ? 8.2 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
       x: Math.cos(angle) * radius,
       z: Math.sin(angle) * radius,
     };
-  }, [focusIndex, mobile, playerCount, spectator]);
+  }, [focusIndex, keyboardOpen, mobile, playerCount, spectator]);
   useEffect(() => {
-    camera.fov = mobile ? 51 : spectator ? 47 : 45;
+    camera.fov = mobile ? (keyboardOpen ? 58 : 51) : spectator ? 47 : 45;
     camera.updateProjectionMatrix();
-  }, [camera, mobile, spectator]);
+  }, [camera, keyboardOpen, mobile, spectator]);
   useFrame((_, delta) => {
     const factor = reducedMotion ? 1 : 1 - Math.exp(-delta * 4.5);
     camera.position.y = MathUtils.lerp(camera.position.y, target.y, factor);
@@ -211,6 +220,77 @@ function fieldCards(cards: CardView[]) {
     ));
 }
 
+const DEAL_CARD: CardView = { id: "deal-card", visibility: "hidden", blind: false };
+
+function AnimatedDealCard({
+  sequence,
+  seatIndex,
+  playerCount,
+  round,
+}: {
+  sequence: number;
+  seatIndex: number;
+  playerCount: number;
+  round: number;
+}) {
+  const root = useRef<Group>(null);
+  const startedAt = useRef<number | undefined>(undefined);
+  useFrame(({ clock }) => {
+    if (!root.current) return;
+    startedAt.current ??= clock.elapsedTime;
+    const elapsed = clock.elapsedTime - startedAt.current - sequence * 0.045;
+    const progress = MathUtils.clamp(elapsed / 0.54, 0, 1);
+    root.current.visible = elapsed >= 0;
+    const eased = progress * progress * (3 - 2 * progress);
+    const angle = (seatIndex / playerCount) * Math.PI * 2 + Math.PI / 2;
+    const tangentX = -Math.sin(angle) * (round - 1.5) * 0.13;
+    const tangentZ = Math.cos(angle) * (round - 1.5) * 0.13;
+    const targetX = Math.cos(angle) * 4.05 + tangentX;
+    const targetZ = Math.sin(angle) * 4.05 + tangentZ;
+    root.current.position.set(
+      MathUtils.lerp(0, targetX, eased),
+      0.24 + Math.sin(progress * Math.PI) * 2.15 + round * 0.008,
+      MathUtils.lerp(0, targetZ, eased),
+    );
+    root.current.rotation.y = MathUtils.lerp(sequence * 0.08, -angle + Math.PI / 2, eased);
+    root.current.rotation.z = Math.sin(progress * Math.PI) * 0.16;
+  });
+  return (
+    <group ref={root} visible={false}>
+      <Card3D card={{ ...DEAL_CARD, id: `deal-${sequence}` }} scale={0.42} />
+    </group>
+  );
+}
+
+function DealingSequence({ playerCount }: { playerCount: number }) {
+  const cards = useMemo(
+    () =>
+      Array.from({ length: playerCount * 4 }, (_, sequence) => ({
+        sequence,
+        seatIndex: sequence - Math.floor(sequence / playerCount) * playerCount,
+        round: Math.floor(sequence / playerCount),
+      })),
+    [playerCount],
+  );
+  if (!playerCount) return null;
+  return (
+    <group>
+      {Array.from({ length: 5 }, (_, index) => (
+        <Card3D
+          key={`deck-${index}`}
+          card={{ ...DEAL_CARD, id: `deck-${index}` }}
+          position={[0, 0.18 + index * 0.012, 0]}
+          rotation={[-Math.PI / 2, 0, index * 0.018]}
+          scale={0.46}
+        />
+      ))}
+      {cards.map((card) => (
+        <AnimatedDealCard key={card.sequence} {...card} playerCount={playerCount} />
+      ))}
+    </group>
+  );
+}
+
 export function SalonScene({
   room,
   previewAvatar,
@@ -218,6 +298,7 @@ export function SalonScene({
   onToggleCard = () => undefined,
   lowPower,
   reducedMotion,
+  dealing = false,
 }: {
   room?: RoomView;
   previewAvatar?: PlayerView["avatar"];
@@ -225,25 +306,17 @@ export function SalonScene({
   onToggleCard?: ((card: CardView) => void) | undefined;
   lowPower: boolean;
   reducedMotion: boolean;
+  dealing?: boolean;
 }) {
-  const [mobile, setMobile] = useState(
-    () => typeof window !== "undefined" && window.innerWidth < 600,
-  );
+  const viewport = useVisualViewport();
+  const mobile = viewport.width < 600;
+  const keyboardOpen = viewport.keyboardInset > 80;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
   useEffect(() => {
     const change = () => setPageVisible(document.visibilityState !== "hidden");
     document.addEventListener("visibilitychange", change);
     return () => document.removeEventListener("visibilitychange", change);
-  }, []);
-  useEffect(() => {
-    const resize = () => setMobile(window.innerWidth < 600);
-    window.addEventListener("resize", resize);
-    window.visualViewport?.addEventListener("resize", resize);
-    return () => {
-      window.removeEventListener("resize", resize);
-      window.visualViewport?.removeEventListener("resize", resize);
-    };
   }, []);
   return (
     <>
@@ -285,8 +358,9 @@ export function SalonScene({
                   <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
                 </group>
               )}
-          {fieldCards(room?.field ?? [])}
-          {room && handCards(room.hand, selectedIds, onToggleCard, mobile)}
+          {!dealing && fieldCards(room?.field ?? [])}
+          {room && !dealing && handCards(room.hand, selectedIds, onToggleCard, mobile)}
+          {room && dealing && <DealingSequence playerCount={room.players.length} />}
           {!lowPower && (
             <ContactShadows position={[0, 0.08, 0]} opacity={0.5} scale={13} blur={2.8} far={6} />
           )}
@@ -312,6 +386,7 @@ export function SalonScene({
             room?.players.findIndex((player) => player.id === room.focusedPlayerId) ?? 0,
           )}
           playerCount={room?.players.length ?? 0}
+          keyboardOpen={keyboardOpen}
         />
       </Canvas>
       {contextLost && (

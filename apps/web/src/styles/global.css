@@ -14,6 +14,12 @@
   --panel: rgba(9, 22, 20, 0.88);
   --line: rgba(215, 182, 104, 0.26);
   --danger: #ff9b9b;
+  --visual-viewport-width: 100vw;
+  --visual-viewport-height: 100dvh;
+  --visual-viewport-offset-top: 0px;
+  --visual-viewport-offset-left: 0px;
+  --visual-viewport-scale: 1;
+  --keyboard-inset: 0px;
 }
 * {
   box-sizing: border-box;
@@ -605,7 +611,11 @@ h2 {
 
 .game-screen {
   position: fixed;
-  inset: 0;
+  inset: auto;
+  top: var(--visual-viewport-offset-top);
+  left: var(--visual-viewport-offset-left);
+  width: var(--visual-viewport-width);
+  height: var(--visual-viewport-height);
   overflow: hidden;
   background: #06100f;
 }
@@ -786,16 +796,22 @@ h2 {
 .dealing-overlay {
   position: absolute;
   z-index: 8;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(390px, calc(100% - 2rem));
-  padding: 1.5rem;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  width: min(320px, calc(100% - 2rem));
+  padding: 1rem;
   text-align: center;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: rgba(5, 18, 16, 0.93);
   box-shadow: 0 24px 80px #0009;
+}
+.dealing-overlay h2 {
+  margin-bottom: 0.35rem;
+}
+.dealing-overlay p:not(.eyebrow) {
+  margin-bottom: 0.65rem;
+  font-size: 0.78rem;
 }
 .log-toggle {
   position: absolute;
@@ -891,7 +907,11 @@ h2 {
 .modal-backdrop {
   position: fixed;
   z-index: 100;
-  inset: 0;
+  inset: auto;
+  top: var(--visual-viewport-offset-top);
+  left: var(--visual-viewport-offset-left);
+  width: var(--visual-viewport-width);
+  height: var(--visual-viewport-height);
   display: grid;
   place-items: center;
   padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))

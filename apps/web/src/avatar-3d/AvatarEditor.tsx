@@ -7,6 +7,7 @@ import {
   type AvatarProfileV1,
 } from "@daifugo/avatar-schema";
 import { Avatar3D } from "./Avatar3D";
+import { animationNames } from "./proceduralAvatar";
 import { loadPresets, savePresets } from "./avatarStorage";
 import { firebaseErrorMessage, sendCommand } from "../network/firebaseClient";
 
@@ -383,6 +384,18 @@ export function AvatarEditor({
                     value={draft.parts.expression}
                     setValue={(id) => patchPart("expression", id)}
                   />
+                  <h3>待機アニメーション</h3>
+                  <select
+                    aria-label="待機アニメーション"
+                    value={draft.animationSetId}
+                    onChange={(event) => commit({ ...draft, animationSetId: event.target.value })}
+                  >
+                    {avatarCatalog.animationSetId.map((id, index) => (
+                      <option key={id} value={id}>
+                        {index + 1}. {animationNames[index]}
+                      </option>
+                    ))}
+                  </select>
                 </>
               )}
               {tab === "clothes" && (
