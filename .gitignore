@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+dist/
+functions/lib/
+coverage/
+playwright-report/
+test-results/
+.firebase/
+firebase-debug.log
+*-debug.log
+.env
+.env.local
+.env.*.local
+!.env.example
+*.tsbuildinfo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,14 @@
+node_modules
+dist
+functions/lib
+coverage
+playwright-report
+test-results
+index.html
+manifest.json
+service-worker.js
+styles/daifugo-luxe.css
+src/avatar-studio.js
+docs/DAIFUGO_RULEBOOK.md
+docs/FIREBASE_HANDOFF.md
+docs/REBUILD_PROMPT.md

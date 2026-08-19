@@ -1,0 +1,27 @@
+{
+  "name": "daifugo-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "3Dオンライン大富豪 — Private Card Salon",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "lint": "eslint apps functions packages",
+    "format:check": "prettier --check .",
+    "dev": "pnpm --filter @daifugo/web dev",
+    "emulators": "firebase emulators:start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.2.0"
+  }
+}
