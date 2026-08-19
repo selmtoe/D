@@ -1,0 +1,53 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function openOfflineEntrance(page: Page): Promise<void> {
+  await page.route("**/identitytoolkit.googleapis.com/**", (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: 400, message: "CONFIGURATION_NOT_FOUND" } }),
+    }),
+  );
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "大富豪" })).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+}
+
+test("entrance renders its 3D scene without horizontal overflow", async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  await openOfflineEntrance(page);
+  await expect(page.locator("canvas")).toBeVisible();
+  const sizes = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(sizes.scrollWidth).toBeLessThanOrEqual(sizes.clientWidth);
+  expect(pageErrors).toEqual([]);
+});
+
+test("rules dialog traps focus and Escape returns it to the opener", async ({ page }) => {
+  await openOfflineEntrance(page);
+  const opener = page.getByRole("button", { name: "利用規約・ルール" });
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "ルールブック要約" });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+});
+
+test("avatar atelier exposes real catalog choices and restores focus", async ({ page }) => {
+  await openOfflineEntrance(page);
+  const opener = page.getByRole("button", { name: "アバターを仕立てる" });
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "アバターを仕立てる" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("region", { name: "3Dアバタープレビュー" }).locator("canvas"),
+  ).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "16", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+});
