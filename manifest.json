@@ -1,11 +1,11 @@
 {
-  "name": "遊戯御殿 — Game Atelier",
-  "short_name": "遊戯御殿",
-  "description": "大富豪、オセロ、コネクトフォー、神経衰弱、ヨット、エアホッケー、スピードをローカルとP2Pで遊べるゲームコレクションです。",
+  "name": "大富豪 — Private Card Salon",
+  "short_name": "大富豪",
+  "description": "立体カードと上質なアバターで遊ぶ、3Dオンライン大富豪。",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0b0e19",
-  "theme_color": "#11162a",
+  "background_color": "#080b12",
+  "theme_color": "#111522",
   "icons": [
     {
       "src": "icons/icon-192x192.png",

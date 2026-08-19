@@ -1,14 +1,12 @@
-const CACHE_NAME = 'yugigoten-v3';
+const CACHE_NAME = 'daifugo-luxe-v4';
 // キャッシュするファイルのリスト
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './daifugo.html',
   './manifest.json',
-  './styles/clubhouse.css',
-  './src/clubhouse.js',
-  './src/engines.js',
-  './src/p2p.js',
+  './styles/daifugo-luxe.css',
+  './src/avatar-studio.js',
+  './assets/luxury-card-salon.png',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png'
 ];
