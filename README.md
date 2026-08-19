@@ -41,6 +41,8 @@ pnpm --filter @daifugo/functions test:emulator
 
 最後のSecurity Rules統合テストはFirestore/Realtime Database EmulatorとJava 21を起動できる環境で実行します。
 
+Playwrightにはdesktop/mobileの3D・アクセシビリティsmokeに加え、DEV限定のfake authorityを使う複数browser context試験があります。3人対局、効果、観戦projection、stale revision、再接続token rotation、ブラインド成功／失格を検証し、テストbridgeがproduction bundleへ残らないことも確認します。
+
 ## 本番公開前の所有者設定
 
 本番Functions/Rules/Hostingはまだdeployしていません。Firebase Consoleで匿名Authentication、Realtime Database、App Check site key、Authorized domain、region、Blaze課金とScheduler/APIを確認し、既存 `rooms` のRules差分を所有者が承認してから `docs/OPERATIONS.md` の順序で公開します。

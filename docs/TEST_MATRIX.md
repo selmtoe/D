@@ -33,7 +33,7 @@
 
 ## E2E
 
-Playwright smokeはdesktop ChromiumとPixel 7相当で入口3D、横overflow、ルール／アバターダイアログのfocus・Escape復帰、catalog表示をCI実行します。以下のオンライン複数context項目はAuth・RTDB・App Checkを有効化したEmulator／preview環境で行う公開前gateです。
+Playwrightはdesktop ChromiumとPixel 7相当で入口3D、横overflow、ルール／アバターダイアログのfocus・Escape復帰、catalog表示をCI実行します。desktopの複数contextでは、本番buildから除外されるDEV限定のfake authorityを使い、3人参加、配札、複数手番、A奪い、観戦者別projection、stale revision、再接続token rotation、blind成功／失格を自動検証します。実FirebaseのEmulator／preview環境では、次の全項目を公開前gateとして再確認します。
 
 1. 3contextでcreate、ID join、start、play、pass、finish、leave。
 2. 6contextで満員、最後のplayer slotまでscroll、start。

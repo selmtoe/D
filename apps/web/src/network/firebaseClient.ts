@@ -42,6 +42,13 @@ import {
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { migrateAvatar } from "@daifugo/avatar-schema";
 import type { PublicRoom, Role, RoomView } from "../app/model";
+import {
+  e2eCall,
+  e2eViewerUid,
+  isE2ETransport,
+  subscribeE2EPublicRooms,
+  subscribeE2ERoomView,
+} from "./e2eTransport";
 
 type FirebaseContext = {
   app: FirebaseApp;
@@ -122,6 +129,11 @@ function authReady(auth: Auth): Promise<User> {
 }
 
 export async function getFirebase(): Promise<FirebaseContext> {
+  const viewerUid = import.meta.env.DEV ? e2eViewerUid() : undefined;
+  if (viewerUid)
+    return {
+      user: { uid: viewerUid },
+    } as unknown as FirebaseContext;
   if (!firebaseMode.configured)
     throw new Error(
       `Firebase接続設定が不足しています（${missing.join("、")}）。apps/web/.env.exampleを参照してください。`,
@@ -168,6 +180,10 @@ export async function startRoomPresence(
   onError: (error: Error) => void,
   onRestored?: () => void,
 ): Promise<() => void> {
+  if (import.meta.env.DEV && isE2ETransport()) {
+    await e2eCall({ op: "presence", roomId });
+    return () => undefined;
+  }
   const { rtdb, user } = await getFirebase();
   const presence = ref(rtdb, `v2Presence/${roomId}/${user.uid}`);
   const connected = ref(rtdb, ".info/connected");
@@ -216,12 +232,15 @@ function actionId(): string {
 export async function sendCommand<
   TResponse extends Record<string, unknown> = Record<string, unknown>,
 >(name: CommandName, payload: BaseCommand & Record<string, unknown> = {}): Promise<TResponse> {
-  const { functions } = await getFirebase();
-  const callable = httpsCallable<Record<string, unknown>, TResponse>(functions, name);
-  const result = await callable({
+  const commandPayload = {
     ...payload,
     clientActionId: payload.clientActionId ?? actionId(),
-  });
+  };
+  if (import.meta.env.DEV && isE2ETransport())
+    return e2eCall<TResponse>({ op: "command", name, payload: commandPayload });
+  const { functions } = await getFirebase();
+  const callable = httpsCallable<Record<string, unknown>, TResponse>(functions, name);
+  const result = await callable(commandPayload);
   return result.data;
 }
 
@@ -248,6 +267,11 @@ export async function joinRoom(
 export async function getRoomCommandBase(
   roomId: string,
 ): Promise<{ roomId: string; gameId: string | null; expectedRevision: number }> {
+  if (import.meta.env.DEV && isE2ETransport())
+    return e2eCall({
+      op: "roomBase",
+      roomId,
+    });
   const { db } = await getFirebase();
   const snapshot = await getDoc(doc(db, "v2RoomViews", roomId));
   if (!snapshot.exists()) throw new Error("指定された部屋が見つかりません");
@@ -273,6 +297,8 @@ export function subscribeRoomView(
   onView: (view: RoomView) => void,
   onError: (error: Error) => void,
 ): Promise<Unsubscribe> {
+  if (import.meta.env.DEV && isE2ETransport())
+    return Promise.resolve(subscribeE2ERoomView(roomId, uid, onView, onError));
   return getFirebase().then(({ db }) =>
     onSnapshot(
       doc(db, "v2RoomViews", roomId, "viewers", uid),
@@ -316,6 +342,8 @@ export async function subscribePublicRooms(
   onRooms: (rooms: PublicRoom[]) => void,
   onError: (error: Error) => void,
 ): Promise<Unsubscribe> {
+  if (import.meta.env.DEV && isE2ETransport())
+    return Promise.resolve(subscribeE2EPublicRooms(onRooms, onError));
   const { db } = await getFirebase();
   const cutoff = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
   const publicQuery = query(

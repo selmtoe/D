@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getFirebase } from "./firebaseClient";
+import { isE2ETransport } from "./e2eTransport";
 import { PeerCueNetwork, type CueEvent } from "./peerCues";
 
 export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
@@ -8,6 +9,10 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
   const [lastCue, setLastCue] = useState<{ cue: CueEvent; sender: string }>();
   const peerKey = peerIds.join("|");
   useEffect(() => {
+    if (import.meta.env.DEV && isE2ETransport()) {
+      setMode("offline");
+      return;
+    }
     let alive = true;
     const stablePeerIds = peerKey ? peerKey.split("|") : [];
     getFirebase()
