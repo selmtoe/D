@@ -766,7 +766,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        let currentPlayer = { id: null, name: null, avatar: window.LuxeAvatar.getProfile() };
+        let currentPlayer = { id: null, name: null, avatar: window.LuxeAvatar.toNetworkProfile(window.LuxeAvatar.getProfile()) };
         let spectatingPlayerId = null;
         let currentRoomId = null;
         let unsubscribeRoom = null;
@@ -790,7 +790,7 @@ font-size: 14px; margin-left: auto; margin-right: 15px; cursor: pointer;"><input
         let stealMiniGameContext = { active: false, targets: [], currentTargetIndex: 0, requiredCount: 0, pulledCount: 0, originalCamPos: new THREE.Vector3(), targetMeshes: [] };
 
         document.addEventListener('luxe-avatar-saved', async (event) => {
-            currentPlayer.avatar = event.detail;
+            currentPlayer.avatar = window.LuxeAvatar.toNetworkProfile(event.detail);
             if (event.detail.name) currentPlayer.name = event.detail.name;
             if (document.getElementById('player-name-display')) document.getElementById('player-name-display').textContent = currentPlayer.name || '';
             if (document.getElementById('luxe-player-copy')) document.getElementById('luxe-player-copy').textContent = currentPlayer.name || 'PLAYER';
@@ -1806,7 +1806,7 @@ for (let i = 0; i < intersects.length; i++) {
             const name = nameInput.value.trim();
             if (name) {
                 currentPlayer.name = name;
-                currentPlayer.avatar = window.LuxeAvatar.getProfile();
+                currentPlayer.avatar = window.LuxeAvatar.toNetworkProfile(window.LuxeAvatar.getProfile());
                 currentPlayer.id = generatePlayerId();
                 playerNameDisplay.textContent = name;
                 document.getElementById('luxe-player-copy').textContent = name;
@@ -1848,7 +1848,8 @@ for (let i = 0; i < intersects.length; i++) {
             } catch (error) {
                 console.error('Room creation failed', error);
                 currentRoomId = null;
-                showAlert('部屋を作れませんでした。通信状態を確認して、もう一度お試しください。');
+                const errorCode = error?.code ? `\nエラーコード: ${error.code}` : '';
+                showAlert(`部屋を作れませんでした。通信状態を確認して、ページを再読込してからもう一度お試しください。${errorCode}`);
                 createRoomButton.disabled = false;
                 joinRoomButton.disabled = false;
                 createRoomButton.innerHTML = originalMarkup;

@@ -217,9 +217,15 @@
     return base + detail;
   }
 
+  function pointCoordinates(point) {
+    if (Array.isArray(point) && point.length === 2 && Number.isFinite(point[0]) && Number.isFinite(point[1])) return [point[0], point[1]];
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) return [point.x, point.y];
+    return null;
+  }
+
   function strokesSvg(strokes) {
     return (Array.isArray(strokes) ? strokes : []).slice(0, 80).map((stroke) => {
-      const points = (stroke.points || []).slice(0, 500).filter((point) => Array.isArray(point) && point.length === 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+      const points = (stroke.points || []).slice(0, 500).map(pointCoordinates).filter(Boolean);
       if (!points.length) return "";
       const path = points.map(([x, y], index) => `${index ? "L" : "M"}${Math.round(x * 10) / 10} ${Math.round(y * 10) / 10}`).join(" ");
       return `<path d="${path}" fill="none" stroke="${safeColor(stroke.color, "#ffffff")}" stroke-width="${Math.max(1, Math.min(40, Number(stroke.size) || 6))}" stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -242,6 +248,40 @@
       ${noseSvg(safeChoice("nose", config.nose))}${mouthSvg(safeChoice("mouth", config.mouth))}${marksSvg(safeChoice("marks", config.marks))}
       ${accessorySvg(safeChoice("accessory", config.accessory))}${strokesSvg(config.strokes)}
     </svg>`;
+  }
+
+  function toNetworkProfile(input = profile) {
+    const config = { ...defaults, ...(input || {}) };
+    const networkStrokes = (Array.isArray(config.strokes) ? config.strokes : []).slice(0, 24).map((stroke) => {
+      const validPoints = (stroke.points || []).map(pointCoordinates).filter(Boolean);
+      const step = Math.max(1, Math.ceil(validPoints.length / 120));
+      const sampledPoints = validPoints.filter((_, index) => index % step === 0).slice(0, 120);
+      const lastPoint = validPoints.at(-1);
+      if (lastPoint && sampledPoints.length && sampledPoints.at(-1) !== lastPoint && sampledPoints.length < 120) sampledPoints.push(lastPoint);
+      return {
+        color: safeColor(stroke.color, "#ffffff"),
+        size: Math.max(1, Math.min(40, Number(stroke.size) || 7)),
+        points: sampledPoints.map(([x, y]) => ({ x: Math.round(Math.max(0, Math.min(512, x)) * 10) / 10, y: Math.round(Math.max(0, Math.min(512, y)) * 10) / 10 })),
+      };
+    }).filter((stroke) => stroke.points.length);
+    return {
+      name: String(config.name || "").slice(0, 12),
+      skin: safeColor(config.skin, defaults.skin),
+      face: safeChoice("face", config.face),
+      hair: safeChoice("hair", config.hair),
+      hairColor: safeColor(config.hairColor, defaults.hairColor),
+      eyes: safeChoice("eyes", config.eyes),
+      eyeColor: safeColor(config.eyeColor, defaults.eyeColor),
+      brows: safeChoice("brows", config.brows),
+      nose: safeChoice("nose", config.nose),
+      mouth: safeChoice("mouth", config.mouth),
+      marks: safeChoice("marks", config.marks),
+      accessory: safeChoice("accessory", config.accessory),
+      outfit: safeChoice("outfit", config.outfit),
+      outfitColor: safeColor(config.outfitColor, defaults.outfitColor),
+      background: safeChoice("background", config.background),
+      strokes: networkStrokes,
+    };
   }
 
   const groups = {
@@ -368,7 +408,7 @@
       drawingContext.lineWidth = Math.max(1, Math.min(40, Number(stroke.size) || 7));
       drawingContext.lineCap = "round";
       drawingContext.lineJoin = "round";
-      stroke.points.forEach(([x, y], index) => index ? drawingContext.lineTo(x, y) : drawingContext.moveTo(x, y));
+      stroke.points.map(pointCoordinates).filter(Boolean).forEach(([x, y], index) => index ? drawingContext.lineTo(x, y) : drawingContext.moveTo(x, y));
       drawingContext.stroke();
     });
   }
@@ -438,6 +478,7 @@
   window.LuxeAvatar = {
     defaults: clone(defaults),
     getProfile: () => clone(profile),
+    toNetworkProfile,
     renderSvg,
     open,
     refresh: refreshPageAvatars,
