@@ -12,6 +12,10 @@ import type { CardView, PlayerView, RoomView } from "../app/model";
 import { useVisualViewport } from "../app/visualViewport";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import { Card3D } from "./Card3D";
+import { CardMotionLayer } from "./CardMotionLayer";
+import type { CardMotionEvent } from "./cardMotion";
+import { StealVisualLayer } from "./StealVisualLayer";
+import type { StealVisualState } from "../screens/StealSequence";
 
 function CameraRig({
   spectator,
@@ -20,6 +24,7 @@ function CameraRig({
   focusIndex,
   playerCount,
   keyboardOpen,
+  effectFocus,
 }: {
   spectator: boolean;
   mobile: boolean;
@@ -27,20 +32,21 @@ function CameraRig({
   focusIndex: number;
   playerCount: number;
   keyboardOpen: boolean;
+  effectFocus: boolean;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const target = useMemo(() => {
     const radius = mobile ? (keyboardOpen ? 11.4 : 9.7) : 10.8;
     const angle =
-      spectator && playerCount > 0
+      (spectator || effectFocus) && playerCount > 0
         ? (focusIndex / playerCount) * Math.PI * 2 + Math.PI / 2
         : Math.PI / 2;
     return {
-      y: spectator ? 8.2 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
+      y: spectator ? 8.2 : effectFocus ? 7.4 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
       x: Math.cos(angle) * radius,
       z: Math.sin(angle) * radius,
     };
-  }, [focusIndex, keyboardOpen, mobile, playerCount, spectator]);
+  }, [effectFocus, focusIndex, keyboardOpen, mobile, playerCount, spectator]);
   useEffect(() => {
     camera.fov = mobile ? (keyboardOpen ? 58 : 51) : spectator ? 47 : 45;
     camera.updateProjectionMatrix();
@@ -73,6 +79,14 @@ function CircularTable() {
       <mesh position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[1.42, 1.48, 64]} />
         <meshStandardMaterial color="#bf9b56" metalness={0.72} />
+      </mesh>
+      <mesh position={[2.9, 0.08, -1.45]} receiveShadow>
+        <boxGeometry args={[1.65, 0.09, 2.18]} />
+        <meshStandardMaterial color="#182c27" roughness={0.76} metalness={0.08} />
+      </mesh>
+      <mesh position={[2.9, 0.135, -1.45]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.78, 0.84, 4]} />
+        <meshStandardMaterial color="#bf9b56" metalness={0.72} roughness={0.24} />
       </mesh>
       <mesh position={[0, -1.7, 0]}>
         <cylinderGeometry args={[1.4, 1.9, 2.6, 48]} />
@@ -136,6 +150,7 @@ function seats(
   viewerId: string | undefined,
   currentPlayerId?: string,
   lowPower = false,
+  movingToSeats = new Map<string, ReadonlySet<string>>(),
 ) {
   return players.map((player, index) => {
     const angle = (index / players.length) * Math.PI * 2 + Math.PI / 2;
@@ -167,6 +182,7 @@ function seats(
                 <Card3D
                   key={card.id}
                   card={card}
+                  hidden={movingToSeats.get(player.id)?.has(card.id) ?? false}
                   position={[centered * spacing, Math.abs(centered) * 0.002, 0]}
                   scale={0.22}
                 />
@@ -182,8 +198,10 @@ function seats(
 function handCards(
   cards: CardView[],
   selectedIds: string[],
+  playableIds: ReadonlySet<string> | undefined,
   toggle: (card: CardView) => void,
   mobile: boolean,
+  movingToHand: ReadonlySet<string>,
 ) {
   const spacing = Math.min(mobile ? 0.37 : 0.53, (mobile ? 5.8 : 8) / Math.max(cards.length, 1));
   return cards.map((card, index) => {
@@ -193,6 +211,8 @@ function handCards(
         key={card.id}
         card={card}
         selected={selectedIds.includes(card.id)}
+        dimmed={Boolean(playableIds && !playableIds.has(card.id))}
+        hidden={movingToHand.has(card.id)}
         onSelect={() => toggle(card)}
         position={[
           centered * spacing,
@@ -206,13 +226,14 @@ function handCards(
   });
 }
 
-function fieldCards(cards: CardView[]) {
+function fieldCards(cards: CardView[], movingToField: ReadonlySet<string>) {
   return cards
     .slice(-6)
     .map((card, index) => (
       <Card3D
         key={card.id}
         card={card}
+        hidden={movingToField.has(card.id)}
         position={[(index - (Math.min(cards.length, 6) - 1) / 2) * 0.48, 0.22 + index * 0.02, 0]}
         rotation={[-Math.PI / 2, 0, (index - 2) * 0.04]}
         scale={0.72}
@@ -295,24 +316,61 @@ export function SalonScene({
   room,
   previewAvatar,
   selectedIds = [],
+  playableIds,
   onToggleCard = () => undefined,
   lowPower,
   reducedMotion,
   dealing = false,
+  cardMotions = [],
+  onCardMotionDone = () => undefined,
+  stealVisual,
 }: {
   room?: RoomView;
   previewAvatar?: PlayerView["avatar"];
   selectedIds?: string[];
+  playableIds?: ReadonlySet<string> | undefined;
   onToggleCard?: ((card: CardView) => void) | undefined;
   lowPower: boolean;
   reducedMotion: boolean;
   dealing?: boolean;
+  cardMotions?: CardMotionEvent[];
+  onCardMotionDone?: (id: string) => void;
+  stealVisual?: StealVisualState | undefined;
 }) {
   const viewport = useVisualViewport();
   const mobile = viewport.width < 600;
   const keyboardOpen = viewport.keyboardInset > 80;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
+  const activeCardMotions = reducedMotion ? [] : cardMotions;
+  const movingToHand = useMemo(
+    () =>
+      new Set(
+        activeCardMotions
+          .filter((motion) => motion.to.kind === "hand")
+          .map((motion) => motion.card.id),
+      ),
+    [activeCardMotions],
+  );
+  const movingToField = useMemo(
+    () =>
+      new Set(
+        activeCardMotions
+          .filter((motion) => motion.to.kind === "field")
+          .map((motion) => motion.card.id),
+      ),
+    [activeCardMotions],
+  );
+  const movingToSeats = useMemo(() => {
+    const destinations = new Map<string, Set<string>>();
+    for (const motion of activeCardMotions) {
+      if (motion.to.kind !== "seat") continue;
+      const cards = destinations.get(motion.to.playerId) ?? new Set<string>();
+      cards.add(motion.card.id);
+      destinations.set(motion.to.playerId, cards);
+    }
+    return destinations;
+  }, [activeCardMotions]);
   useEffect(() => {
     const change = () => setPageVisible(document.visibilityState !== "hidden");
     document.addEventListener("visibilitychange", change);
@@ -352,15 +410,26 @@ export function SalonScene({
           <SalonRoom lowPower={lowPower} />
           <CircularTable />
           {room
-            ? seats(room.players, room.viewerId, room.currentPlayerId, lowPower)
+            ? seats(room.players, room.viewerId, room.currentPlayerId, lowPower, movingToSeats)
             : previewAvatar && (
                 <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
                   <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
                 </group>
               )}
-          {!dealing && fieldCards(room?.field ?? [])}
-          {room && !dealing && handCards(room.hand, selectedIds, onToggleCard, mobile)}
+          {!dealing && fieldCards(room?.field ?? [], movingToField)}
+          {room &&
+            !dealing &&
+            handCards(room.hand, selectedIds, playableIds, onToggleCard, mobile, movingToHand)}
           {room && dealing && <DealingSequence playerCount={room.players.length} />}
+          {room && !reducedMotion && (
+            <CardMotionLayer
+              motions={activeCardMotions}
+              room={room}
+              mobile={mobile}
+              onDone={onCardMotionDone}
+            />
+          )}
+          {room && <StealVisualLayer state={stealVisual} room={room} mobile={mobile} />}
           {!lowPower && (
             <ContactShadows position={[0, 0.08, 0]} opacity={0.5} scale={13} blur={2.8} far={6} />
           )}
@@ -383,10 +452,13 @@ export function SalonScene({
           reducedMotion={reducedMotion}
           focusIndex={Math.max(
             0,
-            room?.players.findIndex((player) => player.id === room.focusedPlayerId) ?? 0,
+            room?.players.findIndex(
+              (player) => player.id === (stealVisual?.targetPlayerId ?? room.focusedPlayerId),
+            ) ?? 0,
           )}
           playerCount={room?.players.length ?? 0}
           keyboardOpen={keyboardOpen}
+          effectFocus={Boolean(stealVisual)}
         />
       </Canvas>
       {contextLost && (

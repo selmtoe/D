@@ -53,6 +53,7 @@ type AuthorityRoom = {
   pendingEffects: PendingEffectView[];
   rankings: RoomView["rankings"];
   log: RoomView["log"];
+  chat: NonNullable<RoomView["chat"]>;
   createdAtMs: number;
   openingPlayPending: boolean;
 };
@@ -304,6 +305,7 @@ export class AuthoritativeE2EServer {
       pendingEffects: structuredClone(room.pendingEffects),
       rankings: structuredClone(room.rankings),
       log: structuredClone(room.log),
+      chat: structuredClone(room.chat),
       ...(focusedPlayerId ? { focusedPlayerId } : {}),
     };
   }
@@ -347,6 +349,7 @@ export class AuthoritativeE2EServer {
       pendingEffects: [],
       rankings: [],
       log: [],
+      chat: [],
       createdAtMs: Date.now(),
       openingPlayPending: false,
     };
@@ -579,8 +582,20 @@ export class AuthoritativeE2EServer {
       return {};
     }
     if (name === "sendChat") {
+      const text = String(payload.text ?? "")
+        .trim()
+        .slice(0, 120);
+      if (!text) throw new Error("invalid-argument: メッセージを入力してください");
+      room.chat.push({
+        id: payloadString(payload, "clientActionId"),
+        uid,
+        name: member.name,
+        role: member.role === "spectator" || member.status !== "active" ? "spectator" : "player",
+        text,
+        atMs: Date.now(),
+      });
+      room.chat = room.chat.slice(-120);
       room.revision += 1;
-      this.log(room, `${member.name}: ${String(payload.text ?? "")}`, "system");
       return {};
     }
     if (name === "leaveRoom") {

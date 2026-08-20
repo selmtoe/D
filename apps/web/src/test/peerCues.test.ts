@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeCueWire, encodeCueWire, parseCue } from "../network/peerCues";
+import { decodeCueWire, encodeCueWire, parseCue, stealAnimationCue } from "../network/peerCues";
 
 describe("non-authoritative peer cues", () => {
   it("accepts the strict cosmetic schema", () =>
@@ -33,5 +33,12 @@ describe("non-authoritative peer cues", () => {
     expect(typeof wire.payload).toBe("string");
     expect(decodeCueWire(wire)).toEqual(cue);
     expect(decodeCueWire({ kind: "emote", payload: wire.payload })).toBeNull();
+  });
+  it("accepts only non-authoritative A-steal presentation slots", () => {
+    const cue = stealAnimationCue("point", "player-2", 3);
+    expect(parseCue(cue)).toEqual(cue);
+    expect(parseCue({ ...cue, cardId: "secret-card" })).toBeNull();
+    expect(parseCue({ ...cue, slot: 54 })).toBeNull();
+    expect(parseCue({ ...cue, stage: "confirm", slot: 3 })).toBeNull();
   });
 });

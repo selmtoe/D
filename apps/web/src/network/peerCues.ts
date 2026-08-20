@@ -13,12 +13,22 @@ export type CueEvent =
       eventId: string;
       cue: "play" | "pass" | "flush";
       atMs: number;
+    }
+  | {
+      version: 1;
+      type: "animation";
+      eventId: string;
+      cue: "steal";
+      stage: "preview" | "shuffle" | "point" | "confirm";
+      targetPlayerId: string;
+      slot?: number;
+      atMs: number;
     };
 
 const exactKeys: Record<CueEvent["type"], string[]> = {
   emote: ["version", "type", "eventId", "emote", "atMs"],
   focus: ["version", "type", "eventId", "focusPlayerId", "atMs"],
-  animation: ["version", "type", "eventId", "cue", "atMs"],
+  animation: ["version", "type", "eventId", "cue", "stage", "targetPlayerId", "slot", "atMs"],
 };
 
 export function parseCue(value: unknown): CueEvent | null {
@@ -46,6 +56,21 @@ export function parseCue(value: unknown): CueEvent | null {
     return item as CueEvent;
   }
   if (type === "animation" && ["play", "pass", "flush"].includes(String(item.cue))) {
+    if (Object.keys(item).some((key) => ["stage", "targetPlayerId", "slot"].includes(key)))
+      return null;
+    return item as CueEvent;
+  }
+  if (
+    type === "animation" &&
+    item.cue === "steal" &&
+    ["preview", "shuffle", "point", "confirm"].includes(String(item.stage)) &&
+    typeof item.targetPlayerId === "string" &&
+    item.targetPlayerId.length > 0 &&
+    item.targetPlayerId.length <= 128 &&
+    (item.slot === undefined ||
+      (Number.isInteger(item.slot) && Number(item.slot) >= 0 && Number(item.slot) <= 53)) &&
+    (item.stage === "point" ? typeof item.slot === "number" : item.slot === undefined)
+  ) {
     return item as CueEvent;
   }
   return null;
@@ -67,4 +92,21 @@ export function decodeCueWire(value: Record<string, unknown>): CueEvent | null {
 
 export function emoteCue(emote: "applause" | "surprise" | "thinking"): CueEvent {
   return { version: 1, type: "emote", eventId: crypto.randomUUID(), emote, atMs: Date.now() };
+}
+
+export function stealAnimationCue(
+  stage: "preview" | "shuffle" | "point" | "confirm",
+  targetPlayerId: string,
+  slot?: number,
+): CueEvent {
+  return {
+    version: 1,
+    type: "animation",
+    eventId: crypto.randomUUID(),
+    cue: "steal",
+    stage,
+    targetPlayerId,
+    ...(slot === undefined ? {} : { slot }),
+    atMs: Date.now(),
+  };
 }

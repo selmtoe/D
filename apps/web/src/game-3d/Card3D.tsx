@@ -75,6 +75,8 @@ export function Card3D({
   position = [0, 0, 0],
   rotation = [-Math.PI / 2, 0, 0],
   selected = false,
+  dimmed = false,
+  hidden = false,
   onSelect,
   scale = 1,
 }: {
@@ -82,6 +84,8 @@ export function Card3D({
   position?: [number, number, number];
   rotation?: [number, number, number];
   selected?: boolean;
+  dimmed?: boolean;
+  hidden?: boolean;
   onSelect?: () => void;
   scale?: number;
 }) {
@@ -94,27 +98,47 @@ export function Card3D({
     },
     [back, front],
   );
-  const edge = selected ? "#f4d47f" : "#d8cfb8";
+  const inactive = dimmed && !selected;
+  const edge = selected ? "#f4d47f" : inactive ? "#242827" : "#d8cfb8";
   return (
     <group
+      visible={!hidden}
       position={[position[0], position[1] + (selected ? 0.18 : 0), position[2]]}
       rotation={rotation}
       scale={scale}
       onPointerDown={(event) => {
         event.stopPropagation();
-        onSelect?.();
+        if (!inactive) onSelect?.();
       }}
     >
       <RoundedBox args={[1.22, 1.78, 0.075]} radius={0.08} smoothness={3} castShadow receiveShadow>
-        <meshStandardMaterial color={new Color(edge)} roughness={0.48} metalness={0.02} />
+        <meshStandardMaterial
+          color={new Color(edge)}
+          roughness={0.48}
+          metalness={0.02}
+          transparent={inactive}
+          opacity={inactive ? 0.55 : 1}
+        />
       </RoundedBox>
       <mesh position={[0, 0, 0.0405]}>
         <planeGeometry args={[1.13, 1.68]} />
-        <meshStandardMaterial map={front} roughness={0.55} />
+        <meshStandardMaterial
+          map={front}
+          color={inactive ? "#313534" : "#ffffff"}
+          roughness={0.55}
+          transparent={inactive}
+          opacity={inactive ? 0.42 : 1}
+        />
       </mesh>
       <mesh position={[0, 0, -0.0405]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[1.13, 1.68]} />
-        <meshStandardMaterial map={back} roughness={0.55} />
+        <meshStandardMaterial
+          map={back}
+          color={inactive ? "#313534" : "#ffffff"}
+          roughness={0.55}
+          transparent={inactive}
+          opacity={inactive ? 0.42 : 1}
+        />
       </mesh>
     </group>
   );

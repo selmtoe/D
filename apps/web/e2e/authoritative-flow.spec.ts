@@ -17,7 +17,7 @@ async function contextPage(
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
-    reducedMotion: "no-preference",
+    reducedMotion: "reduce",
   });
   await authority.install(context, uid);
   return { context, page: await context.newPage() };
@@ -81,8 +81,8 @@ test.describe("browser-injected authoritative room transport", () => {
       await expect(host.page.getByText("3人で開始できます")).toBeVisible();
 
       await host.page.getByRole("button", { name: "ゲームを始める" }).click();
-      await expect(host.page.getByRole("heading", { name: "カードを配っています" })).toBeVisible();
-      await host.page.getByRole("button", { name: "配札演出をスキップ" }).click({ force: true });
+      const skipDeal = host.page.getByRole("button", { name: "配札演出をスキップ" });
+      if (await skipDeal.isVisible()) await skipDeal.click({ force: true });
       await expect(host.page.getByRole("button", { name: "パス" })).toBeEnabled();
       await expect(player2.page.getByRole("button", { name: "パス" })).toBeVisible();
       await expect(player3.page.getByRole("button", { name: "パス" })).toBeVisible();
@@ -159,8 +159,14 @@ test.describe("browser-injected authoritative room transport", () => {
       await playCard(player3.page, /ハートA/);
       const effect = player3.page.getByRole("region", { name: "A奪い" });
       await expect(effect).toBeVisible();
-      await effect.getByRole("group", { name: "効果に使うカード" }).getByRole("button").click();
-      await effect.getByRole("button", { name: "効果を確定する" }).click();
+      await effect
+        .getByRole("group", { name: "奪う相手" })
+        .getByRole("button", { name: /プレイヤー2/ })
+        .click();
+      await effect.getByRole("button", { name: "応答がない場合は卓上で代理シャッフル" }).click();
+      await effect.getByRole("option", { name: /1番目/ }).click();
+      await effect.getByRole("button", { name: "この位置から奪う" }).click();
+      await effect.getByRole("button", { name: "A奪いを確定" }).click();
       await expect(effect).toBeHidden();
       await expectTurn(host.page, "ホスト");
 

@@ -1,4 +1,5 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
+import { checkStateInvariants, createDeck, type HandCard } from "@daifugo/rules";
 import { describe, expect, it } from "vitest";
 import { SparkAuthority } from "../network/sparkAuthority";
 
@@ -21,6 +22,52 @@ function waitingRoom(mode: "normal" | "blind" = "normal") {
     );
   }
   return authority;
+}
+
+function pendingBlindJokerAuthority() {
+  const authority = waitingRoom("blind");
+  authority.handleCommand(
+    "p1",
+    "startGame",
+    { clientActionId: "start-joker", expectedRevision: authority.exportSnapshot().revision },
+    2_000,
+  );
+  const snapshot = authority.exportSnapshot();
+  const game = snapshot.game!;
+  const ids = new Set(["spade-6", "joker-1", "spade-8", "club-3", "heart-4", "diamond-5"]);
+  const hand = (...entries: Array<[string, boolean]>): HandCard[] =>
+    entries.map(([id, blind]) => ({
+      card: createDeck().find((candidate) => candidate.id === id)!,
+      blind,
+    }));
+  game.players.find((player) => player.id === "p1")!.hand = hand(
+    ["spade-6", false],
+    ["joker-1", true],
+    ["spade-8", false],
+    ["club-3", false],
+  );
+  game.players.find((player) => player.id === "p2")!.hand = hand(["heart-4", false]);
+  game.players.find((player) => player.id === "p3")!.hand = hand(["diamond-5", false]);
+  game.deck = createDeck().filter((card) => !ids.has(card.id));
+  game.turnPlayerId = "p1";
+  game.firstPlay = false;
+  return SparkAuthority.restore(snapshot);
+}
+
+function beginPendingMimic(authority: SparkAuthority, actionId: string) {
+  return authority.handleCommand(
+    "p1",
+    "submitPlay",
+    {
+      clientActionId: actionId,
+      expectedRevision: authority.exportSnapshot().revision,
+      gameId: authority.exportSnapshot().game!.id,
+      cardIds: ["spade-6", "joker-1", "spade-8"],
+      mimics: [],
+      blindConfirmed: true,
+    },
+    2_100,
+  );
 }
 
 describe("Spark browser authority", () => {
@@ -58,9 +105,7 @@ describe("Spark browser authority", () => {
     expect(after.game?.players.find((player) => player.id === opener.id)?.hand).toHaveLength(
       opener.hand.length - 1,
     );
-    expect(authority.handleCommand(opener.id, "submitPlay", payload, 2_101)).toEqual({
-      duplicate: true,
-    });
+    expect(authority.handleCommand(opener.id, "submitPlay", payload, 2_101)).toEqual({});
   });
 
   it("keeps the owner's blind card hidden while friends can see its face", () => {
@@ -122,5 +167,194 @@ describe("Spark browser authority", () => {
       2_000,
     );
     expect(authority.isEmpty).toBe(true);
+  });
+
+  it("returns the original start response for the same room action id", () => {
+    const authority = waitingRoom();
+    const payload = {
+      clientActionId: "start-idempotent",
+      expectedRevision: authority.exportSnapshot().revision,
+    };
+    const first = authority.handleCommand("p1", "startGame", payload, 2_000);
+    expect(first.gameId).toEqual(expect.any(String));
+    expect(authority.handleCommand("p1", "startGame", payload, 2_001)).toEqual(first);
+    expect(authority.exportSnapshot().generation).toBe(0);
+  });
+
+  it("blocks a different play during blind Joker declaration and accepts the declaration", () => {
+    const authority = pendingBlindJokerAuthority();
+    expect(beginPendingMimic(authority, "blind-joker-invalid")).toMatchObject({
+      requiresJokerMimic: true,
+    });
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "submitPlay",
+        {
+          clientActionId: "different-play-during-declaration",
+          expectedRevision: authority.exportSnapshot().revision,
+          gameId: authority.exportSnapshot().game!.id,
+          cardIds: ["club-3"],
+          mimics: [],
+          blindConfirmed: false,
+        },
+        2_200,
+      ),
+    ).toThrow(/Joker宣言/);
+    expect(authority.project("p1").pendingJokerMimic).toBeDefined();
+
+    authority.handleCommand(
+      "p1",
+      "declareJokerMimic",
+      {
+        clientActionId: "valid-declaration",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game!.id,
+        mimics: [{ cardId: "joker-1", suit: "spade", rank: "7" }],
+      },
+      2_201,
+    );
+    expect(authority.project("p1").pendingJokerMimic).toBeUndefined();
+    expect(authority.exportSnapshot().game?.pile?.cards).toHaveLength(3);
+  });
+
+  it("resolves a pending blind Joker declaration deterministically on timeout", () => {
+    const authority = pendingBlindJokerAuthority();
+    beginPendingMimic(authority, "blind-joker-timeout");
+    expect(authority.timeoutCurrent(62_101)).toBe(true);
+    const snapshot = authority.exportSnapshot();
+    expect(snapshot.pendingMimic).toBeUndefined();
+    expect(snapshot.game?.pile?.cards).toHaveLength(3);
+    expect(
+      snapshot.game?.pile?.cards.find((entry) => entry.card.id === "joker-1")?.mimic,
+    ).toMatchObject({ suit: "spade", rank: "7" });
+  });
+
+  it("hands coordinator ownership to the oldest online member on explicit leave", () => {
+    const authority = waitingRoom();
+    authority.handleCommand(
+      "p1",
+      "leaveRoom",
+      {
+        clientActionId: "coordinator-leave",
+        expectedRevision: authority.exportSnapshot().revision,
+      },
+      2_000,
+    );
+    const snapshot = authority.exportSnapshot();
+    expect(snapshot.coordinatorUid).toBe("p2");
+    expect(snapshot.hostUid).toBe("p2");
+    expect(authority.publicRoom().coordinatorPeerId).toBe("peer-2");
+  });
+
+  it("restricts focus changes to spectators and projects spectator chat roles", () => {
+    const authority = waitingRoom();
+    authority.handleCommand(
+      "p1",
+      "startGame",
+      { clientActionId: "start-spectator", expectedRevision: authority.exportSnapshot().revision },
+      2_000,
+    );
+    authority.join(
+      {
+        uid: "watcher",
+        peerId: "peer-watcher",
+        profile: profile("観戦者"),
+        role: "spectator",
+      },
+      2_001,
+    );
+
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "changeSpectatorFocus",
+        {
+          clientActionId: "player-focus",
+          expectedRevision: authority.exportSnapshot().revision,
+          focusPlayerId: "p2",
+        },
+        2_002,
+      ),
+    ).toThrow(/観戦者専用/);
+
+    authority.handleCommand(
+      "watcher",
+      "changeSpectatorFocus",
+      {
+        clientActionId: "watcher-focus",
+        expectedRevision: authority.exportSnapshot().revision,
+        focusPlayerId: "p2",
+      },
+      2_003,
+    );
+    authority.handleCommand(
+      "watcher",
+      "sendChat",
+      {
+        clientActionId: "watcher-chat",
+        expectedRevision: authority.exportSnapshot().revision,
+        text: "観戦しています",
+      },
+      2_004,
+    );
+
+    expect(authority.project("watcher").focusedPlayerId).toBe("p2");
+    expect(authority.project("p1").chat?.at(-1)).toMatchObject({
+      uid: "watcher",
+      role: "spectator",
+      text: "観戦しています",
+    });
+  });
+
+  it("runs hundreds of automatic legal turns and effects for 3 to 6 players without corruption", () => {
+    for (let playerCount = 3; playerCount <= 6; playerCount += 1) {
+      const authority = SparkAuthority.create(
+        `ROOM${playerCount}`,
+        "p1",
+        "peer-1",
+        profile("一郎"),
+        1_000,
+      );
+      for (let index = 2; index <= playerCount; index += 1) {
+        authority.join(
+          {
+            uid: `p${index}`,
+            peerId: `peer-${index}`,
+            profile: profile(`${index}郎`),
+            role: "player",
+          },
+          1_000 + index,
+        );
+      }
+      authority.handleCommand(
+        "p1",
+        "startGame",
+        {
+          clientActionId: `start-${playerCount}`,
+          expectedRevision: authority.exportSnapshot().revision,
+        },
+        2_000,
+      );
+      let turns = 0;
+      while (authority.exportSnapshot().status === "playing" && turns < 400) {
+        expect(authority.timeoutCurrent(62_001 + turns * 60_001)).toBe(true);
+        turns += 1;
+      }
+      const finished = authority.exportSnapshot();
+      expect(checkStateInvariants(finished.game!)).toEqual({ valid: true, errors: [] });
+      if (finished.status === "playing") {
+        const active = finished.game!.players.filter((player) => player.status === "active");
+        expect(active.length).toBeGreaterThan(1);
+        expect(
+          active.every(
+            (player) =>
+              player.hand.length === 1 && ["2", "JOKER"].includes(player.hand[0]?.card.rank ?? ""),
+          ),
+        ).toBe(true);
+      } else {
+        expect(finished.game?.players.every((player) => player.rank !== null)).toBe(true);
+      }
+    }
   });
 });

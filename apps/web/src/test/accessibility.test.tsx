@@ -34,4 +34,21 @@ describe("accessible hand", () => {
     expect(toggle).toHaveBeenCalledWith(face);
     expect(submit).toHaveBeenCalledOnce();
   });
+  it("uses suit glyphs and prevents selecting a provably impossible card", () => {
+    const toggle = vi.fn();
+    const { container } = render(
+      <AccessibleHand
+        cards={[face, hidden]}
+        selectedIds={[]}
+        playableIds={new Set([hidden.id])}
+        onToggle={toggle}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(container).toHaveTextContent("♦3");
+    const unavailable = screen.getByRole("option", { name: /現在の場には出せません/ });
+    expect(unavailable).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(unavailable);
+    expect(toggle).not.toHaveBeenCalled();
+  });
 });

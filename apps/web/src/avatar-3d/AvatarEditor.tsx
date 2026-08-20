@@ -1,13 +1,16 @@
 import { Canvas } from "@react-three/fiber";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
+  avatarBodyMetrics,
   avatarCatalog,
+  avatarColorPalettes,
+  bodyPresetIdFor,
   randomAvatar,
   type AvatarPartKey,
   type AvatarProfileV1,
 } from "@daifugo/avatar-schema";
 import { Avatar3D } from "./Avatar3D";
-import { animationNames } from "./proceduralAvatar";
+import { animationNames, proceduralPartStyle } from "./proceduralAvatar";
 import { loadPresets, savePresets } from "./avatarStorage";
 import { firebaseErrorMessage, sendCommand } from "../network/firebaseClient";
 
@@ -20,22 +23,6 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "decor", label: "装飾" },
   { id: "body", label: "体格" },
 ];
-const colors = [
-  "#f1c7a5",
-  "#d89b72",
-  "#bd7e5a",
-  "#8c583c",
-  "#5c3828",
-  "#30211d",
-  "#151619",
-  "#402416",
-  "#d9be85",
-  "#123f32",
-  "#21375a",
-  "#682e3d",
-  "#5b3268",
-];
-
 function PartChoices({
   part,
   values,
@@ -49,19 +36,75 @@ function PartChoices({
 }) {
   return (
     <div className="part-grid" role="listbox" aria-label={`${part}のパーツ`}>
-      {values.slice(0, 72).map((id, index) => (
-        <button
-          key={id}
-          type="button"
-          role="option"
-          aria-selected={value === id}
-          className="part-choice"
-          onClick={() => setValue(id)}
-        >
-          <span className={`part-glyph glyph-${index % 6}`} aria-hidden="true" />
-          {index + 1}
-        </button>
-      ))}
+      {values.map((id, index) => {
+        const preview = proceduralPartStyle(part, id);
+        const previewStyle = {
+          "--preview-scale-x": String(0.68 + preview.signature * 0.62),
+          "--preview-scale-y": String(0.72 + preview.wave * 0.5),
+          "--preview-rotate": `${(preview.sweep - 0.5) * 34}deg`,
+          "--preview-hue": `${Math.round(preview.signature * 85)}deg`,
+        } as CSSProperties;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="option"
+            aria-label={`${part} ${id === "none" ? "なし" : index + 1}`}
+            aria-selected={value === id}
+            className="part-choice"
+            onClick={() => setValue(id)}
+          >
+            <span
+              className={`part-glyph part-preview preview-family-${preview.family}${id === "none" ? " preview-none" : ""}`}
+              style={previewStyle}
+              aria-hidden="true"
+            >
+              <i />
+            </span>
+            <span>{id === "none" ? "なし" : index + 1}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ColorChoices({
+  label,
+  colors,
+  value,
+  setValue,
+}: {
+  label: string;
+  colors: readonly string[];
+  value: string;
+  setValue: (value: string) => void;
+}) {
+  return (
+    <div className="color-picker-group">
+      <div className="color-grid" role="listbox" aria-label={`${label}プリセット`}>
+        {colors.map((color, index) => (
+          <button
+            type="button"
+            role="option"
+            key={`${label}-${color}-${index}`}
+            aria-label={`${label} ${index + 1}`}
+            aria-selected={value.toLowerCase() === color.toLowerCase()}
+            aria-pressed={value.toLowerCase() === color.toLowerCase()}
+            style={{ background: color }}
+            onClick={() => setValue(color)}
+          />
+        ))}
+      </div>
+      <label className="custom-color">
+        <span>{label}を細かく選ぶ</span>
+        <input
+          type="color"
+          value={value}
+          aria-label={`${label}のカスタム色`}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </label>
     </div>
   );
 }
@@ -87,7 +130,9 @@ export function AvatarEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
+  const pointerX = useRef<number | null>(null);
   const previousFocus = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
+  const bodyMetrics = avatarBodyMetrics(draft);
 
   useEffect(() => {
     document.body.classList.add("modal-open");
@@ -201,8 +246,24 @@ export function AvatarEditor({
           <section
             className="turntable"
             aria-label="3Dアバタープレビュー"
+            onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("button,input")) return;
+              pointerX.current = event.clientX;
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
             onPointerMove={(event) => {
-              if (event.buttons === 1) setRotation((angle) => angle + event.movementX * 0.01);
+              if (pointerX.current === null) return;
+              const delta = event.clientX - pointerX.current;
+              pointerX.current = event.clientX;
+              setRotation((angle) => angle + delta * 0.012);
+            }}
+            onPointerUp={(event) => {
+              pointerX.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              pointerX.current = null;
             }}
             onWheel={(event) => {
               event.preventDefault();
@@ -217,6 +278,9 @@ export function AvatarEditor({
               </group>
             </Canvas>
             <div className="turntable-actions">
+              <button type="button" onClick={() => setRotation((angle) => angle - Math.PI / 4)}>
+                左へ回す
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -225,6 +289,23 @@ export function AvatarEditor({
                 }}
               >
                 正面へ戻す
+              </button>
+              <button type="button" onClick={() => setRotation((angle) => angle + Math.PI / 4)}>
+                右へ回す
+              </button>
+              <button
+                type="button"
+                aria-label="プレビューを縮小"
+                onClick={() => setZoom((current) => Math.max(0.75, current - 0.1))}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                aria-label="プレビューを拡大"
+                onClick={() => setZoom((current) => Math.min(1.35, current + 0.1))}
+              >
+                ＋
               </button>
               <button type="button" onClick={() => commit(randomAvatar())}>
                 ランダム生成
@@ -238,6 +319,10 @@ export function AvatarEditor({
                 編集中 <i style={{ background: draft.colors.outfit }} />
               </span>
             </p>
+            <output className="body-readout" aria-live="polite">
+              身長 {Math.round(draft.morphs.height * 100)}・肩幅{" "}
+              {Math.round(draft.morphs.build * 100)}・ 胴脚 {bodyMetrics.torsoLegStep + 1}/4
+            </output>
           </section>
           <section className="parts-panel">
             <nav className="avatar-tabs" role="tablist" aria-label="編集項目">
@@ -258,18 +343,28 @@ export function AvatarEditor({
                 <>
                   <h3>頭部形状</h3>
                   <div className="part-grid">
-                    {avatarCatalog.headPresetId.map((id, index) => (
-                      <button
-                        type="button"
-                        key={id}
-                        className="part-choice"
-                        aria-pressed={draft.headPresetId === id}
-                        onClick={() => commit({ ...draft, headPresetId: id })}
-                      >
-                        <span className={`head-glyph head-${index % 4}`} />
-                        {index + 1}
-                      </button>
-                    ))}
+                    {avatarCatalog.headPresetId.map((id, index) => {
+                      const preview = proceduralPartStyle("headPresetId", id);
+                      return (
+                        <button
+                          type="button"
+                          key={id}
+                          className="part-choice"
+                          aria-label={`頭部形状 ${index + 1}`}
+                          aria-pressed={draft.headPresetId === id}
+                          onClick={() => commit({ ...draft, headPresetId: id })}
+                        >
+                          <span
+                            className={`head-glyph preview-family-${preview.family}`}
+                            style={{
+                              transform: `scale(${0.72 + preview.signature * 0.56}, ${0.76 + preview.wave * 0.44}) rotate(${(preview.sweep - 0.5) * 16}deg)`,
+                            }}
+                            aria-hidden="true"
+                          />
+                          {index + 1}
+                        </button>
+                      );
+                    })}
                   </div>
                   <h3>肌トーン</h3>
                   <PartChoices
@@ -278,20 +373,24 @@ export function AvatarEditor({
                     value={draft.parts.skinTone}
                     setValue={(id) => patchPart("skinTone", id)}
                   />
-                  <div className="color-grid">
-                    {colors.slice(0, 6).map((color) => (
-                      <button
-                        type="button"
-                        key={color}
-                        aria-label={`肌色 ${color}`}
-                        aria-pressed={draft.colors.skin === color}
-                        style={{ background: color }}
-                        onClick={() =>
-                          commit({ ...draft, colors: { ...draft.colors, skin: color } })
-                        }
-                      />
-                    ))}
-                  </div>
+                  <ColorChoices
+                    label="肌色"
+                    colors={avatarColorPalettes.skin}
+                    value={draft.colors.skin}
+                    setValue={(color) => {
+                      const toneIndex = (avatarColorPalettes.skin as readonly string[]).indexOf(
+                        color,
+                      );
+                      commit({
+                        ...draft,
+                        parts: {
+                          ...draft.parts,
+                          ...(toneIndex >= 0 ? { skinTone: `skin-${toneIndex + 1}` } : {}),
+                        },
+                        colors: { ...draft.colors, skin: color },
+                      });
+                    }}
+                  />
                   <h3>鼻</h3>
                   <PartChoices
                     part="nose"
@@ -331,20 +430,14 @@ export function AvatarEditor({
                     setValue={(id) => patchPart("hair", id)}
                   />
                   <h3>髪の色</h3>
-                  <div className="color-grid">
-                    {colors.slice(5, 10).map((color) => (
-                      <button
-                        type="button"
-                        key={color}
-                        aria-label={`髪色 ${color}`}
-                        aria-pressed={draft.colors.hair === color}
-                        style={{ background: color }}
-                        onClick={() =>
-                          commit({ ...draft, colors: { ...draft.colors, hair: color } })
-                        }
-                      />
-                    ))}
-                  </div>
+                  <ColorChoices
+                    label="髪色"
+                    colors={avatarColorPalettes.hair}
+                    value={draft.colors.hair}
+                    setValue={(color) =>
+                      commit({ ...draft, colors: { ...draft.colors, hair: color } })
+                    }
+                  />
                 </>
               )}
               {tab === "expression" && (
@@ -362,6 +455,15 @@ export function AvatarEditor({
                     values={avatarCatalog.iris}
                     value={draft.parts.iris}
                     setValue={(id) => patchPart("iris", id)}
+                  />
+                  <h3>瞳の色</h3>
+                  <ColorChoices
+                    label="瞳色"
+                    colors={avatarColorPalettes.eyes}
+                    value={draft.colors.eyes}
+                    setValue={(color) =>
+                      commit({ ...draft, colors: { ...draft.colors, eyes: color } })
+                    }
                   />
                   <h3>眉</h3>
                   <PartChoices
@@ -429,20 +531,22 @@ export function AvatarEditor({
                     setValue={(id) => patchPart("fullOutfit", id)}
                   />
                   <h3>色と素材</h3>
-                  <div className="color-grid">
-                    {colors.slice(8).map((color) => (
-                      <button
-                        type="button"
-                        key={color}
-                        aria-label={`服色 ${color}`}
-                        aria-pressed={draft.colors.outfit === color}
-                        style={{ background: color }}
-                        onClick={() =>
-                          commit({ ...draft, colors: { ...draft.colors, outfit: color } })
-                        }
-                      />
-                    ))}
-                  </div>
+                  <ColorChoices
+                    label="服色"
+                    colors={avatarColorPalettes.outfit}
+                    value={draft.colors.outfit}
+                    setValue={(color) =>
+                      commit({ ...draft, colors: { ...draft.colors, outfit: color } })
+                    }
+                  />
+                  <ColorChoices
+                    label="装飾色"
+                    colors={avatarColorPalettes.accent}
+                    value={draft.colors.accent}
+                    setValue={(color) =>
+                      commit({ ...draft, colors: { ...draft.colors, accent: color } })
+                    }
+                  />
                   <select
                     aria-label="服の素材"
                     value={draft.materials.outfit}
@@ -465,14 +569,14 @@ export function AvatarEditor({
               )}
               {tab === "decor" && (
                 <>
-                  <h3>眼鏡</h3>
+                  <h3>眼鏡・サングラス・バイザー</h3>
                   <PartChoices
                     part="eyewear"
                     values={avatarCatalog.eyewear}
                     value={draft.parts.eyewear}
                     setValue={(id) => patchPart("eyewear", id)}
                   />
-                  <h3>帽子・冠</h3>
+                  <h3>帽子・冠・ヘッドドレス</h3>
                   <PartChoices
                     part="headwear"
                     values={avatarCatalog.headwear}
@@ -506,22 +610,50 @@ export function AvatarEditor({
                 <>
                   <h3>体格プリセット</h3>
                   <div className="part-grid">
-                    {avatarCatalog.bodyPresetId.map((id, index) => (
+                    {avatarCatalog.bodyPresetId.map((id, index) => {
+                      const metrics = avatarBodyMetrics({ ...draft, bodyPresetId: id });
+                      return (
+                        <button
+                          type="button"
+                          key={id}
+                          className="part-choice"
+                          aria-label={`体格 ${index + 1}、骨格 ${metrics.frame + 1}、胴脚 ${metrics.torsoLegStep + 1}`}
+                          aria-pressed={draft.bodyPresetId === id}
+                          onClick={() => commit({ ...draft, bodyPresetId: id })}
+                        >
+                          <span
+                            className="body-glyph body-preview"
+                            style={{
+                              transform: `scale(${metrics.shoulderWidth}, ${metrics.torsoLength})`,
+                            }}
+                            aria-hidden="true"
+                          />
+                          {index + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <h3>骨格</h3>
+                  <div className="segmented-control" role="group" aria-label="骨格">
+                    {["すっきり", "標準", "しっかり"].map((label, frame) => (
                       <button
                         type="button"
-                        key={id}
-                        className="part-choice"
-                        aria-pressed={draft.bodyPresetId === id}
-                        onClick={() => commit({ ...draft, bodyPresetId: id })}
+                        key={label}
+                        aria-pressed={bodyMetrics.frame === frame}
+                        onClick={() =>
+                          commit({
+                            ...draft,
+                            bodyPresetId: bodyPresetIdFor(frame, bodyMetrics.torsoLegStep),
+                          })
+                        }
                       >
-                        <span className={`body-glyph body-${index % 4}`} />
-                        {index + 1}
+                        {label}
                       </button>
                     ))}
                   </div>
                   {(["height", "build", "faceWidth"] as const).map((key) => (
                     <label className="range-field" key={key}>
-                      <span>{{ height: "身長", build: "体格", faceWidth: "顔幅" }[key]}</span>
+                      <span>{{ height: "身長", build: "肩幅", faceWidth: "顔幅" }[key]}</span>
                       <input
                         type="range"
                         min="0"
@@ -535,8 +667,30 @@ export function AvatarEditor({
                           })
                         }
                       />
+                      <output>{Math.round(draft.morphs[key] * 100)}</output>
                     </label>
                   ))}
+                  <label className="range-field">
+                    <span>胴と脚</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="3"
+                      step="1"
+                      value={bodyMetrics.torsoLegStep}
+                      aria-valuetext={`胴脚バランス ${bodyMetrics.torsoLegStep + 1}/4`}
+                      onChange={(event) =>
+                        commit({
+                          ...draft,
+                          bodyPresetId: bodyPresetIdFor(
+                            bodyMetrics.frame,
+                            Number(event.target.value),
+                          ),
+                        })
+                      }
+                    />
+                    <output>{bodyMetrics.torsoLegStep + 1}/4</output>
+                  </label>
                   <h3>靴</h3>
                   <PartChoices
                     part="shoes"

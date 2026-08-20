@@ -69,10 +69,15 @@ type SparkRoomSnapshot = {
   chat: ChatEntry[];
   socialLog: LogEntry[];
   appliedRoomActionIds: string[];
+  appliedRoomActionResults?: Record<string, Record<string, unknown>>;
 };
 ```
 
+適用済みaction IDとそのresponseは直近200件を保持し、同じ`clientActionId`のretryへ初回と同じresponseを返します。旧snapshotとの互換性のためresponse mapはoptionalです。
+
 `GameState` と `GameCommand` は `packages/rules` の型が正本です。ルールtransition後に全閲覧者へ`RoomView`を再投影します。
+
+coordinatorの明示退出では、退出mutationを旧leaseでsnapshotへ保存してからdirectoryを後継へ切り替えます。この短い移行中だけsnapshotの`coordinatorUid`は旧lease所有者を示し、後継browserが取得直後に自分へ更新します。
 
 ## 閲覧者向けcard
 

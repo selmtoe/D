@@ -1,13 +1,10 @@
 import { useMemo, useState } from "react";
 import type { CardView, PendingEffectView, Rank, RoomView } from "../app/model";
+import { compactCardLabel } from "../gameplay/cardPresentation";
 
 const ranks: Rank[] = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
 const cardText = (card: CardView) =>
-  card.visibility === "hidden"
-    ? "ブラインド札"
-    : card.joker
-      ? "Joker"
-      : `${card.suit ?? ""} ${card.rank ?? ""}`;
+  card.visibility === "hidden" ? "ブラインド札" : compactCardLabel(card);
 
 export function EffectPanel({
   effect,

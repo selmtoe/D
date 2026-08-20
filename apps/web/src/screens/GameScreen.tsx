@@ -11,6 +11,10 @@ import { feedback, primeFeedback } from "../components/feedback";
 import { emoteCue } from "../network/peerCues";
 import { usePeerCues } from "../network/usePeerCues";
 import { JokerDeclarationPanel } from "./JokerDeclarationPanel";
+import { potentiallyPlayableCardIds, sortHandWeakToStrong } from "../gameplay/cardPresentation";
+import { CommentDanmaku } from "./CommentDanmaku";
+import { StealSequence, type StealVisualState } from "./StealSequence";
+import { deriveCardMotions, type CardMotionEvent } from "../game-3d/cardMotion";
 
 const suitLabel = {
   spade: "スペード",
@@ -257,6 +261,9 @@ export function GameScreen({
   const setSettings = useUiStore((state) => state.setSettings);
   const muted = useUiStore((state) => state.soundMuted);
   const [playDialog, setPlayDialog] = useState(false);
+  const [stealVisual, setStealVisual] = useState<StealVisualState>();
+  const [cardMotions, setCardMotions] = useState<CardMotionEvent[]>([]);
+  const previousRoom = useRef<RoomView | undefined>(undefined);
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
   const peerCues = usePeerCues(
@@ -265,7 +272,18 @@ export function GameScreen({
     room.players.map((player) => player.id),
   );
   const current = room.players.find((player) => player.id === room.currentPlayerId);
-  const selectedCards = room.hand.filter((card) => selectedIds.includes(card.id));
+  const myTurn = room.currentPlayerId === room.viewerId;
+  const readOnly = room.role === "spectator" || me?.status !== "active";
+  const sortedHand = useMemo(
+    () => sortHandWeakToStrong(room.hand, room.revolution !== room.jackBack),
+    [room.hand, room.jackBack, room.revolution],
+  );
+  const selectedCards = sortedHand.filter((card) => selectedIds.includes(card.id));
+  const playableIds = useMemo(
+    () => (myTurn && !readOnly ? potentiallyPlayableCardIds(room) : undefined),
+    [myTurn, readOnly, room],
+  );
+  const displayRoom = useMemo(() => ({ ...room, hand: sortedHand }), [room, sortedHand]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (selectedCards.some((card) => card.visibility === "hidden"))
@@ -292,11 +310,10 @@ export function GameScreen({
       return "同ランクの組、または同一スート3枚以上の階段を選んでください";
     }
   }, [selectedCards]);
-  const myTurn = room.currentPlayerId === room.viewerId;
-  const readOnly = room.role === "spectator" || me?.status !== "active";
   const activeEffect = room.pendingEffects.find(
     (effect) => effect.actorId === room.viewerId && effect.kind !== "clearField",
   );
+  const stealEffect = room.pendingEffects.find((effect) => effect.kind === "steal");
   const payloadBase = useMemo(
     () => ({ roomId: room.roomId, gameId: room.gameId, expectedRevision: room.revision }),
     [room.gameId, room.revision, room.roomId],
@@ -312,6 +329,15 @@ export function GameScreen({
   };
   const previousTurn = useRef(room.currentPlayerId);
   const previousTrick = useRef(room.trickId);
+  useEffect(() => {
+    const previous = previousRoom.current;
+    previousRoom.current = room;
+    if (!previous || reducedMotion) return;
+    const next = deriveCardMotions(previous, room);
+    const limited = lowPower ? next.slice(0, 4) : next;
+    if (limited.length)
+      setCardMotions((currentMotions) => [...currentMotions, ...limited].slice(-18));
+  }, [lowPower, reducedMotion, room]);
   useEffect(() => {
     if (previousTurn.current !== room.currentPlayerId) {
       feedback("turn", muted);
@@ -361,12 +387,18 @@ export function GameScreen({
     <main id="main" className={`game-screen ${room.role}`}>
       <div className="game-world">
         <SalonScene
-          room={room}
+          room={displayRoom}
           selectedIds={selectedIds}
+          playableIds={playableIds}
           onToggleCard={readOnly ? undefined : selectCard}
           lowPower={lowPower}
           reducedMotion={reducedMotion}
           dealing={dealing}
+          cardMotions={cardMotions}
+          onCardMotionDone={(id) =>
+            setCardMotions((motions) => motions.filter((motion) => motion.id !== id))
+          }
+          stealVisual={stealVisual}
         />
       </div>
       <header className="game-topbar">
@@ -454,6 +486,11 @@ export function GameScreen({
           …
         </button>
       </section>
+      <CommentDanmaku
+        comments={room.chat ?? []}
+        lowPower={lowPower}
+        reducedMotion={reducedMotion}
+      />
       {dealing && (
         <section className="dealing-overlay" aria-live="polite">
           <p className="eyebrow">DEALING</p>
@@ -489,14 +526,28 @@ export function GameScreen({
       )}
       {!dealing && (
         <AccessibleHand
-          cards={room.hand}
+          cards={sortedHand}
           selectedIds={selectedIds}
+          playableIds={playableIds}
           onToggle={readOnly ? () => undefined : selectCard}
           onSubmit={openPlay}
         />
       )}
-      {activeEffect && (
+      {activeEffect && activeEffect.kind !== "steal" && (
         <EffectPanel effect={activeEffect} room={room} busy={busy} resolve={resolveEffect} />
+      )}
+      {stealEffect && (
+        <StealSequence
+          effect={stealEffect}
+          room={room}
+          busy={busy}
+          lowPower={lowPower}
+          reducedMotion={reducedMotion}
+          lastCue={peerCues.lastCue}
+          sendCue={peerCues.send}
+          resolve={(payload) => resolveEffect(stealEffect, payload)}
+          onVisual={setStealVisual}
+        />
       )}
       {room.pendingJokerMimic && (
         <JokerDeclarationPanel

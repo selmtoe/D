@@ -19,6 +19,10 @@ function desktopOnly(testInfo: TestInfo): void {
   );
 }
 
+function mobileOnly(testInfo: TestInfo): void {
+  test.skip(testInfo.project.name !== "mobile-chromium", "Mobile gameplay runs on Pixel 7 only.");
+}
+
 function profile(name: string) {
   return { name, avatar: structuredClone(defaultAvatar) };
 }
@@ -148,6 +152,15 @@ test.describe("rulebook authority contracts", () => {
         .getByRole("button", { name: `公開ホストの部屋 ${authority.roomId} を観戦` })
         .click();
       await expect(spectator.page.getByText("観戦中", { exact: true })).toBeVisible();
+      await spectator.page.getByRole("button", { name: "ログ／チャット" }).click();
+      await spectator.page.getByPlaceholder("メッセージ").fill("観戦からよろしくお願いします");
+      await spectator.page.getByRole("button", { name: "送信", exact: true }).click();
+      await host.page.getByRole("button", { name: "ログ／チャット" }).click();
+      const hostChatPanel = host.page.getByRole("region", { name: "ログ／チャット" });
+      await expect(
+        hostChatPanel.getByRole("listitem").filter({ hasText: "観戦からよろしくお願いします" }),
+      ).toBeVisible();
+      await expect(hostChatPanel.getByText("一覧観戦者（観戦）", { exact: true })).toBeVisible();
 
       authority.forceFinish("player-ui", 1);
       await expect(player.page.getByText("観戦中", { exact: true })).toBeVisible();
@@ -336,5 +349,64 @@ test.describe("rulebook authority contracts", () => {
     expect(doubleResults[1]).toEqual(doubleResults[0]);
     expect((await view(authority, "host")).revision).toBe(beforeDoubleRevision + 1);
     expect(authority.appliedCommandNames.filter((name) => name === "submitPass")).toHaveLength(3);
+  });
+
+  test("mobile viewport can create, deal and submit the opening play without clipped controls", async ({
+    context,
+    page,
+  }, testInfo) => {
+    mobileOnly(testInfo);
+    const authority = new AuthoritativeE2EServer();
+    await authority.install(context, "mobile-host");
+
+    await openSalon(page, "モバイル親");
+    await page.getByRole("button", { name: "新しい部屋を作る" }).click();
+    await joinPlayer(authority, "mobile-player-2", "モバイル2");
+    await joinPlayer(authority, "mobile-player-3", "モバイル3");
+    await expect(page.getByText("3人で開始できます")).toBeVisible();
+    await page.getByRole("button", { name: "ゲームを始める" }).click();
+    await expect(page.getByRole("heading", { name: "カードを配っています" })).toBeVisible();
+    await page
+      .getByRole("button", { name: "配札演出をスキップ" })
+      .click({ force: true, timeout: 2_000 })
+      .catch(() => undefined);
+
+    const diamondThree = page.getByRole("option", { name: /ダイヤ3/ });
+    await expect(diamondThree).toBeVisible();
+    await diamondThree.click();
+    const playButton = page.getByRole("button", { name: "選んだ札を出す" });
+    await expect(playButton).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const button = [...document.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent?.trim() === "選んだ札を出す",
+      );
+      const rectangle = button?.getBoundingClientRect();
+      return {
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        button: rectangle && {
+          left: rectangle.left,
+          right: rectangle.right,
+          top: rectangle.top,
+          bottom: rectangle.bottom,
+          height: rectangle.height,
+        },
+        viewportHeight: window.visualViewport?.height ?? window.innerHeight,
+      };
+    });
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+    expect(geometry.button).toBeDefined();
+    expect(geometry.button!.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.button!.right).toBeLessThanOrEqual(geometry.clientWidth);
+    expect(geometry.button!.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.button!.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.button!.height).toBeGreaterThanOrEqual(44);
+
+    await playButton.click();
+    await page.getByRole("dialog").getByRole("button", { name: "この札を出す" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect
+      .poll(async () => (await view(authority, "mobile-host")).currentPlayerId)
+      .toBe("mobile-player-2");
   });
 });

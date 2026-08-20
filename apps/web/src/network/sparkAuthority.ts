@@ -64,6 +64,7 @@ export interface SparkRoomSnapshot {
     kind: "play" | "pass" | "effect" | "system";
   }>;
   appliedRoomActionIds: string[];
+  appliedRoomActionResults?: Record<string, Record<string, unknown>>;
 }
 
 export interface JoinRequest {
@@ -269,12 +270,16 @@ export class SparkAuthority {
         },
       ],
       appliedRoomActionIds: [],
+      appliedRoomActionResults: {},
     });
   }
 
   static restore(snapshot: SparkRoomSnapshot): SparkAuthority {
     if (snapshot.schemaVersion !== 1) commandError("failed-precondition", "部屋形式が古すぎます");
-    return new SparkAuthority(snapshot);
+    return new SparkAuthority({
+      ...snapshot,
+      appliedRoomActionResults: clone(snapshot.appliedRoomActionResults ?? {}),
+    });
   }
 
   exportSnapshot(): SparkRoomSnapshot {
@@ -406,8 +411,34 @@ export class SparkAuthority {
 
   timeoutCurrent(now = Date.now()): boolean {
     const game = this.snapshot.game;
-    const actorId = game?.pendingEffect?.actorId ?? game?.turnPlayerId;
+    const pendingMimic = this.snapshot.pendingMimic;
+    const actorId = pendingMimic?.actorUid ?? game?.pendingEffect?.actorId ?? game?.turnPlayerId;
     if (!game || !actorId || this.snapshot.status !== "playing") return false;
+    if (pendingMimic) {
+      const jokerMimics = pendingMimic.candidates[0];
+      if (!jokerMimics) return false;
+      const actionId = `timeout-mimic-${actorId}-${now}`;
+      const result = applyGameCommand(
+        game,
+        {
+          type: "play",
+          playerId: actorId,
+          actionId,
+          expectedVersion: game.version,
+          cardIds: pendingMimic.cardIds,
+          jokerMimics,
+          blindConfirmed: true,
+        },
+        now,
+      );
+      if (!result.ok) return false;
+      delete this.snapshot.pendingMimic;
+      this.snapshot.game = result.state;
+      this.appendGameEvents(result.events, now);
+      this.recordRoomAction(actionId, {});
+      this.afterGameMutation(now);
+      return true;
+    }
     const result = applyGameCommand(
       game,
       {
@@ -436,7 +467,9 @@ export class SparkAuthority {
     if (!member) commandError("permission-denied", "部屋の参加者ではありません");
     const actionId =
       typeof payload.clientActionId === "string" ? payload.clientActionId : crypto.randomUUID();
-    if (this.snapshot.appliedRoomActionIds.includes(actionId)) return { duplicate: true };
+    if (this.snapshot.appliedRoomActionIds.includes(actionId)) {
+      return clone(this.snapshot.appliedRoomActionResults?.[actionId] ?? { duplicate: true });
+    }
     if (
       typeof payload.expectedRevision === "number" &&
       payload.expectedRevision !== this.snapshot.revision
@@ -512,8 +545,9 @@ export class SparkAuthority {
           text: `${players.length}人で対局を開始しました`,
           kind: "system",
         });
-        this.finishRoomCommand(actionId, now);
-        return { gameId };
+        const startResponse = { gameId };
+        this.finishRoomCommand(actionId, now, startResponse);
+        return startResponse;
       }
       case "startRematch":
         this.requireHost(uid);
@@ -525,6 +559,10 @@ export class SparkAuthority {
         this.finishRoomCommand(actionId, now);
         return response;
       case "changeSpectatorFocus": {
+        const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
+        if (member.role !== "spectator" && (!player || player.status === "active")) {
+          commandError("permission-denied", "観戦者専用操作です");
+        }
         const focus = String(payload.focusPlayerId ?? "");
         if (!this.snapshot.game?.players.some((player) => player.id === focus)) {
           commandError("invalid-argument", "指定プレイヤーが見つかりません");
@@ -538,11 +576,15 @@ export class SparkAuthority {
           .trim()
           .slice(0, 120);
         if (!text) commandError("invalid-argument", "メッセージを入力してください");
+        const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
         this.snapshot.chat.push({
           id: actionId,
           uid,
           name: member.name,
-          role: member.role,
+          role:
+            member.role === "spectator" || (player && player.status !== "active")
+              ? "spectator"
+              : "player",
           text,
           atMs: now,
         });
@@ -570,6 +612,9 @@ export class SparkAuthority {
     if (!game || this.snapshot.status !== "playing") {
       commandError("failed-precondition", "対局中ではありません");
     }
+    if (this.snapshot.pendingMimic && name !== "declareJokerMimic") {
+      commandError("failed-precondition", "ブラインドJoker宣言を先に確定してください");
+    }
     let command: GameCommand;
     if (name === "submitPlay") {
       const cardIds = stringArray(payload.cardIds);
@@ -588,9 +633,13 @@ export class SparkAuthority {
       if (requiresMimic && sentMimics.length === 0) {
         const candidates = findLegalJokerMimics(game, uid, cardIds);
         if (candidates.length > 0) {
+          const mimicResponse = {
+            requiresJokerMimic: true,
+            candidateCount: candidates.length,
+          };
           this.snapshot.pendingMimic = { actorUid: uid, cardIds, candidates, actionId };
-          this.finishRoomCommand(actionId, now);
-          return { requiresJokerMimic: true, candidateCount: candidates.length };
+          this.finishRoomCommand(actionId, now, mimicResponse);
+          return mimicResponse;
         }
       }
       command = {
@@ -616,7 +665,6 @@ export class SparkAuthority {
         jokerMimics: (Array.isArray(payload.mimics) ? payload.mimics : []) as JokerMimic[],
         blindConfirmed: true,
       };
-      delete this.snapshot.pendingMimic;
     } else if (name === "submitPass") {
       command = {
         type: "pass",
@@ -664,10 +712,10 @@ export class SparkAuthority {
     }
     const result = applyGameCommand(game, command, now);
     if (!result.ok) commandError("failed-precondition", result.error.message);
+    if (name === "declareJokerMimic") delete this.snapshot.pendingMimic;
     this.snapshot.game = result.state;
     this.appendGameEvents(result.events, now);
-    this.snapshot.appliedRoomActionIds.push(actionId);
-    this.snapshot.appliedRoomActionIds = this.snapshot.appliedRoomActionIds.slice(-200);
+    this.recordRoomAction(actionId, {});
     this.afterGameMutation(now);
     return {};
   }
@@ -702,6 +750,12 @@ export class SparkAuthority {
         Object.values(this.snapshot.members)[0]?.uid ??
         "";
     }
+    if (this.snapshot.coordinatorUid === uid) {
+      this.snapshot.coordinatorUid =
+        Object.values(this.snapshot.members)
+          .filter((candidate) => candidate.online)
+          .sort((left, right) => left.joinedAtMs - right.joinedAtMs)[0]?.uid ?? "";
+    }
     this.snapshot.socialLog.push({
       id: `leave-${uid}-${now}`,
       atMs: now,
@@ -715,9 +769,24 @@ export class SparkAuthority {
     if (this.snapshot.hostUid !== uid) commandError("permission-denied", "ホスト専用操作です");
   }
 
-  private finishRoomCommand(actionId: string, now: number): void {
+  private recordRoomAction(actionId: string, response: Record<string, unknown>): void {
     this.snapshot.appliedRoomActionIds.push(actionId);
     this.snapshot.appliedRoomActionIds = this.snapshot.appliedRoomActionIds.slice(-200);
+    this.snapshot.appliedRoomActionResults ??= {};
+    this.snapshot.appliedRoomActionResults[actionId] = clone(response);
+    const retained = new Set(this.snapshot.appliedRoomActionIds);
+    for (const storedActionId of Object.keys(this.snapshot.appliedRoomActionResults)) {
+      if (!retained.has(storedActionId))
+        delete this.snapshot.appliedRoomActionResults[storedActionId];
+    }
+  }
+
+  private finishRoomCommand(
+    actionId: string,
+    now: number,
+    response: Record<string, unknown> = {},
+  ): void {
+    this.recordRoomAction(actionId, response);
     this.commit(now);
   }
 

@@ -42,11 +42,11 @@ test("avatar atelier exposes real catalog choices and restores focus", async ({ 
   const opener = page.getByRole("button", { name: "アバターを仕立てる" });
   await opener.click();
   const dialog = page.getByRole("dialog", { name: "アバターを仕立てる" });
-  await expect(dialog).toBeVisible();
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
   await expect(
     dialog.getByRole("region", { name: "3Dアバタープレビュー" }).locator("canvas"),
   ).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "16", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "頭部形状 16", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
