@@ -1,6 +1,9 @@
 name: deploy v2 web to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       confirmation:
@@ -19,7 +22,7 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ inputs.confirmation == 'deploy-v2' }}
+    if: ${{ github.event_name == 'push' || inputs.confirmation == 'deploy-v2' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
