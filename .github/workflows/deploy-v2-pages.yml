@@ -35,14 +35,9 @@ jobs:
       - run: pnpm --filter @daifugo/rules build
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Require production App Check key
-        env:
-          APP_CHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
-        run: test -n "$APP_CHECK_SITE_KEY"
       - run: pnpm --filter @daifugo/web build
         env:
           VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ secrets.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
-          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

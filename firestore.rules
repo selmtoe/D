@@ -48,6 +48,108 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Spark-plan P2P directory. The coordinator browser owns only its current
+    // room document. A successor may take the lease after 75 seconds without
+    // a heartbeat; gameplay itself travels over WebRTC DataChannel.
+    match /sparkRoomDirectory/{roomId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && request.resource.data.coordinatorUid == request.auth.uid
+        && request.resource.data.coordinatorPeerId is string
+        && request.resource.data.visibility == 'public'
+        && request.resource.data.heartbeatAt == request.time;
+      allow update: if signedIn()
+        && request.resource.data.heartbeatAt == request.time
+        && (
+          resource.data.coordinatorUid == request.auth.uid
+          || (
+            request.time > resource.data.heartbeatAt + duration.value(75, 's')
+            && request.resource.data.coordinatorUid == request.auth.uid
+          )
+        );
+      allow delete: if signedIn() && resource.data.coordinatorUid == request.auth.uid;
+    }
+
+    // A full snapshot lets a peer take over if the coordinator tab closes.
+    // Friends-only mode intentionally does not treat this as an anti-cheat
+    // boundary; UI projections still hide cards during ordinary play.
+    match /sparkRoomSnapshots/{roomId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && exists(/databases/$(database)/documents/sparkRoomDirectory/$(roomId))
+        && get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.coordinatorUid
+          == request.auth.uid
+        && request.resource.data.coordinatorUid == request.auth.uid
+        && request.resource.data.schemaVersion == 1;
+      allow delete: if signedIn()
+        && exists(/databases/$(database)/documents/sparkRoomDirectory/$(roomId))
+        && get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.coordinatorUid
+          == request.auth.uid;
+    }
+
+    match /sparkPresence/{roomId}/members/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'peerId', 'online', 'role', 'name', 'lastSeenMs'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.peerId is string
+        && request.resource.data.peerId.size() <= 192
+        && request.resource.data.online is bool
+        && request.resource.data.role in ['player', 'spectator']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 32
+        && request.resource.data.lastSeenMs is int;
+      allow delete: if isOwner(uid);
+    }
+
+    // Authenticated peers may send short-lived WebRTC signaling and fallback
+    // mailbox packets. Rules bind senderUid to Auth; target queries are scoped
+    // by targetUid. Payload authority is checked by the coordinator browser.
+    match /sparkSignals/{roomId}/items/{messageId} {
+      allow read: if signedIn()
+        && (resource.data.targetUid == request.auth.uid
+          || resource.data.senderUid == request.auth.uid);
+      allow create: if signedIn()
+        && roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
+          'kind', 'payload', 'createdAtMs', 'expiresAtMs'
+        ])
+        && request.resource.data.kind in ['offer', 'answer', 'ice']
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 65536
+        && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;
+      allow delete: if signedIn()
+        && (resource.data.targetUid == request.auth.uid
+          || resource.data.senderUid == request.auth.uid);
+      allow update: if false;
+    }
+
+    match /sparkMailboxes/{roomId}/items/{messageId} {
+      allow read: if signedIn()
+        && (resource.data.targetUid == request.auth.uid
+          || resource.data.senderUid == request.auth.uid);
+      allow create: if signedIn()
+        && roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
+          'kind', 'payload', 'createdAtMs', 'expiresAtMs'
+        ])
+        && request.resource.data.kind == 'wire'
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 262144
+        && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;
+      allow delete: if signedIn()
+        && (resource.data.targetUid == request.auth.uid
+          || resource.data.senderUid == request.auth.uid);
+      allow update: if false;
+    }
+
     // WebRTC is non-authoritative signaling only. Payloads are short-lived,
     // addressed to a room member, and cannot be updated after creation.
     match /webrtcRooms/{roomId}/signals/{signalId} {

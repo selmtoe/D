@@ -1,15 +1,16 @@
 # 大富豪 — Private Card Salon v2
 
-3〜6人で遊ぶ、完全3Dのオンライン大富豪です。通常大富豪に加えて、所有者だけが札の表面を見られない「ブラインド大富豪」、途中観戦、上がり後観戦に対応します。
+3〜6人で遊ぶ完全3Dのオンライン大富豪です。通常大富豪に加え、所有者だけが札の表面を見られないブラインド大富豪、途中観戦、上がり後観戦に対応します。
 
-このリポジトリは `docs/DAIFUGO_RULEBOOK.md` をルールの唯一の正本、`docs/FIREBASE_HANDOFF.md` をクラウド環境の正本として再構築されています。旧ルート `index.html` は移行完了まで稼働中の `rooms` collection を利用する旧版として保持し、新版は `apps/web` と `v2*` namespaceだけを利用します。
+現在の実行構成はFirebase **Spark無料プラン対応**です。Cloud Functions、Cloud Run、Realtime Database、Firebase Hostingを使いません。ホストのブラウザが純粋TypeScriptルールエンジンを実行し、参加者とはWebRTC DataChannelで通信します。Firestoreは公開部屋一覧、WebRTC signaling、presence、ホスト障害時snapshot、DataChannel不成立時のmailboxだけに使います。
+
+> このfriends-only構成では、Firestoreの退避snapshotを認証済み利用者が読めます。UIでは手札を通常どおり隠しますが、改造クライアントへのanti-cheat境界ではありません。身内利用を前提にした、課金を避けるための明示的な設計変更です。
 
 ## 必要環境
 
 - Node.js 22以上
 - pnpm 11以上
-- Firebase CLI（Emulatorまたはdeployを行う場合）
-- Java 21以上（Firebase Emulator Suite）
+- Firebase CLIとJava 21以上（Firestore Rules Emulatorまたはdeploy時だけ）
 
 ## ローカル起動
 
@@ -19,13 +20,7 @@ cp .env.example apps/web/.env.local
 pnpm dev
 ```
 
-Firebase Emulatorを使う場合は、別ターミナルで次を実行します。
-
-```bash
-pnpm emulators
-```
-
-`VITE_USE_FIREBASE_EMULATORS=true` のときだけクライアントはEmulatorへ接続します。画面にも接続先が表示され、本番への誤接続を防ぎます。
+Emulatorを使う場合は `.env.local` の `VITE_USE_FIREBASE_EMULATORS=true` にして、別ターミナルで `pnpm emulators` を実行します。本番接続時は画面上部に `Spark無料プラン対応 · WebRTC P2P` と表示されます。
 
 ## 品質確認
 
@@ -36,32 +31,34 @@ pnpm build
 pnpm lint
 pnpm format:check
 pnpm --filter @daifugo/web test:e2e
-pnpm --filter @daifugo/functions test:emulator
 ```
 
-最後のSecurity Rules統合テストはFirestore/Realtime Database EmulatorとJava 21を起動できる環境で実行します。
+Firestore Rules統合テストは次で実行します。
 
-Playwrightにはdesktop/mobileの3D・アクセシビリティsmokeに加え、DEV限定のfake authorityを使う複数browser context試験があります。3人対局、効果、観戦projection、stale revision、再接続token rotation、ブラインド成功／失格を検証し、テストbridgeがproduction bundleへ残らないことも確認します。
+```bash
+firebase emulators:exec --project daifugo-8e039 --only firestore \
+  "pnpm --filter @daifugo/functions test:emulator"
+```
 
-## 本番公開前の所有者設定
+`functions/` は以前のBlaze向け実装と回帰テストを参照用に保持していますが、`firebase.json` のdeploy対象ではなく、本番ゲームから呼ばれません。
 
-本番Functions/Rules/Hostingはまだdeployしていません。Firebase Consoleで匿名Authentication、Realtime Database、App Check site key、Authorized domain、region、Blaze課金とScheduler/APIを確認し、既存 `rooms` のRules差分を所有者が承認してから `docs/OPERATIONS.md` の順序で公開します。
+## Firebase Consoleで必要なもの
+
+1. Project `daifugo-8e039` のAuthenticationで「匿名」を有効化。
+2. Firestore Databaseがなければ作成（Realtime Databaseは不要）。
+3. Authorized domainsへ `selmtoe.github.io` を追加。
+4. `firestore.rules` と `firestore.indexes.json` だけをdeploy。
+5. App Checkは任意。使う場合はまずmonitoringで確認し、直接Firestore通信を遮断しないよう段階導入。
+
+Blazeへの変更、Functions v2、Scheduler、RTDB、Database URLは不要です。詳しい手順は [docs/OPERATIONS.md](docs/OPERATIONS.md) にあります。
 
 ## 構成
 
-- `apps/web`: React、Vite、React Three Fiberによるクライアント
-- `functions`: Cloud Functions for Firebase v2の権威コマンド
+- `apps/web`: React/Vite/R3F UI、P2P session、ブラウザ進行役
 - `packages/rules`: FirebaseやDOMに依存しない純粋ルールエンジン
-- `packages/avatar-schema`: バージョン付き3Dアバターschemaとmigration
+- `packages/avatar-schema`: バージョン付き3Dアバターschema
 - `packages/ui-tokens`: 色、間隔、モーション、品質設定
-- `docs`: ルール、Firebase引き継ぎ、設計、運用、テスト対応表
+- `functions`: 旧Blaze構成の保管・回帰テスト（deployしない）
+- `docs`: ルール、Spark/P2P設計、運用、テスト対応表
 
-## 重要な安全境界
-
-- 旧 `rooms/{roomId}` を新版から更新・削除しません。
-- 全カード実体とmembershipは `v2Rooms/{roomId}` の権威documentに置き、Admin SDKだけが読み書きします。
-- クライアントが読む一覧は `v2RoomViews/{roomId}`、対局状態はUID別の `v2RoomViews/{roomId}/viewers/{uid}` 投影だけです。
-- ブラインド札の所有者向け投影には `face`、スート、ランクを含めません。
-- 乱数、合法性、順位、revision、タイマーはFunctionsが確定します。
-
-詳しくは `docs/ARCHITECTURE.md`、`docs/DATA_MODEL.md`、`docs/OPERATIONS.md` を参照してください。
+旧ルート `index.html` と旧 `rooms` collectionは非破壊で保持します。新版が利用するnamespaceは `sparkRoomDirectory`、`sparkRoomSnapshots`、`sparkPresence`、`sparkSignals`、`sparkMailboxes` です。

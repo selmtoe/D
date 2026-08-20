@@ -69,14 +69,7 @@ export default function App() {
       (error) => alive && dispatch({ type: "ERROR", message: error.message }),
       () => {
         if (!alive) return;
-        dispatch({ type: "CONNECTION", connection: "reconnecting" });
-        const reconnectToken = sessionStorage.getItem(`daifugo-reconnect-${activeRoomId}`);
-        if (!reconnectToken) return;
-        void reconnectWithToken(activeRoomId, reconnectToken)
-          .then((result) =>
-            sessionStorage.setItem(`daifugo-reconnect-${activeRoomId}`, result.reconnectToken),
-          )
-          .catch((cause) => dispatch({ type: "ERROR", message: firebaseErrorMessage(cause) }));
+        dispatch({ type: "CONNECTION", connection: "connected" });
       },
     )
       .then((cleanup) => {
@@ -279,9 +272,9 @@ export default function App() {
 
   return (
     <>
-      {!firebaseMode.emulator && !import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY && (
+      {!firebaseMode.emulator && (
         <p className="configuration-banner" role="status">
-          App Check site key未設定 — 本番公開前に設定してください
+          Spark無料プラン対応 · WebRTC P2P（Firestoreは接続補助のみ）
         </p>
       )}
       {firebaseMode.emulator && (

@@ -1,109 +1,75 @@
-# v2 Architecture
+# Spark / P2P Architecture
 
-## 設計原則
+## 方針
 
-1. `docs/DAIFUGO_RULEBOOK.md` だけをゲームルールの正本とする。
-2. クライアントは意図を送信し、Cloud Functionsが結果を確定する。
-3. 秘密を含む権威状態と、閲覧者別の公開状態を別documentへ分離する。
-4. 3Dは表示層であり、物理・アニメーション完了を論理進行へ使わない。
-5. 同じsnapshotから同じ3Dシーンを再構築できるようにする。
-6. WebRTC停止時もFirebaseだけで全ゲームを完遂できるようにする。
+`docs/DAIFUGO_RULEBOOK.md` をゲームルールの正本としつつ、利用者の明示的な選択により「サーバーanti-cheat」より「Firebase Spark無料プラン」を優先します。
 
-## モジュール
+1. ホストのブラウザがroom coordinatorとなり、`@daifugo/rules` を実行する。
+2. ゲームcommand、閲覧者別view、chat、演出cueはWebRTC DataChannelで運ぶ。
+3. Firestoreは発見、signaling、presence、crash snapshotだけに限定する。
+4. WebRTC不成立時だけ同じwire packetをFirestore mailboxで中継する。
+5. UIへは閲覧者別projectionを送り、所有者のblind札を隠す。
+6. 改造クライアントやFirestore直接閲覧によるcheatは防御対象外とする。
 
-```text
-apps/web
-  React screen state machine
-  Firebase command/view adapter
-  R3F salon, cards, avatars, cameras
-  semantic DOM controls and live regions
-       │ command (Auth UID, roomId, revision, actionId)
-       ▼
-functions
-  callable validation and rate boundary
-  Firestore transaction / idempotency
-  authoritative rules transition
-  per-viewer projection
-       │ imports
-       ▼
-packages/rules
-  immutable domain types
-  play classification and legality
-  effects, ordering, ranking, invariants
-```
-
-`packages/avatar-schema` はゲームに依存しない `AvatarProfileV1`、許可ID、数値範囲、migrationを提供します。`packages/ui-tokens` は3DとDOMの両方が利用するブランド・アクセシビリティtokenを提供します。
-
-## 信頼境界
-
-### 信頼しない入力
-
-- UID以外のplayer識別子
-- クライアントが申告する手番、役割、現在時刻、カード表面
-- クライアントが計算した合法性、順位、効果結果
-- clientActionIdの一意性だけに依存した重複排除
-- WebRTCから届くゲーム状態
-
-callableはApp Check、Auth、schema、role、gameId、revision、phase、turn、pending effect、所有権、対象数、期限を毎回検証します。action documentをtransaction内で作成し、既存actionなら保存済み結果を返します。
-
-### 権威データ
-
-全カード実体、shuffle情報、手札、membership、pending effect、順位は `v2Rooms/{roomId}` の権威documentに保存します。一般クライアントはFirestore Rulesによりdocument全体のread/writeを拒否され、Admin SDKだけが到達できます。公開一覧情報は秘密を含まない `v2RoomViews/{roomId}` へ別投影します。
-
-### 閲覧者別投影
-
-権威transitionと同じtransactionで、参加者UIDごとのprojectionを生成します。
-
-- 所有者の通常札: faceあり
-- 所有者のブラインド札: opaque card tokenと位置だけ
-- 対戦相手の通常札: count/back tokenだけ
-- 対戦相手のブラインド札: faceとblind印あり
-- 観戦者・上がり済み・失格者: 全faceあり
-
-projection serializerは型レベルでもblind faceを作れない判別共用体を返します。
-
-## コマンド処理
+## 実行経路
 
 ```text
-authenticate
-  → validate schema / App Check
-  → load membership and private state in transaction
-  → reject stale gameId or revision
-  → return stored result for duplicate actionId
-  → execute pure rule transition
-  → assert card conservation and phase invariants
-  → increment revision
-  → write authoritative room, public room view, viewer projections, audit event
-  → return revision and caller-safe summary
+React / 3D UI
+  │ command + clientActionId + expectedRevision
+  ▼
+SparkP2PSession
+  │ WebRTC DataChannel（通常）
+  │ Firestore mailbox（fallback）
+  ▼
+coordinator browser
+  SparkAuthority → @daifugo/rules → viewer projection
+  │
+  ├─ WebRTCで各viewを返信
+  └─ Firestoreへcrash snapshotを退避
 ```
 
-通常のコマンドは `createRoom`、`joinRoomAsPlayer`、`joinRoomAsSpectator`、`leaveRoom`、`reconnectRoom`、`transferHost`、`updateRoomSettings`、`startGame`、`submitPlay`、`submitPass`、`declareJokerMimic`、`resolveSteal`、`resolveGive`、`resolveDiscard`、`resolveBomber`、`resolveCollect`、`changeSpectatorFocus`、`sendChat`、`startRematch` です。
+Cloud Functions、Cloud Run、Realtime Database、Firebase Hostingは実行経路にありません。`firebase.json` にFunctions/RTDB/Hosting deploy設定を持たせません。
 
-## クライアント状態機械
+## Coordinator
 
-```text
-BOOT → AUTHENTICATING → ENTRANCE → SALON_LOBBY → ROOM_WAITING
-                                                   ↓
-FINISHED ← PLAYING_TURN ← DEALING ←──────────── START
-              ↕
-       AWAITING_FORCED_EFFECT
-```
+部屋作成者のtabが最初のcoordinatorです。論理上のゲームhost（開始・設定・再戦権限）と、通信上のcoordinatorは別概念です。
 
-接続状態は画面状態と直交する `online | reconnecting | grace | offline` として保持します。revisionが現在値以下のsnapshotは描画へ適用しません。再接続では履歴アニメーションを再生せず、最新snapshotへ直接復元します。
+- commandを直列queueで処理する。
+- `clientActionId` を最大200件保持し、二重適用を避ける。
+- `expectedRevision` と `gameId` が古いcommandを拒否する。
+- ルール、効果、順位、60秒timeout、120秒切断失格を純粋rules packageで確定する。
+- 30秒ごとにdirectory leaseを更新する。
+- 75秒leaseが止まると、最古のonline memberがFirestore transactionでcoordinatorを引き継ぎ、snapshotから再開する。
 
-## 3D表示
+coordinatorが閉じた直後は最大約75秒の停止があり得ます。全員が同時に閉じた場合は自動復旧できません。
 
-- テーブルはX/Z半径が同じCylinder/Torus geometryで構築し、非等方scaleを禁止する。
-- カメラは45〜60mm相当、通常席・観戦席を減衰補間する。
-- カードは共有geometry/material/texture atlasを使い、DOM listboxと同じselection stateを参照する。
-- アバターはhead/body/hair/outfit/accessoryの実meshで構築し、2D billboardを人物本体として使わない。
-- reduced motionではカメラを短時間遷移、配札を短縮し、低負荷ではDPR、shadow、avatar detailを落とす。
-- WebGL context loss時はDOM操作を維持し、復旧後にsnapshotから再構築する。
+## WebRTCとfallback
 
-## WebRTC
+構成はhost-starです。各参加者はcoordinatorとDataChannelを1本作るため、6 player + spectatorでもfull meshになりません。公開STUNとして `stun:stun.l.google.com:19302` を利用します。
 
-DataChannelはemote、cursor、focus hint、animation cueだけに限定します。カードface、手番、タイマー、乱数、結果は送らず、受信イベントはrevision付きFirebase snapshotがなければ確定演出に使いません。小規模roomでも観戦者との無制限meshを作らないため、初期版では参加プレイヤー間の上限付き接続とFirebase fallbackを採用します。
+TURN serverは置きません。NATやネットワーク制限によりP2Pが成立しない場合はFirestore mailboxへ自動fallbackします。fallback中も対局はできますが、Firestoreのread/write quotaを多く消費し、遅延も増えます。画面の通信badgeで `WebRTC` / `Firebase` / `offline` を確認できます。
 
-## 旧版との共存
+## Firestore使用量を抑える仕組み
 
-旧 `rooms` collectionは移行期間中そのまま維持します。新版は `v2Rooms`、`v2RoomViews`、`v2Events`、`users`、`avatars`、`webrtcRooms` 以外へ書きません。Security Rules変更時は旧公開アプリのcreate/joinを回帰確認してから適用します。
+- presence/directory heartbeatは30秒間隔。
+- presence collectionを常時購読するのはcoordinatorだけ。
+- ゲーム中のviewはFirestore documentへ毎回投影せずP2P送信。
+- crash snapshotはstate mutation時だけ更新。
+- public room listは新しいheartbeatの最大40件だけ購読。
+- mailbox/signalingは10分でclient上無効扱い（定期cleanupは行わない）。
+
+典型的な4人部屋では、アイドル時の目安は約600 writes/時、約1,000 reads/時です。実値はtab数、fallback率、再接続、操作数で変わるため、Firebase Usageを確認してください。
+
+## 閲覧者別projection
+
+- 自分の通常札: faceあり
+- 自分のblind札: ID/位置だけ
+- 相手の通常札: 裏面
+- 相手のblind札: faceとblind印あり
+- spectator、上がり済み、失格者: 全faceあり
+
+projectionは通常UIの情報漏洩を防ぎますが、完全snapshotはクラッシュ移譲のためFirestoreに置かれます。したがってSecurity Rulesをanti-cheat境界として説明しません。
+
+## 旧構成
+
+`functions/` と `v2Rooms` / `v2RoomViews` / `v2Events` Rulesは、以前のBlaze向け構成と旧版互換性のため残します。現行web clientはそれらを読み書きせず、Functionsをdeployしません。旧 `rooms` も削除しません。

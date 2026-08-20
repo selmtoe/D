@@ -1,5 +1,7 @@
 # Firebase完全引継ぎ資料
 
+> **2026-08-20 implementation override:** 利用者の明示指示により、現行webはCloud Functions/RTDBを使わないSpark + WebRTC P2P構成へ変更した。以下は元のクラウド引き継ぎ記録として保持する。現在の実装・deploy手順は `ARCHITECTURE.md`、`DATA_MODEL.md`、`OPERATIONS.md` を優先する。
+
 版: 1.0.0
 
 確認日: 2026-08-20

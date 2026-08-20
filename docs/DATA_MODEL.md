@@ -1,91 +1,78 @@
-# v2 Data Model
+# Spark / P2P Data Model
 
 ## IDと版
 
-- `RoomId`: 判別しやすい英大文字・数字5文字。サーバー生成。
-- `PlayerId`: ルールエンジン内のplayer識別子。v2初期版ではFunctionsが認証済みAuth UIDへサーバー側で結び付け、公開一覧には配信しない。
-- `CardId`: 1ゲーム中だけ意味を持つ暗号学的乱数ID。カードfaceを推測できる接頭辞を持たない。
-- `gameId`: 再戦ごとにサーバー生成。
-- `trickId`: 場流れごとにサーバー生成。
-- `clientActionId`: クライアント生成UUID。UIDと組にしてidempotency keyに使う。
-- `revision`: roomの権威transitionごとに1増える整数。
+- `roomId`: 読みやすい英大文字・数字5文字。作成者browserが生成。
+- `uid`: Firebase Anonymous Auth UID。
+- `peerId`: UID + tab固有UUID。WebRTCとmailboxの宛先。
+- `gameId`: 再戦ごとにbrowser coordinatorが生成。
+- `clientActionId`: browser生成UUID。重複操作の抑止に使う。
+- `revision`: room mutationごとに増える整数。
 
 ## Firestore
 
 ```text
-v2Rooms/{roomId}                         authoritative room/membership/state (Admin only)
-v2RoomViews/{roomId}                     public lobby projection
-v2RoomViews/{roomId}/viewers/{uid}       viewer-specific projection
-v2Events/{roomId}/actions/{actionId}     idempotency record (Admin only)
-v2Events/{roomId}/audit/{eventId}        redacted append-only audit event (Admin only)
-users/{uid}                              preferences and active room pointer
-avatars/{uid}                            AvatarProfileV1
-webrtcRooms/{roomId}/signals/{signalId}  short-lived non-authoritative signaling
-webrtcRooms/{roomId}/cues/{cueId}        short-lived presentation-only fallback
+sparkRoomDirectory/{roomId}                 public room list + coordinator lease
+sparkRoomSnapshots/{roomId}                 complete crash-recovery snapshot
+sparkPresence/{roomId}/members/{uid}        30-second presence heartbeat
+sparkSignals/{roomId}/items/{messageId}     WebRTC offer/answer/ICE
+sparkMailboxes/{roomId}/items/{messageId}   DataChannel fallback packet
 ```
 
-`v2Rooms/{roomId}` は手札とUIDを含む完全な権威状態なので、Security Rulesで全クライアントのread/writeを拒否します。一覧表示に必要な `status`、`mode`、`blindCount`、人数、host表示、`heartbeatAt`、`expiresAt` だけを `v2RoomViews/{roomId}` に投影します。クライアントの一覧queryは `v2Rooms` を参照しません。
+### `sparkRoomDirectory`
 
-## 権威状態
+公開一覧に必要なhost、人数、mode、phaseと、coordinator UID/peer ID、`heartbeatAt` / `heartbeatAtMs` を持ちます。coordinator本人だけが通常更新できます。heartbeat停止から75秒後は、後継coordinatorがleaseを取得できます。
+
+### `sparkRoomSnapshots`
+
+`SparkRoomSnapshot` の完全な複製です。members、全hand、deck、pile、pending effect、ranking、chat、適用済みaction IDを含みます。coordinator crash時に別tabが引き継ぐため、匿名認証済み利用者にはreadを許可します。
+
+これはfriends-onlyの復旧データであり、秘密保管場所ではありません。改造クライアントが読むことを防がない代わりに、通常UIへは常に閲覧者別`RoomView`だけを送ります。
+
+### `sparkPresence`
 
 ```ts
-type RoomDocument = {
-  schemaVersion: 2;
-  roomId: RoomId;
-  status: "waiting" | "playing" | "finished" | "frozen";
+type Presence = {
+  uid: string;
+  peerId: string;
+  online: boolean;
+  role: "player" | "spectator";
+  name: string;
+  lastSeenMs: number;
+};
+```
+
+各UIDは自分のdocumentだけを書けます。coordinatorだけがcollectionを常時購読し、切断表示と120秒失格猶予に使います。game stateはpresence documentへ入れません。
+
+### signaling / mailbox
+
+共通fieldは `senderUid`、`senderPeerId`、`targetUid`、`targetPeerId`、`kind`、JSON文字列`payload`、`createdAtMs`、`expiresAtMs` です。RulesはAuth UIDとsender UIDを結び付け、payload sizeを制限します。
+
+Firestore TTL policyやscheduled cleanupはSpark構成で必須にしません。受信側は10分を過ぎたpacketを無視します。古いpacketは必要に応じてConsoleから手動削除できます。
+
+## Browser snapshot
+
+```ts
+type SparkRoomSnapshot = {
+  schemaVersion: 1;
+  roomId: string;
   revision: number;
-  gameId: string | null;
+  generation: number;
+  status: "waiting" | "playing" | "finished";
+  coordinatorUid: string;
   hostUid: string;
   settings: { mode: "normal" | "blind"; blindCount: number };
-  members: Record<string, RoomMember>;
-  game: GameState | null;
-  cardTokens: Record<CardId, string>;
-  pendingMimic: PendingMimic | null;
-  publicChat: PublicChatEntry[];
-  publicEvents: PublicEventEntry[];
-  turnDeadlineAt: Timestamp | null;
-  nextDeadlineAt: Timestamp | null;
-  expiresAt: Timestamp;
-};
-
-type GameState = {
-  id: string;
-  version: number;
-  phase: "playing" | "finished";
-  mode: "normal" | "blind";
-  blindCount: number;
-  players: PlayerState[];
-  deck: Card[];
-  pile: PlayedGroup | null;
-  trickHistory: PlayedGroup[];
-  discard: Card[];
-  lastPlayerId: PlayerId | null;
-  turnPlayerId: PlayerId | null;
-  direction: 1 | -1;
-  revolution: boolean;
-  jackBack: boolean;
-  binding: Suit[];
-  pendingEffect: PendingEffect | null;
-  effectBatch: EffectBatch | null;
+  members: Record<string, SparkMember>;
+  game?: GameState;
+  pendingMimic?: SparkPendingMimic;
+  turnDeadlineMs?: number;
+  chat: ChatEntry[];
+  socialLog: LogEntry[];
+  appliedRoomActionIds: string[];
 };
 ```
 
-`Card` は推測不能な `id`、`suit | null`、`rank | JOKER` を持ち、`PlayerState.hand` の各entryが `card` と `blind` を保持します。クライアントへはこの形を直接配信せず、投影時にgame単位のランダム `cardTokens` へ置換します。
-
-## PendingEffect
-
-効果は順序付きqueueです。
-
-```ts
-type PendingEffect =
-  | { type: "recover"; actorId: PlayerId; count: number }
-  | { type: "steal"; actorId: PlayerId; count: number }
-  | { type: "give"; actorId: PlayerId; count: number }
-  | { type: "discard"; actorId: PlayerId; count: number }
-  | { type: "bomb"; actorId: PlayerId; count: number };
-```
-
-`effectBatch` が順序付きqueueを保持します。階段はK回収を先頭、Jバックと革命を状態transition、その後のランクを実効強さ順、8切りを末尾の自動flushとして組み立てます。viewer投影ではUI契約に合わせ `recover → collect`、`bomb → bomber` と命名します。
+`GameState` と `GameCommand` は `packages/rules` の型が正本です。ルールtransition後に全閲覧者へ`RoomView`を再投影します。
 
 ## 閲覧者向けcard
 
@@ -106,25 +93,8 @@ type HiddenCard = {
 };
 ```
 
-`HiddenCard` の型には `suit`、`rank` を定義しません。自分のブラインド札は選択可能なopaque token、相手の通常札はrevisionと位置から作る非相関back tokenを使います。A奪いactorにだけ対象選択中のopaque tokenを一時投影します。移動したblind cardは権威stateで `blind: false` に更新してから投影します。
+`HiddenCard` にはsuit/rankを定義しません。owner blindはhidden、相手の通常handは裏面、相手のblindとspectator viewはfaceありです。
 
-## RTDB presence
+## 旧namespace
 
-```text
-v2Presence/{roomId}/{uid}
-  online: boolean
-  connectionId: string
-  lastChanged: ServerValue.TIMESTAMP
-```
-
-Firestoreの論理membershipが正本です。RTDB presenceは接続表示と120秒猶予開始の入力に限定し、`onDisconnect` だけで失格を確定しません。scheduled functionまたはtaskが権威stateの期限を再検証して失格を確定します。
-
-## TTL
-
-- authoritative room / public room projection: `expiresAt`
-- action records: ゲーム終了後の保持期限
-- WebRTC signals: 数分
-- presence: 切断後の短期cleanup
-- audit event: 運用方針に従うがカードfaceと個人情報を保存しない
-
-TTL削除は遅延し得るため、公開一覧queryは `status`、`heartbeatAt`、`createdAt >= 24時間前` も検証します。
+`rooms`、`v2Rooms`、`v2RoomViews`、`v2Events`、`webrtcRooms` は移行前構成です。現行web clientは利用しませんが、既存公開版と以前のbackend testを壊さないため削除しません。

@@ -6,8 +6,18 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
-import { get, ref, remove, set } from "firebase/database";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { firestore as adminFirestore } from "../../src/config.js";
@@ -18,19 +28,15 @@ const projectRoot = fileURLToPath(new URL("../../..", import.meta.url));
 let environment: RulesTestEnvironment;
 
 beforeAll(async () => {
-  const [firestoreRules, databaseRules] = await Promise.all([
-    readFile(`${projectRoot}/firestore.rules`, "utf8"),
-    readFile(`${projectRoot}/database.rules.json`, "utf8"),
-  ]);
+  const firestoreRules = await readFile(`${projectRoot}/firestore.rules`, "utf8");
   environment = await initializeTestEnvironment({
     projectId: "daifugo-8e039",
     firestore: { rules: firestoreRules },
-    database: { rules: databaseRules },
   });
 });
 
 beforeEach(async () => {
-  await Promise.all([environment.clearFirestore(), environment.clearDatabase()]);
+  await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async (context) => {
     await Promise.all([
       setDoc(doc(context.firestore(), "v2Rooms/ABCDE"), {
@@ -91,29 +97,102 @@ describe("Firestore v2 isolation", () => {
   });
 });
 
-describe("Realtime Database presence", () => {
-  test("users can write only their bounded presence leaf", async () => {
-    const alice = environment.authenticatedContext("alice").database();
-    const valid = ref(alice, "v2Presence/ABCDE/alice");
-    await assertSucceeds(set(valid, { online: true, connectionId: "tab-a", lastChanged: 1234 }));
-    await assertSucceeds(get(ref(alice, "v2Presence/ABCDE")));
-    await assertSucceeds(remove(valid));
+describe("Spark-plan P2P storage boundary", () => {
+  const directory = {
+    roomId: "P2P22",
+    visibility: "public",
+    coordinatorUid: "alice",
+    coordinatorPeerId: "alice_peer",
+    heartbeatAt: serverTimestamp(),
+    heartbeatAtMs: 1_000,
+    updatedAtMs: 1_000,
+    hostName: "Alice",
+    hostAvatar: { schemaVersion: 1 },
+    playerCount: 1,
+    spectatorCount: 0,
+    mode: "normal",
+    blindCount: 0,
+    phase: "waiting",
+    createdAtMs: 1_000,
+  };
+
+  test("the signed-in coordinator can create the directory and crash snapshot", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), directory));
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "alice",
+        revision: 1,
+      }),
+    );
+    await assertSucceeds(
+      getDoc(doc(environment.authenticatedContext("bob").firestore(), "sparkRoomSnapshots/P2P22")),
+    );
+    await assertFails(
+      setDoc(doc(environment.authenticatedContext("bob").firestore(), "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "bob",
+        revision: 2,
+      }),
+    );
   });
 
-  test("impersonation, malformed room ids, and extra fields are denied", async () => {
-    const alice = environment.authenticatedContext("alice").database();
+  test("presence is writable only by the addressed anonymous Auth UID", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    const valid = {
+      uid: "alice",
+      peerId: "alice_peer",
+      online: true,
+      role: "player",
+      name: "Alice",
+      lastSeenMs: 1_000,
+    };
+    await assertSucceeds(setDoc(doc(alice, "sparkPresence/P2P22/members/alice"), valid));
     await assertFails(
-      set(ref(alice, "v2Presence/ABCDE/bob"), { online: true, connectionId: "x", lastChanged: 1 }),
+      setDoc(doc(alice, "sparkPresence/P2P22/members/bob"), { ...valid, uid: "bob" }),
     );
     await assertFails(
-      set(ref(alice, "v2Presence/bad/alice"), { online: true, connectionId: "x", lastChanged: 1 }),
+      setDoc(doc(alice, "sparkPresence/P2P22/members/alice"), { ...valid, gameState: {} }),
+    );
+  });
+
+  test("mailbox packets bind sender identity and can be queried only for the recipient", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    const packet = {
+      senderUid: "alice",
+      senderPeerId: "alice_peer",
+      targetUid: "bob",
+      targetPeerId: "bob_peer",
+      kind: "wire",
+      payload: JSON.stringify({ type: "hello" }),
+      createdAtMs: 1_000,
+      expiresAtMs: 61_000,
+    };
+    await assertSucceeds(setDoc(doc(alice, "sparkMailboxes/P2P22/items/message-1"), packet));
+    const bob = environment.authenticatedContext("bob").firestore();
+    await assertSucceeds(
+      getDocs(
+        query(collection(bob, "sparkMailboxes/P2P22/items"), where("targetUid", "==", "bob")),
+      ),
     );
     await assertFails(
-      set(ref(alice, "v2Presence/ABCDE/alice"), {
-        online: true,
-        connectionId: "x",
-        lastChanged: 1,
-        injected: true,
+      getDocs(
+        query(
+          collection(
+            environment.authenticatedContext("carol").firestore(),
+            "sparkMailboxes/P2P22/items",
+          ),
+          where("targetUid", "==", "bob"),
+        ),
+      ),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/spoof"), {
+        ...packet,
+        senderUid: "bob",
       }),
     );
   });

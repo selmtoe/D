@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getFirebase } from "./firebaseClient";
+import { useCallback, useEffect, useState } from "react";
+import { getActiveSparkSession } from "./firebaseClient";
 import { isE2ETransport } from "./e2eTransport";
-import { PeerCueNetwork, type CueEvent } from "./peerCues";
+import type { CueEvent } from "./peerCues";
 
 export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
-  const network = useRef<PeerCueNetwork | undefined>(undefined);
   const [mode, setMode] = useState<"connecting" | "webrtc" | "firebase" | "offline">("connecting");
   const [lastCue, setLastCue] = useState<{ cue: CueEvent; sender: string }>();
   const peerKey = peerIds.join("|");
@@ -13,31 +12,23 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
       setMode("offline");
       return;
     }
-    let alive = true;
-    const stablePeerIds = peerKey ? peerKey.split("|") : [];
-    getFirebase()
-      .then(({ db }) => {
-        if (!alive) return;
-        const next = new PeerCueNetwork(
-          db,
-          roomId,
-          uid,
-          (cue, sender) => setLastCue({ cue, sender }),
-          setMode,
-        );
-        network.current = next;
-        return next.start(stablePeerIds);
-      })
-      .catch(() => setMode("offline"));
+    const session = getActiveSparkSession();
+    if (!session || session.roomId !== roomId || session.uid !== uid) {
+      setMode("offline");
+      return;
+    }
+    const stopCue = session.onCue((cue, sender) => setLastCue({ cue, sender }));
+    const stopMode = session.onMode(setMode);
     return () => {
-      alive = false;
-      network.current?.close();
-      network.current = undefined;
+      stopCue();
+      stopMode();
     };
   }, [peerKey, roomId, uid]);
-  const send = useCallback(
-    (cue: CueEvent) => network.current?.send(cue) ?? Promise.resolve(false),
-    [],
-  );
+  const send = useCallback(async (cue: CueEvent) => {
+    const session = getActiveSparkSession();
+    if (!session) return false;
+    await session.sendCue(cue);
+    return true;
+  }, []);
   return { mode, lastCue, send };
 }

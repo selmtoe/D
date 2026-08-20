@@ -269,7 +269,7 @@ export function GameScreen({
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (selectedCards.some((card) => card.visibility === "hidden"))
-      return "ブラインド札はサーバーが中身を検証します";
+      return "ブラインド札は部屋ホストが中身を検証します";
     if (
       selectedCards.some((card) => card.visibility === "face" && card.joker) &&
       selectedCards.length > 1
@@ -287,7 +287,7 @@ export function GameScreen({
               },
         ),
       );
-      return "選択した組み合わせは出し方の候補です（最終判定はサーバー）";
+      return "選択した組み合わせは出し方の候補です（最終判定は部屋ホスト）";
     } catch {
       return "同ランクの組、または同一スート3枚以上の階段を選んでください";
     }

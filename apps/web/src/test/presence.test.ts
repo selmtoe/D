@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { presenceRecord } from "../network/firebaseClient";
 
-describe("RTDB presence payload", () => {
-  it("matches the strict v2Presence rules shape", () =>
+describe("presence payload helper", () => {
+  it("keeps the connection marker independent from gameplay state", () =>
     expect(presenceRecord(true, "connection-id", 123)).toEqual({
       online: true,
       connectionId: "connection-id",

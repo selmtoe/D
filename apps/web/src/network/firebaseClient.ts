@@ -18,27 +18,10 @@ import {
   onSnapshot,
   orderBy,
   query,
-  Timestamp,
   where,
   type Firestore,
   type Unsubscribe,
 } from "firebase/firestore";
-import {
-  connectFunctionsEmulator,
-  getFunctions,
-  httpsCallable,
-  type Functions,
-} from "firebase/functions";
-import {
-  connectDatabaseEmulator,
-  getDatabase,
-  onDisconnect,
-  onValue,
-  ref,
-  serverTimestamp as databaseServerTimestamp,
-  set,
-  type Database,
-} from "firebase/database";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { migrateAvatar } from "@daifugo/avatar-schema";
 import type { PublicRoom, Role, RoomView } from "../app/model";
@@ -49,15 +32,15 @@ import {
   subscribeE2EPublicRooms,
   subscribeE2ERoomView,
 } from "./e2eTransport";
+import { SparkP2PSession } from "./sparkP2P";
 
 type FirebaseContext = {
   app: FirebaseApp;
   auth: Auth;
   db: Firestore;
-  rtdb: Database;
-  functions: Functions;
   user: User;
 };
+
 export type CommandName =
   | "createRoom"
   | "joinRoomAsPlayer"
@@ -79,12 +62,20 @@ export type CommandName =
   | "sendChat"
   | "startRematch"
   | "saveAvatarProfile";
+
 type BaseCommand = {
   roomId?: string;
   gameId?: string | null;
   expectedRevision?: number;
   clientActionId?: string;
 };
+
+interface ReconnectRecord {
+  roomId: string;
+  token: string;
+  role: Role;
+  profile: { name: string; avatar: AvatarProfileV1 };
+}
 
 const requiredEnv = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -98,18 +89,31 @@ const requiredEnv = {
 const missing = Object.entries(requiredEnv)
   .filter(([, value]) => !value)
   .map(([key]) => key);
-if (requiredEnv.projectId && requiredEnv.projectId !== "daifugo-8e039")
+if (requiredEnv.projectId && requiredEnv.projectId !== "daifugo-8e039") {
   throw new Error(`接続先Project IDが不正です: ${requiredEnv.projectId}`);
+}
 
 let singleton: Promise<FirebaseContext> | undefined;
 let emulatorsConnected = false;
+let activeSession: SparkP2PSession | undefined;
 
 export const firebaseMode = {
   projectId: requiredEnv.projectId || "未設定",
   emulator: import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true",
   configured: missing.length === 0,
   missing,
+  transport: "WebRTC P2P + Firestore signaling" as const,
+  sparkCompatible: true,
 };
+
+/** Pure helper retained for UI/tests; Spark presence stores equivalent fields in Firestore. */
+export function presenceRecord(
+  online: boolean,
+  connectionId: string,
+  lastChanged: unknown,
+): { online: boolean; connectionId: string; lastChanged: unknown } {
+  return { online, connectionId, lastChanged };
+}
 
 function authReady(auth: Auth): Promise<User> {
   return new Promise((resolve, reject) => {
@@ -118,10 +122,11 @@ function authReady(auth: Auth): Promise<User> {
       (user) => {
         unsubscribe();
         if (user) resolve(user);
-        else
+        else {
           signInAnonymously(auth)
             .then(({ user: signedIn }) => resolve(signedIn))
             .catch(reject);
+        }
       },
       reject,
     );
@@ -130,49 +135,66 @@ function authReady(auth: Auth): Promise<User> {
 
 export async function getFirebase(): Promise<FirebaseContext> {
   const viewerUid = import.meta.env.DEV ? e2eViewerUid() : undefined;
-  if (viewerUid)
-    return {
-      user: { uid: viewerUid },
-    } as unknown as FirebaseContext;
-  if (!firebaseMode.configured)
+  if (viewerUid) {
+    return { user: { uid: viewerUid } } as unknown as FirebaseContext;
+  }
+  if (!firebaseMode.configured) {
     throw new Error(
       `Firebase接続設定が不足しています（${missing.join("、")}）。apps/web/.env.exampleを参照してください。`,
     );
+  }
   singleton ??= (async () => {
     const app = initializeApp(requiredEnv);
     const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY;
-    if (appCheckSiteKey && !firebaseMode.emulator)
+    if (appCheckSiteKey && !firebaseMode.emulator) {
       initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider(appCheckSiteKey),
         isTokenAutoRefreshEnabled: true,
       });
+    }
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const databaseUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL;
-    const rtdb = databaseUrl ? getDatabase(app, databaseUrl) : getDatabase(app);
-    const functions = getFunctions(
-      app,
-      import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || "asia-northeast1",
-    );
     if (firebaseMode.emulator && !emulatorsConnected) {
       connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
       connectFirestoreEmulator(db, "127.0.0.1", 8080);
-      connectDatabaseEmulator(rtdb, "127.0.0.1", 9000);
-      connectFunctionsEmulator(functions, "127.0.0.1", 5001);
       emulatorsConnected = true;
     }
     const user = await authReady(auth);
-    return { app, auth, db, rtdb, functions, user };
+    return { app, auth, db, user };
   })();
   return singleton;
 }
 
-export function presenceRecord(
-  online: boolean,
-  connectionId: string,
-  lastChanged: unknown,
-): { online: boolean; connectionId: string; lastChanged: unknown } {
-  return { online, connectionId, lastChanged };
+function reconnectKey(roomId: string): string {
+  return `daifugo-spark-reconnect-${roomId}`;
+}
+
+function saveReconnect(record: ReconnectRecord): void {
+  localStorage.setItem(reconnectKey(record.roomId), JSON.stringify(record));
+}
+
+function loadReconnect(roomId: string): ReconnectRecord | undefined {
+  try {
+    const raw = localStorage.getItem(reconnectKey(roomId));
+    if (!raw) return undefined;
+    const value = JSON.parse(raw) as ReconnectRecord;
+    return value.roomId === roomId && typeof value.token === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function freshToken(): string {
+  return crypto.randomUUID();
+}
+
+async function replaceActiveSession(session: SparkP2PSession): Promise<void> {
+  if (activeSession && activeSession !== session) await activeSession.stop(false);
+  activeSession = session;
+}
+
+export function getActiveSparkSession(): SparkP2PSession | undefined {
+  return activeSession;
 }
 
 export async function startRoomPresence(
@@ -184,45 +206,16 @@ export async function startRoomPresence(
     await e2eCall({ op: "presence", roomId });
     return () => undefined;
   }
-  const { rtdb, user } = await getFirebase();
-  const presence = ref(rtdb, `v2Presence/${roomId}/${user.uid}`);
-  const connected = ref(rtdb, ".info/connected");
-  const connectionId = crypto.randomUUID();
-  const disconnect = onDisconnect(presence);
-  let stopped = false;
-  let connectedOnce = false;
-  let disconnectedAfterConnect = false;
-  const unsubscribe = onValue(
-    connected,
-    (snapshot) => {
-      if (stopped) return;
-      if (snapshot.val() !== true) {
-        if (connectedOnce) disconnectedAfterConnect = true;
-        return;
-      }
-      const shouldRestoreMembership = disconnectedAfterConnect;
-      connectedOnce = true;
-      disconnectedAfterConnect = false;
-      disconnect
-        .set(presenceRecord(false, connectionId, databaseServerTimestamp()))
-        .then(() => set(presence, presenceRecord(true, connectionId, databaseServerTimestamp())))
-        .then(() => {
-          if (shouldRestoreMembership) onRestored?.();
-        })
-        .catch((cause: unknown) =>
-          onError(cause instanceof Error ? cause : new Error("presenceの更新に失敗しました")),
-        );
-    },
-    (cause) => onError(new Error(`presenceへ接続できません: ${cause.message}`)),
-  );
-  return () => {
-    stopped = true;
-    unsubscribe();
-    void disconnect.cancel().catch(() => undefined);
-    void set(presence, presenceRecord(false, connectionId, databaseServerTimestamp())).catch(
-      () => undefined,
-    );
-  };
+  const session = activeSession;
+  if (!session || session.roomId !== roomId) {
+    throw new Error("failed-precondition: P2P部屋セッションがありません");
+  }
+  let previous: "webrtc" | "firebase" | "offline" | undefined;
+  return session.onMode((mode) => {
+    if (previous === "offline" && mode !== "offline") onRestored?.();
+    previous = mode;
+    if (mode === "offline") onError(new Error("P2P接続がオフラインです"));
+  });
 }
 
 function actionId(): string {
@@ -236,19 +229,37 @@ export async function sendCommand<
     ...payload,
     clientActionId: payload.clientActionId ?? actionId(),
   };
-  if (import.meta.env.DEV && isE2ETransport())
+  if (import.meta.env.DEV && isE2ETransport()) {
     return e2eCall<TResponse>({ op: "command", name, payload: commandPayload });
-  const { functions } = await getFirebase();
-  const callable = httpsCallable<Record<string, unknown>, TResponse>(functions, name);
-  const result = await callable(commandPayload);
-  return result.data;
+  }
+  if (name === "saveAvatarProfile" && !activeSession) return {} as TResponse;
+  if (!activeSession) throw new Error("failed-precondition: P2P部屋へ接続していません");
+  const roomId = activeSession.roomId;
+  const result = (await activeSession.sendCommand(name, commandPayload)) as TResponse;
+  if (name === "leaveRoom") {
+    await activeSession.stop();
+    activeSession = undefined;
+    localStorage.removeItem(reconnectKey(roomId));
+  }
+  return result;
 }
 
 export async function createRoom(profile: {
   name: string;
   avatar: AvatarProfileV1;
 }): Promise<{ roomId: string; reconnectToken?: string }> {
-  return sendCommand("createRoom", { profile, settings: { mode: "normal", blindCount: 0 } });
+  if (import.meta.env.DEV && isE2ETransport()) {
+    return sendCommand("createRoom", {
+      profile,
+      settings: { mode: "normal", blindCount: 0 },
+    });
+  }
+  const { db, user } = await getFirebase();
+  const session = await SparkP2PSession.create(db, user, profile);
+  await replaceActiveSession(session);
+  const token = freshToken();
+  saveReconnect({ roomId: session.roomId, token, role: "player", profile });
+  return { roomId: session.roomId, reconnectToken: token };
 }
 
 export async function joinRoom(
@@ -256,31 +267,44 @@ export async function joinRoom(
   role: Role,
   profile: { name: string; avatar: AvatarProfileV1 },
 ): Promise<{ roomId: string; reconnectToken?: string }> {
-  const identity = await getRoomCommandBase(roomId);
-  const result = await sendCommand<{ reconnectToken?: string }>(
-    role === "player" ? "joinRoomAsPlayer" : "joinRoomAsSpectator",
-    { ...identity, profile },
-  );
-  return { roomId, ...result };
+  const normalized = roomId.toUpperCase().slice(0, 5);
+  if (import.meta.env.DEV && isE2ETransport()) {
+    const identity = await getRoomCommandBase(normalized);
+    const result = await sendCommand<{ reconnectToken?: string }>(
+      role === "player" ? "joinRoomAsPlayer" : "joinRoomAsSpectator",
+      { ...identity, profile },
+    );
+    return { roomId: normalized, ...result };
+  }
+  const { db, user } = await getFirebase();
+  const session = await SparkP2PSession.connect(db, user, normalized, role, profile);
+  await replaceActiveSession(session);
+  const token = freshToken();
+  saveReconnect({ roomId: normalized, token, role, profile });
+  return { roomId: normalized, reconnectToken: token };
 }
 
 export async function getRoomCommandBase(
   roomId: string,
 ): Promise<{ roomId: string; gameId: string | null; expectedRevision: number }> {
-  if (import.meta.env.DEV && isE2ETransport())
-    return e2eCall({
-      op: "roomBase",
-      roomId,
-    });
+  if (import.meta.env.DEV && isE2ETransport()) {
+    return e2eCall({ op: "roomBase", roomId });
+  }
+  const view = activeSession?.roomId === roomId ? activeSession.currentView() : undefined;
+  if (view) {
+    return { roomId, gameId: view.gameId ?? null, expectedRevision: view.revision };
+  }
   const { db } = await getFirebase();
-  const snapshot = await getDoc(doc(db, "v2RoomViews", roomId));
-  if (!snapshot.exists()) throw new Error("指定された部屋が見つかりません");
+  const snapshot = await getDoc(doc(db, "sparkRoomSnapshots", roomId));
+  if (!snapshot.exists()) throw new Error("not-found: 指定された部屋が見つかりません");
   const data = snapshot.data();
-  if (typeof data.revision !== "number") throw new Error("部屋の接続情報が不正です");
   return {
     roomId,
-    gameId: typeof data.gameId === "string" ? data.gameId : null,
-    expectedRevision: data.revision,
+    gameId:
+      data.game && typeof data.game === "object" && typeof data.game.id === "string"
+        ? data.game.id
+        : null,
+    expectedRevision: Number(data.revision ?? 0),
   };
 }
 
@@ -288,7 +312,37 @@ export async function reconnectWithToken(
   roomId: string,
   reconnectToken: string,
 ): Promise<{ reconnectToken: string; reconnectOutcome: "restored" | "expired" }> {
-  return sendCommand("reconnectRoom", { ...(await getRoomCommandBase(roomId)), reconnectToken });
+  if (import.meta.env.DEV && isE2ETransport()) {
+    return sendCommand("reconnectRoom", {
+      ...(await getRoomCommandBase(roomId)),
+      reconnectToken,
+    }) as Promise<{ reconnectToken: string; reconnectOutcome: "restored" | "expired" }>;
+  }
+  const saved = loadReconnect(roomId);
+  if (saved && saved.token !== reconnectToken) {
+    throw new Error("permission-denied: 再接続情報が更新されています");
+  }
+  const { db, user } = await getFirebase();
+  const session = await SparkP2PSession.connect(
+    db,
+    user,
+    roomId,
+    saved?.role ?? "spectator",
+    saved?.profile,
+  );
+  await replaceActiveSession(session);
+  const nextToken = freshToken();
+  const member = session.currentMember();
+  if (saved) saveReconnect({ ...saved, token: nextToken });
+  else if (member) {
+    saveReconnect({
+      roomId,
+      token: nextToken,
+      role: member.role,
+      profile: { name: member.name, avatar: member.avatar },
+    });
+  }
+  return { reconnectToken: nextToken, reconnectOutcome: "restored" };
 }
 
 export function subscribeRoomView(
@@ -297,78 +351,48 @@ export function subscribeRoomView(
   onView: (view: RoomView) => void,
   onError: (error: Error) => void,
 ): Promise<Unsubscribe> {
-  if (import.meta.env.DEV && isE2ETransport())
+  if (import.meta.env.DEV && isE2ETransport()) {
     return Promise.resolve(subscribeE2ERoomView(roomId, uid, onView, onError));
-  return getFirebase().then(({ db }) =>
-    onSnapshot(
-      doc(db, "v2RoomViews", roomId, "viewers", uid),
-      (snapshot) => {
-        if (!snapshot.exists()) return;
-        const data = snapshot.data();
-        if (
-          typeof data.revision !== "number" ||
-          !Array.isArray(data.players) ||
-          !Array.isArray(data.hand)
-        ) {
-          onError(new Error("サーバーから受け取った部屋ビューの形式が不正です"));
-          return;
-        }
-        const chat = Array.isArray(data.chat)
-          ? data.chat.map((entry: Record<string, unknown>) => ({
-              id: String(entry.id ?? ""),
-              uid: String(entry.uid ?? ""),
-              name: String(entry.name ?? ""),
-              role: entry.role === "spectator" ? ("spectator" as const) : ("player" as const),
-              text: String(entry.text ?? ""),
-              atMs: timestampMs(entry.createdAt),
-            }))
-          : undefined;
-        onView({ ...data, ...(chat ? { chat } : {}) } as RoomView);
-      },
-      (cause) => onError(new Error(`部屋との同期に失敗しました: ${cause.message}`)),
-    ),
-  );
-}
-
-function timestampMs(value: unknown): number {
-  return value instanceof Timestamp
-    ? value.toMillis()
-    : typeof value === "number"
-      ? value
-      : Date.now();
+  }
+  const session = activeSession;
+  if (!session || session.roomId !== roomId || session.uid !== uid) {
+    return Promise.reject(new Error("failed-precondition: P2P部屋ビューがありません"));
+  }
+  return Promise.resolve(session.onView(onView));
 }
 
 export async function subscribePublicRooms(
   onRooms: (rooms: PublicRoom[]) => void,
   onError: (error: Error) => void,
 ): Promise<Unsubscribe> {
-  if (import.meta.env.DEV && isE2ETransport())
-    return Promise.resolve(subscribeE2EPublicRooms(onRooms, onError));
+  if (import.meta.env.DEV && isE2ETransport()) {
+    return subscribeE2EPublicRooms(onRooms, onError);
+  }
   const { db } = await getFirebase();
-  const cutoff = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const publicQuery = query(
-    collection(db, "v2RoomViews"),
+    collection(db, "sparkRoomDirectory"),
     where("visibility", "==", "public"),
-    where("heartbeatAt", ">=", cutoff),
-    orderBy("heartbeatAt", "desc"),
+    where("heartbeatAtMs", ">=", cutoff),
+    orderBy("heartbeatAtMs", "desc"),
     limit(40),
   );
   return onSnapshot(
     publicQuery,
     (snapshot) =>
       onRooms(
-        snapshot.docs.map((roomDoc) => {
-          const data = roomDoc.data();
+        snapshot.docs.map((roomDocument) => {
+          const data = roomDocument.data();
           return {
-            roomId: roomDoc.id,
+            roomId: roomDocument.id,
             hostName: String(data.hostName ?? "ゲスト"),
             hostAvatar: migrateAvatar(data.hostAvatar),
             playerCount: Number(data.playerCount ?? 0),
             spectatorCount: Number(data.spectatorCount ?? 0),
             mode: data.mode === "blind" ? "blind" : "normal",
-            blindCount: Number(data.blindCount ?? 1),
+            blindCount: Number(data.blindCount ?? 0),
             phase: data.phase === "waiting" ? "waiting" : "playing",
-            createdAtMs: timestampMs(data.createdAt),
+            createdAtMs: Number(data.createdAtMs ?? Date.now()),
           } satisfies PublicRoom;
         }),
       ),
@@ -378,15 +402,22 @@ export async function subscribePublicRooms(
 
 export function firebaseErrorMessage(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : "不明な通信エラーです";
-  if (message.includes("auth/configuration-not-found"))
-    return "Firebase匿名認証が未設定です。プロジェクト管理者がAuthenticationを有効にしてください。";
-  if (message.includes("permission-denied"))
-    return "この操作を行う権限がありません。部屋を再読み込みしてください。";
-  if (message.includes("unauthenticated"))
-    return "認証の有効期限が切れました。再接続してください。";
-  if (message.includes("failed-precondition"))
-    return "部屋の状態が更新されています。最新の状態でもう一度お試しください。";
-  if (message.includes("unavailable") || message.includes("network"))
-    return "サーバーへ接続できません。通信状態を確認してください。";
+  if (message.includes("auth/configuration-not-found")) {
+    return "Firebase匿名認証が未設定です。Authenticationで匿名ログインを有効にしてください。";
+  }
+  if (message.includes("resource-exhausted")) return message.split(":").slice(1).join(":").trim();
+  if (message.includes("stale revision") || message.includes("aborted")) {
+    return "部屋の状態が更新されています。もう一度操作してください。";
+  }
+  if (message.includes("permission-denied")) {
+    return "このP2P部屋へ接続する権限がありません。部屋を再読み込みしてください。";
+  }
+  if (message.includes("failed-precondition")) {
+    return message.split(":").slice(1).join(":").trim() || "部屋の状態が更新されています。";
+  }
+  if (message.includes("not-found")) return "指定された部屋が見つかりません。";
+  if (message.includes("unavailable") || message.includes("network")) {
+    return "ホストへ接続できません。通信状態を確認してください。";
+  }
   return message;
 }

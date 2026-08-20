@@ -33,20 +33,15 @@
         { "fieldPath": "visibility", "order": "ASCENDING" },
         { "fieldPath": "heartbeatAt", "order": "DESCENDING" }
       ]
-    }
-  ],
-  "fieldOverrides": [
-    {
-      "collectionGroup": "signals",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
     },
     {
-      "collectionGroup": "cues",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
+      "collectionGroup": "sparkRoomDirectory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "visibility", "order": "ASCENDING" },
+        { "fieldPath": "heartbeatAtMs", "order": "DESCENDING" }
+      ]
     }
-  ]
+  ],
+  "fieldOverrides": []
 }

@@ -48,7 +48,7 @@ jobs:
       - run: >-
           pnpm dlx firebase-tools emulators:exec
           --project daifugo-8e039
-          --only firestore,database
+          --only firestore
           "pnpm --filter @daifugo/functions test:emulator"
 
   browser-e2e:

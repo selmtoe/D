@@ -17,19 +17,23 @@
 | 15〜17   | 観戦権限、上がり後観戦、timeout、再接続、退出、再戦      |
 | 18       | card conservation、idempotency、revision、pending effect |
 
-## Backend integration
+## Browser authority / P2P integration
 
 - 3/4/5/6人の配札数とCardIdの一意性
-- 競合submitの片方だけが成功すること
+- coordinator queueで競合submitの片方だけが成功すること
 - 同一UID/actionIdの再送が同じ結果を返すこと
 - stale gameId/revision、異なるturn、effect中の通常操作を拒否すること
 - host以外の設定/開始、spectatorのルール操作を拒否すること
-- player/spectator/finished playerのprojection差分
+- player/spectator/finished playerのP2P projection差分
 - own blind projectionのserialized JSONにface/suit/rankが存在しないこと
 - 60秒turn timeoutと120秒disconnect grace
 - host移譲、効果actor切断の既定解決、active 1人以下の終了
-- public listのheartbeat/24時間filterとempty room cleanup
-- Security Rulesがprivate state、action、他UID viewを拒否すること
+- public listのheartbeat/24時間filter
+- 75秒coordinator lease移譲とsnapshot復元
+- DataChannel不成立時のFirestore mailbox fallback
+- Security Rulesがdirectory lease、presence所有者、signal/mailbox senderを検証すること
+
+Spark friends-only版では完全snapshotのclient readを許可するため、Firestoreをanti-cheat/private-state境界として試験しません。
 
 ## E2E
 
@@ -61,4 +65,4 @@ Playwrightはdesktop ChromiumとPixel 7相当で入口3D、横overflow、ルー�
 
 ## 完了gate
 
-`typecheck`、unit、emulator integration、E2E、visual snapshots、production buildの順に実行します。本番smokeはproject ownerがAuth、billing、Rules、App Check、regionを確認した後だけ行い、roomIdを記録して削除します。
+`typecheck`、unit、Firestore Rules Emulator、E2E、visual snapshots、production buildの順に実行します。本番smokeはproject ownerがAnonymous Auth、Firestore Rules/Indexes、Authorized domainを確認した後だけ行います。Blaze、Functions、RTDB、App Check enforcementは公開の必須条件ではありません。
