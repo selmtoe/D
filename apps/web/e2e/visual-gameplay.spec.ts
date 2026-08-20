@@ -4,6 +4,21 @@ import { stealAnimationCue } from "../src/network/peerCues";
 import { AuthoritativeE2EServer } from "./support/authoritativeServer";
 
 const profile = (name: string) => ({ name, avatar: defaultAvatar });
+const captureScreenshots =
+  process.env.CI !== "true" || process.env.DAIFUGO_CAPTURE_VISUAL_E2E === "1";
+
+async function capture(page: Page, path: string): Promise<void> {
+  if (!captureScreenshots) return;
+  await page.waitForTimeout(900);
+  await page.screenshot({ path });
+}
+
+async function closeContext(context: BrowserContext): Promise<void> {
+  await Promise.race([
+    context.close().catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+  ]);
+}
 
 async function roomBase(authority: AuthoritativeE2EServer) {
   return (await authority.handle("uid-host", {
@@ -95,8 +110,8 @@ test.describe("single-canvas visual gameplay inspection", () => {
     await seedStartedRoom(authority);
     const actor = await reconnectPage(browser, authority, "uid-player-3");
     try {
-      await actor.page.waitForTimeout(900);
-      await actor.page.screenshot({ path: testInfo.outputPath("hand-right-card-front.png") });
+      await expect(actor.page.locator("canvas").first()).toBeVisible();
+      await capture(actor.page, testInfo.outputPath("hand-right-card-front.png"));
       await advanceToSteal(authority);
       const effect = actor.page.getByRole("region", { name: "A奪い" });
       await expect(effect).toBeVisible();
@@ -104,10 +119,9 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await effect.getByRole("button", { name: "この配分で位置を選ぶ" }).click();
       await effect.getByRole("option", { name: /1番目/ }).hover();
       await effect.getByRole("option", { name: /1番目/ }).click();
-      await actor.page.waitForTimeout(900);
-      await actor.page.screenshot({ path: testInfo.outputPath("a-steal-actor-view.png") });
+      await capture(actor.page, testInfo.outputPath("a-steal-actor-view.png"));
     } finally {
-      await actor.context.close();
+      await closeContext(actor.context);
     }
   });
 
@@ -120,24 +134,26 @@ test.describe("single-canvas visual gameplay inspection", () => {
     await advanceToSteal(authority);
     const victim = await reconnectPage(browser, authority, "uid-player-2");
     try {
-      await authority.handle("uid-player-3", {
-        op: "cueSend",
-        roomId: authority.roomId,
-        payload: {
-          cue: stealAnimationCue("point", "uid-player-2", {
-            cardCount: 2,
-            takeCount: 1,
-            slot: 1,
-            pointerX: 0.75,
-            selectedSlots: [],
-          }),
-        },
-      });
-      await expect(victim.page.getByRole("heading", { name: "相手が札を選択中" })).toBeVisible();
-      await victim.page.waitForTimeout(900);
-      await victim.page.screenshot({ path: testInfo.outputPath("a-steal-victim-view.png") });
+      const heading = victim.page.getByRole("heading", { name: "相手が札を選択中" });
+      await expect(async () => {
+        await authority.handle("uid-player-3", {
+          op: "cueSend",
+          roomId: authority.roomId,
+          payload: {
+            cue: stealAnimationCue("point", "uid-player-2", {
+              cardCount: 2,
+              takeCount: 1,
+              slot: 1,
+              pointerX: 0.75,
+              selectedSlots: [],
+            }),
+          },
+        });
+        await expect(heading).toBeVisible({ timeout: 1_000 });
+      }).toPass({ timeout: 10_000 });
+      await capture(victim.page, testInfo.outputPath("a-steal-victim-view.png"));
     } finally {
-      await victim.context.close();
+      await closeContext(victim.context);
     }
   });
 });
