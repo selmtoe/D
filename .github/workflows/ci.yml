@@ -23,6 +23,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @daifugo/rules build
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
@@ -45,6 +46,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @daifugo/rules build
       - run: >-
           pnpm dlx firebase-tools emulators:exec
           --project daifugo-8e039
@@ -65,5 +67,6 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @daifugo/rules build
       - run: pnpm --filter @daifugo/web exec playwright install --with-deps chromium
       - run: pnpm --filter @daifugo/web test:e2e
