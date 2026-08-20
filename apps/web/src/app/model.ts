@@ -120,6 +120,7 @@ export type AppEvent =
   | { type: "ROOM_VIEW"; room: RoomView }
   | { type: "DEALING_DONE" }
   | { type: "LEAVE_ROOM" }
+  | { type: "EVICTED"; message: string }
   | { type: "CONNECTION"; connection: ConnectionState }
   | { type: "ERROR"; message: string }
   | { type: "CLEAR_ERROR" };

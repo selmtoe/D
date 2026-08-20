@@ -17,6 +17,15 @@ import type { CardMotionEvent } from "./cardMotion";
 import { StealVisualLayer } from "./StealVisualLayer";
 import type { StealVisualState } from "../screens/StealSequence";
 
+function FrameScheduler({ fps }: { fps: number }) {
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    const timer = window.setInterval(invalidate, Math.round(1000 / fps));
+    return () => window.clearInterval(timer);
+  }, [fps, invalidate]);
+  return null;
+}
+
 function CameraRig({
   spectator,
   mobile,
@@ -24,7 +33,8 @@ function CameraRig({
   focusIndex,
   playerCount,
   keyboardOpen,
-  effectFocus,
+  effectPerspective,
+  actorIndex,
 }: {
   spectator: boolean;
   mobile: boolean;
@@ -32,21 +42,44 @@ function CameraRig({
   focusIndex: number;
   playerCount: number;
   keyboardOpen: boolean;
-  effectFocus: boolean;
+  effectPerspective?: StealVisualState["perspective"] | undefined;
+  actorIndex: number;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const target = useMemo(() => {
     const radius = mobile ? (keyboardOpen ? 11.4 : 9.7) : 10.8;
-    const angle =
-      (spectator || effectFocus) && playerCount > 0
-        ? (focusIndex / playerCount) * Math.PI * 2 + Math.PI / 2
-        : Math.PI / 2;
+    const targetAngle = (focusIndex / Math.max(1, playerCount)) * Math.PI * 2 + Math.PI / 2;
+    const actorAngle = (actorIndex / Math.max(1, playerCount)) * Math.PI * 2 + Math.PI / 2;
+    if (effectPerspective === "actor") {
+      return {
+        y: mobile ? 3.35 : 3.05,
+        x: Math.cos(targetAngle) * 2.15,
+        z: Math.sin(targetAngle) * 2.15,
+        lookX: Math.cos(targetAngle) * 5.15,
+        lookY: 0.9,
+        lookZ: Math.sin(targetAngle) * 5.15,
+      };
+    }
+    if (effectPerspective === "victim") {
+      return {
+        y: mobile ? 7.3 : 6.4,
+        x: 0,
+        z: radius,
+        lookX: Math.cos(actorAngle) * 5.1,
+        lookY: 1.1,
+        lookZ: Math.sin(actorAngle) * 5.1,
+      };
+    }
+    const angle = spectator && playerCount > 0 ? targetAngle : Math.PI / 2;
     return {
-      y: spectator ? 8.2 : effectFocus ? 7.4 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
+      y: spectator ? 8.2 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
       x: Math.cos(angle) * radius,
       z: Math.sin(angle) * radius,
+      lookX: 0,
+      lookY: 0.3,
+      lookZ: 0,
     };
-  }, [effectFocus, focusIndex, keyboardOpen, mobile, playerCount, spectator]);
+  }, [actorIndex, effectPerspective, focusIndex, keyboardOpen, mobile, playerCount, spectator]);
   useEffect(() => {
     camera.fov = mobile ? (keyboardOpen ? 58 : 51) : spectator ? 47 : 45;
     camera.updateProjectionMatrix();
@@ -56,7 +89,7 @@ function CameraRig({
     camera.position.y = MathUtils.lerp(camera.position.y, target.y, factor);
     camera.position.x = MathUtils.lerp(camera.position.x, target.x, factor);
     camera.position.z = MathUtils.lerp(camera.position.z, target.z, factor);
-    camera.lookAt(0, 0.3, 0);
+    camera.lookAt(target.lookX, target.lookY, target.lookZ);
   });
   return null;
 }
@@ -151,6 +184,8 @@ function seats(
   currentPlayerId?: string,
   lowPower = false,
   movingToSeats = new Map<string, ReadonlySet<string>>(),
+  hiddenCardPlayerId?: string,
+  hideViewerAvatar = true,
 ) {
   return players.map((player, index) => {
     const angle = (index / players.length) * Math.PI * 2 + Math.PI / 2;
@@ -161,11 +196,13 @@ function seats(
         position={[Math.cos(angle) * radius, 0.05, Math.sin(angle) * radius]}
         rotation={[0, -angle - Math.PI / 2, 0]}
       >
-        <Avatar3D
-          profile={player.avatar}
-          active={player.id === currentPlayerId}
-          lowPower={lowPower}
-        />
+        {(!hideViewerAvatar || player.id !== viewerId) && (
+          <Avatar3D
+            profile={player.avatar}
+            active={player.id === currentPlayerId}
+            lowPower={lowPower}
+          />
+        )}
         <mesh position={[0, -0.12, 0]}>
           <cylinderGeometry args={[0.75, 0.75, 0.09, 48]} />
           <meshStandardMaterial
@@ -173,7 +210,7 @@ function seats(
             metalness={0.45}
           />
         </mesh>
-        {player.id !== viewerId && (
+        {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
           <group position={[0, 0.28, 0.95]}>
             {(player.cards ?? []).map((card, cardIndex) => {
               const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
@@ -214,13 +251,10 @@ function handCards(
         dimmed={Boolean(playableIds && !playableIds.has(card.id))}
         hidden={movingToHand.has(card.id)}
         onSelect={() => toggle(card)}
-        position={[
-          centered * spacing,
-          1.05 - Math.abs(centered) * 0.015,
-          4.15 + Math.abs(centered) * 0.025,
-        ]}
+        position={[centered * spacing, 1.05 - Math.abs(centered) * 0.015, 4.08 + index * 0.035]}
         rotation={[-0.42, 0, -centered * 0.035]}
         scale={mobile ? 0.78 : 0.92}
+        renderOrder={100 + index}
       />
     );
   });
@@ -342,7 +376,7 @@ export function SalonScene({
   const keyboardOpen = viewport.keyboardInset > 80;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
-  const activeCardMotions = reducedMotion ? [] : cardMotions;
+  const activeCardMotions = cardMotions;
   const movingToHand = useMemo(
     () =>
       new Set(
@@ -376,11 +410,18 @@ export function SalonScene({
     document.addEventListener("visibilitychange", change);
     return () => document.removeEventListener("visibilitychange", change);
   }, []);
+  if (
+    import.meta.env.DEV &&
+    (window as unknown as { __DAIFUGO_E2E_RENDER_CANVAS__?: boolean })
+      .__DAIFUGO_E2E_RENDER_CANVAS__ === false
+  ) {
+    return <div className="salon-canvas e2e-canvas-suppressed" aria-hidden="true" />;
+  }
   return (
     <>
       <Canvas
         className="salon-canvas"
-        frameloop={pageVisible ? "always" : "never"}
+        frameloop="demand"
         dpr={lowPower ? 0.75 : [1, 1.6]}
         shadows={!lowPower}
         gl={{
@@ -397,6 +438,7 @@ export function SalonScene({
           gl.domElement.addEventListener("webglcontextrestored", () => setContextLost(false));
         }}
       >
+        {pageVisible && <FrameScheduler fps={lowPower ? 24 : 30} />}
         <color attach="background" args={["#06100f"]} />
         <fog attach="fog" args={["#06100f", 14, 28]} />
         <ambientLight intensity={0.8} color="#b6c5b4" />
@@ -410,7 +452,15 @@ export function SalonScene({
           <SalonRoom lowPower={lowPower} />
           <CircularTable />
           {room
-            ? seats(room.players, room.viewerId, room.currentPlayerId, lowPower, movingToSeats)
+            ? seats(
+                room.players,
+                room.viewerId,
+                room.currentPlayerId,
+                lowPower,
+                movingToSeats,
+                stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
+                room.role !== "spectator",
+              )
             : previewAvatar && (
                 <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
                   <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
@@ -421,7 +471,7 @@ export function SalonScene({
             !dealing &&
             handCards(room.hand, selectedIds, playableIds, onToggleCard, mobile, movingToHand)}
           {room && dealing && <DealingSequence playerCount={room.players.length} />}
-          {room && !reducedMotion && (
+          {room && (
             <CardMotionLayer
               motions={activeCardMotions}
               room={room}
@@ -458,7 +508,11 @@ export function SalonScene({
           )}
           playerCount={room?.players.length ?? 0}
           keyboardOpen={keyboardOpen}
-          effectFocus={Boolean(stealVisual)}
+          effectPerspective={stealVisual?.perspective}
+          actorIndex={Math.max(
+            0,
+            room?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
+          )}
         />
       </Canvas>
       {contextLost && (

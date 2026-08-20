@@ -229,6 +229,7 @@ export default function App() {
         transferHost={(targetUid) =>
           void command("transferHost", { ...commandBase(app.room!), targetUid })
         }
+        kick={(targetUid) => void command("kickMember", { ...commandBase(app.room!), targetUid })}
         updateSettings={(settings) =>
           void command("updateRoomSettings", { ...commandBase(app.room!), settings })
         }

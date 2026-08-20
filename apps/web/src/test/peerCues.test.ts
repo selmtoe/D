@@ -35,10 +35,17 @@ describe("non-authoritative peer cues", () => {
     expect(decodeCueWire({ kind: "emote", payload: wire.payload })).toBeNull();
   });
   it("accepts only non-authoritative A-steal presentation slots", () => {
-    const cue = stealAnimationCue("point", "player-2", 3);
+    const cue = stealAnimationCue("point", "player-2", {
+      cardCount: 8,
+      takeCount: 2,
+      slot: 3,
+      pointerX: 0.25,
+      selectedSlots: [1],
+    });
     expect(parseCue(cue)).toEqual(cue);
     expect(parseCue({ ...cue, cardId: "secret-card" })).toBeNull();
     expect(parseCue({ ...cue, slot: 54 })).toBeNull();
-    expect(parseCue({ ...cue, stage: "confirm", slot: 3 })).toBeNull();
+    expect(parseCue({ ...cue, stage: "complete", slot: 3 })).toBeNull();
+    expect(parseCue({ ...cue, pointerX: 2 })).toBeNull();
   });
 });

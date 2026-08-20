@@ -57,7 +57,14 @@ export function useRoomSubscription(roomId?: string): void {
           roomId,
           user.uid,
           (room) => alive && dispatch({ type: "ROOM_VIEW", room }),
-          (error) => alive && dispatch({ type: "ERROR", message: firebaseErrorMessage(error) }),
+          (error) => {
+            if (!alive) return;
+            const message = firebaseErrorMessage(error);
+            dispatch({
+              type: error.message.includes("evicted") ? "EVICTED" : "ERROR",
+              message,
+            });
+          },
         ),
       )
       .then((stop) => {

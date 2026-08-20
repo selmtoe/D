@@ -283,6 +283,88 @@ describe("Spark browser authority", () => {
     expect(authority.publicRoom().coordinatorPeerId).toBe("peer-2");
   });
 
+  it("moves browser authority together with an explicit host transfer", () => {
+    const authority = waitingRoom();
+    authority.handleCommand(
+      "p1",
+      "transferHost",
+      {
+        clientActionId: "transfer-host-and-authority",
+        expectedRevision: authority.exportSnapshot().revision,
+        targetUid: "p2",
+      },
+      2_000,
+    );
+    expect(authority.exportSnapshot()).toMatchObject({ hostUid: "p2", coordinatorUid: "p2" });
+    expect(authority.publicRoom().coordinatorPeerId).toBe("peer-2");
+  });
+
+  it("lets only the host kick a member and removes the kicked player from the room", () => {
+    const authority = waitingRoom();
+    expect(() =>
+      authority.handleCommand(
+        "p2",
+        "kickMember",
+        {
+          clientActionId: "not-host-kick",
+          expectedRevision: authority.exportSnapshot().revision,
+          targetUid: "p3",
+        },
+        2_000,
+      ),
+    ).toThrow(/ホスト専用/);
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      {
+        clientActionId: "host-kick",
+        expectedRevision: authority.exportSnapshot().revision,
+        targetUid: "p3",
+      },
+      2_001,
+    );
+    expect(authority.member("p3")).toBeUndefined();
+    expect(authority.consumeEvictions()).toEqual([{ uid: "p3", peerId: "peer-3" }]);
+    expect(authority.project("p1").players.map((player) => player.id)).not.toContain("p3");
+  });
+
+  it("disqualifies an active player before removing their room membership", () => {
+    const authority = waitingRoom();
+    authority.handleCommand(
+      "p1",
+      "startGame",
+      {
+        clientActionId: "start-before-kick",
+        expectedRevision: authority.exportSnapshot().revision,
+      },
+      2_000,
+    );
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      {
+        clientActionId: "active-kick",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game?.id,
+        targetUid: "p2",
+      },
+      2_001,
+    );
+    const snapshot = authority.exportSnapshot();
+    expect(snapshot.members.p2).toBeUndefined();
+    expect(snapshot.game?.players.find((player) => player.id === "p2")?.status).toBe(
+      "disqualified",
+    );
+  });
+
+  it("expels a disconnected waiting member after the grace deadline", () => {
+    const authority = waitingRoom();
+    expect(authority.setMemberOnline("p2", false, undefined, 2_000)).toBe(true);
+    expect(authority.disqualifyDisconnected("p2", 122_001)).toBe(true);
+    expect(authority.member("p2")).toBeUndefined();
+    expect(authority.exportSnapshot().socialLog.at(-1)?.text).toMatch(/追放/);
+  });
+
   it("restricts focus changes to spectators and projects spectator chat roles", () => {
     const authority = waitingRoom();
     authority.handleCommand(

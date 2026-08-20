@@ -62,6 +62,13 @@ export function transition(state: AppState, event: AppEvent): AppState {
       return state.phase === "DEALING" ? { ...state, phase: "PLAYING_TURN" } : state;
     case "LEAVE_ROOM":
       return { phase: "SALON_LOBBY", connection: state.connection, profile: state.profile };
+    case "EVICTED":
+      return {
+        phase: "SALON_LOBBY",
+        connection: "offline",
+        profile: state.profile,
+        error: event.message,
+      };
     case "CONNECTION":
       return { ...state, connection: event.connection };
     case "ERROR":

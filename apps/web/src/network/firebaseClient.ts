@@ -48,6 +48,7 @@ export type CommandName =
   | "leaveRoom"
   | "reconnectRoom"
   | "transferHost"
+  | "kickMember"
   | "updateRoomSettings"
   | "startGame"
   | "submitPlay"
@@ -358,7 +359,14 @@ export function subscribeRoomView(
   if (!session || session.roomId !== roomId || session.uid !== uid) {
     return Promise.reject(new Error("failed-precondition: P2P部屋ビューがありません"));
   }
-  return Promise.resolve(session.onView(onView));
+  const stopView = session.onView(onView);
+  const stopEvicted = session.onEvicted(() =>
+    onError(new Error("evicted: ホストにより部屋からキックされました")),
+  );
+  return Promise.resolve(() => {
+    stopView();
+    stopEvicted();
+  });
 }
 
 export async function subscribePublicRooms(
@@ -403,6 +411,9 @@ export async function subscribePublicRooms(
 
 export function firebaseErrorMessage(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : "不明な通信エラーです";
+  if (message.includes("evicted") || message.includes("キック")) {
+    return "ホストにより部屋からキックされました。";
+  }
   if (message.includes("auth/configuration-not-found")) {
     return "Firebase匿名認証が未設定です。Authenticationで匿名ログインを有効にしてください。";
   }

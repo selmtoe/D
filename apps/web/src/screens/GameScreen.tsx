@@ -261,6 +261,7 @@ export function GameScreen({
   const setSettings = useUiStore((state) => state.setSettings);
   const muted = useUiStore((state) => state.soundMuted);
   const [playDialog, setPlayDialog] = useState(false);
+  const [moderationOpen, setModerationOpen] = useState(false);
   const [stealVisual, setStealVisual] = useState<StealVisualState>();
   const [cardMotions, setCardMotions] = useState<CardMotionEvent[]>([]);
   const previousRoom = useRef<RoomView | undefined>(undefined);
@@ -283,7 +284,15 @@ export function GameScreen({
     () => (myTurn && !readOnly ? potentiallyPlayableCardIds(room) : undefined),
     [myTurn, readOnly, room],
   );
-  const displayRoom = useMemo(() => ({ ...room, hand: sortedHand }), [room, sortedHand]);
+  const displayRoom = useMemo(() => {
+    if (room.role === "spectator") return { ...room, hand: sortedHand };
+    const viewerIndex = room.players.findIndex((player) => player.id === room.viewerId);
+    const players =
+      viewerIndex > 0
+        ? [...room.players.slice(viewerIndex), ...room.players.slice(0, viewerIndex)]
+        : room.players;
+    return { ...room, players, hand: sortedHand };
+  }, [room, sortedHand]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (selectedCards.some((card) => card.visibility === "hidden"))
@@ -332,12 +341,14 @@ export function GameScreen({
   useEffect(() => {
     const previous = previousRoom.current;
     previousRoom.current = room;
-    if (!previous || reducedMotion) return;
+    if (!previous) return;
     const next = deriveCardMotions(previous, room);
-    const limited = lowPower ? next.slice(0, 4) : next;
-    if (limited.length)
-      setCardMotions((currentMotions) => [...currentMotions, ...limited].slice(-18));
-  }, [lowPower, reducedMotion, room]);
+    if (next.length)
+      setCardMotions((currentMotions) => {
+        const known = new Set(currentMotions.map((motion) => motion.id));
+        return [...currentMotions, ...next.filter((motion) => !known.has(motion.id))];
+      });
+  }, [room]);
   useEffect(() => {
     if (previousTurn.current !== room.currentPlayerId) {
       feedback("turn", muted);
@@ -407,6 +418,15 @@ export function GameScreen({
           <button type="button" onClick={leave}>
             退出
           </button>
+          {room.hostId === room.viewerId && (
+            <button
+              type="button"
+              aria-expanded={moderationOpen}
+              onClick={() => setModerationOpen((open) => !open)}
+            >
+              卓管理
+            </button>
+          )}
         </div>
         <div className="turn-status" role="timer" aria-live="polite">
           <strong>{current ? `${current.name}の手番` : "進行待ち"}</strong>
@@ -422,6 +442,65 @@ export function GameScreen({
           </div>
         )}
       </header>
+      {moderationOpen && room.hostId === room.viewerId && (
+        <section className="moderation-panel" aria-label="ホストの卓管理">
+          <header>
+            <strong>卓管理</strong>
+            <button
+              type="button"
+              onClick={() => setModerationOpen(false)}
+              aria-label="卓管理を閉じる"
+            >
+              ×
+            </button>
+          </header>
+          <p>キックされた対局者は失格となり、再接続できません。</p>
+          <ul>
+            {room.players
+              .filter((player) => player.id !== room.viewerId)
+              .map((player) => (
+                <li key={player.id}>
+                  <span>
+                    {player.name}
+                    <small>{player.connection === "online" ? "接続中" : "切断中"}</small>
+                  </span>
+                  <button
+                    type="button"
+                    className="host-kick"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm(`${player.name}を部屋からキックしますか？`)) {
+                        void command("kickMember", { ...payloadBase, targetUid: player.id });
+                      }
+                    }}
+                  >
+                    キック
+                  </button>
+                </li>
+              ))}
+            {room.spectators
+              .filter((spectator) => spectator.id !== room.viewerId)
+              .map((spectator) => (
+                <li key={spectator.id}>
+                  <span>
+                    {spectator.name}
+                    <small>観戦者</small>
+                  </span>
+                  <button
+                    type="button"
+                    className="host-kick"
+                    disabled={busy}
+                    onClick={() =>
+                      void command("kickMember", { ...payloadBase, targetUid: spectator.id })
+                    }
+                  >
+                    キック
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
       <aside className="status-stack" aria-label="場の状態">
         <span className={room.revolution ? "active" : ""}>
           革命 {room.revolution ? "中" : "なし"}

@@ -143,7 +143,10 @@ test.describe("rulebook authority contracts", () => {
       await expect(host.page.getByText("3人で開始できます")).toBeVisible();
       await host.page.getByRole("button", { name: "ゲームを始める" }).click();
       await expect(host.page.getByRole("heading", { name: "カードを配っています" })).toBeVisible();
-      await host.page.getByRole("button", { name: "配札演出をスキップ" }).click({ force: true });
+      await host.page
+        .getByRole("button", { name: "配札演出をスキップ" })
+        .click({ force: true, timeout: 2_000 })
+        .catch(() => undefined);
 
       await openSalon(spectator.page, "一覧観戦者");
       const roomRow = spectator.page.locator(".room-row").filter({ hasText: authority.roomId });
@@ -194,7 +197,10 @@ test.describe("rulebook authority contracts", () => {
       await expect(owner.page.getByText("3人で開始できます")).toBeVisible();
       await owner.page.getByRole("button", { name: "ゲームを始める" }).click();
       await expect(owner.page.getByRole("heading", { name: "カードを配っています" })).toBeVisible();
-      await owner.page.getByRole("button", { name: "配札演出をスキップ" }).click({ force: true });
+      await owner.page
+        .getByRole("button", { name: "配札演出をスキップ" })
+        .click({ force: true, timeout: 2_000 })
+        .catch(() => undefined);
 
       const ownerView = await view(authority, "blind-owner");
       const ownerBlind = ownerView.hand.find((card) => card.id === "c-a1");

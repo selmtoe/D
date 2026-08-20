@@ -11,6 +11,7 @@ export function WaitingRoomScreen({
   leave,
   start,
   transferHost,
+  kick,
   updateSettings,
   openRules,
 }: {
@@ -21,6 +22,7 @@ export function WaitingRoomScreen({
   leave: () => void;
   start: () => void;
   transferHost: (targetUid: string) => void;
+  kick: (targetUid: string) => void;
   updateSettings: (settings: RoomView["settings"]) => void;
   openRules: () => void;
 }) {
@@ -113,17 +115,32 @@ export function WaitingRoomScreen({
                       {player.id === me?.id ? (
                         <em>あなた</em>
                       ) : (
-                        isHost &&
-                        player.connection === "online" && (
-                          <button
-                            type="button"
-                            className="host-transfer"
-                            disabled={busy}
-                            onClick={() => transferHost(player.id)}
-                            aria-label={`${player.name}へホストを移譲`}
-                          >
-                            ホスト移譲
-                          </button>
+                        isHost && (
+                          <div className="host-actions">
+                            {player.connection === "online" && (
+                              <button
+                                type="button"
+                                className="host-transfer"
+                                disabled={busy}
+                                onClick={() => transferHost(player.id)}
+                                aria-label={`${player.name}へホストを移譲`}
+                              >
+                                ホスト移譲
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="host-kick"
+                              disabled={busy}
+                              onClick={() => {
+                                if (window.confirm(`${player.name}を部屋からキックしますか？`))
+                                  kick(player.id);
+                              }}
+                              aria-label={`${player.name}を部屋からキック`}
+                            >
+                              キック
+                            </button>
+                          </div>
                         )
                       )}
                     </article>
@@ -142,7 +159,22 @@ export function WaitingRoomScreen({
               </h2>
               <ul>
                 {room.spectators.map((spectator) => (
-                  <li key={spectator.id}>{spectator.name}</li>
+                  <li key={spectator.id}>
+                    {spectator.name}
+                    {isHost && spectator.id !== room.viewerId && (
+                      <button
+                        type="button"
+                        className="host-kick"
+                        disabled={busy}
+                        onClick={() => {
+                          if (window.confirm(`${spectator.name}を部屋からキックしますか？`))
+                            kick(spectator.id);
+                        }}
+                      >
+                        キック
+                      </button>
+                    )}
+                  </li>
                 ))}
               </ul>
               {!room.spectators.length && <p>まだいません</p>}

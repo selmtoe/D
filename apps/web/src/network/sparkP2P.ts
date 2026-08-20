@@ -61,7 +61,8 @@ type WireMessage =
   | { type: "response"; requestId: string; ok: true; result: Record<string, unknown> }
   | { type: "response"; requestId: string; ok: false; error: string }
   | { type: "view"; view: RoomView }
-  | { type: "cue"; cue: CueEvent };
+  | { type: "cue"; cue: CueEvent }
+  | { type: "evicted"; reason: "kick" };
 
 interface PeerState {
   uid: string;
@@ -221,6 +222,7 @@ export class SparkP2PSession {
   private readonly processedRequests = new Map<string, WireMessage>();
   private readonly viewListeners = new Set<(view: RoomView) => void>();
   private readonly cueListeners = new Set<(cue: CueEvent, senderUid: string) => void>();
+  private readonly evictionListeners = new Set<(reason: "kick") => void>();
   private readonly modeListeners = new Set<(mode: "webrtc" | "firebase" | "offline") => void>();
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly disconnectSince = new Map<string, number>();
@@ -532,12 +534,22 @@ export class SparkP2PSession {
       snapshot.coordinatorUid === this.uid ? snapshot : { ...snapshot, coordinatorUid: this.uid };
     await setDoc(doc(this.db, "sparkRoomSnapshots", this.roomId), plain(recoverySnapshot));
     await this.persistDirectory(true);
+    for (const eviction of this.authority.consumeEvictions()) {
+      await this.sendWire(eviction.uid, eviction.peerId, { type: "evicted", reason: "kick" }).catch(
+        () => undefined,
+      );
+    }
     for (const member of Object.values(snapshot.members)) {
       const view = this.authority.project(member.uid);
       if (member.uid === this.uid) this.acceptView(view);
       else if (member.online) {
         await this.sendWire(member.uid, member.peerId, { type: "view", view });
       }
+    }
+    if (snapshot.coordinatorUid !== this.uid) {
+      const stillMember = snapshot.members[this.uid];
+      delete this.authority;
+      if (stillMember) await this.connectToCoordinator();
     }
   }
 
@@ -720,6 +732,11 @@ export class SparkP2PSession {
       if (this.authority) void this.broadcastCue(wire.cue, senderUid);
       return;
     }
+    if (wire.type === "evicted") {
+      this.evictionListeners.forEach((listener) => listener(wire.reason));
+      void this.stop(false);
+      return;
+    }
     if (!this.authority) return;
     this.coordinatorQueue = this.coordinatorQueue.then(async () => {
       const cached = this.processedRequests.get(wire.requestId);
@@ -879,6 +896,11 @@ export class SparkP2PSession {
   onCue(listener: (cue: CueEvent, senderUid: string) => void): () => void {
     this.cueListeners.add(listener);
     return () => this.cueListeners.delete(listener);
+  }
+
+  onEvicted(listener: (reason: "kick") => void): () => void {
+    this.evictionListeners.add(listener);
+    return () => this.evictionListeners.delete(listener);
   }
 
   onMode(listener: (mode: "webrtc" | "firebase" | "offline") => void): () => void {

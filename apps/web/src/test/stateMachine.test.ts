@@ -92,4 +92,14 @@ describe("application state machine", () => {
     expect(dealing.phase).toBe("DEALING");
     expect(transition(dealing, { type: "DEALING_DONE" }).phase).toBe("PLAYING_TURN");
   });
+  it("returns a kicked participant to the salon with an explicit reason", () => {
+    const playing = transition(initialAppState, { type: "ROOM_VIEW", room: room("playing") });
+    expect(
+      transition(playing, { type: "EVICTED", message: "ホストによりキックされました" }),
+    ).toMatchObject({
+      phase: "SALON_LOBBY",
+      connection: "offline",
+      error: "ホストによりキックされました",
+    });
+  });
 });

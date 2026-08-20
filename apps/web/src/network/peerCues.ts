@@ -19,16 +19,33 @@ export type CueEvent =
       type: "animation";
       eventId: string;
       cue: "steal";
-      stage: "preview" | "shuffle" | "point" | "confirm";
+      stage: "target" | "point" | "take" | "complete";
       targetPlayerId: string;
+      cardCount: number;
+      takeCount: number;
       slot?: number;
+      pointerX?: number;
+      selectedSlots?: number[];
       atMs: number;
     };
 
 const exactKeys: Record<CueEvent["type"], string[]> = {
   emote: ["version", "type", "eventId", "emote", "atMs"],
   focus: ["version", "type", "eventId", "focusPlayerId", "atMs"],
-  animation: ["version", "type", "eventId", "cue", "stage", "targetPlayerId", "slot", "atMs"],
+  animation: [
+    "version",
+    "type",
+    "eventId",
+    "cue",
+    "stage",
+    "targetPlayerId",
+    "cardCount",
+    "takeCount",
+    "slot",
+    "pointerX",
+    "selectedSlots",
+    "atMs",
+  ],
 };
 
 export function parseCue(value: unknown): CueEvent | null {
@@ -56,20 +73,51 @@ export function parseCue(value: unknown): CueEvent | null {
     return item as CueEvent;
   }
   if (type === "animation" && ["play", "pass", "flush"].includes(String(item.cue))) {
-    if (Object.keys(item).some((key) => ["stage", "targetPlayerId", "slot"].includes(key)))
+    if (
+      Object.keys(item).some((key) =>
+        [
+          "stage",
+          "targetPlayerId",
+          "cardCount",
+          "takeCount",
+          "slot",
+          "pointerX",
+          "selectedSlots",
+        ].includes(key),
+      )
+    )
       return null;
     return item as CueEvent;
   }
   if (
     type === "animation" &&
     item.cue === "steal" &&
-    ["preview", "shuffle", "point", "confirm"].includes(String(item.stage)) &&
+    ["target", "point", "take", "complete"].includes(String(item.stage)) &&
     typeof item.targetPlayerId === "string" &&
     item.targetPlayerId.length > 0 &&
     item.targetPlayerId.length <= 128 &&
+    Number.isInteger(item.cardCount) &&
+    Number(item.cardCount) >= 0 &&
+    Number(item.cardCount) <= 54 &&
+    Number.isInteger(item.takeCount) &&
+    Number(item.takeCount) >= 0 &&
+    Number(item.takeCount) <= 6 &&
     (item.slot === undefined ||
       (Number.isInteger(item.slot) && Number(item.slot) >= 0 && Number(item.slot) <= 53)) &&
-    (item.stage === "point" ? typeof item.slot === "number" : item.slot === undefined)
+    (item.pointerX === undefined ||
+      (typeof item.pointerX === "number" &&
+        Number.isFinite(item.pointerX) &&
+        item.pointerX >= -1 &&
+        item.pointerX <= 1)) &&
+    (item.selectedSlots === undefined ||
+      (Array.isArray(item.selectedSlots) &&
+        item.selectedSlots.length <= 6 &&
+        item.selectedSlots.every(
+          (slot) => Number.isInteger(slot) && Number(slot) >= 0 && Number(slot) <= 53,
+        ))) &&
+    (["point", "take"].includes(String(item.stage))
+      ? typeof item.slot === "number"
+      : item.slot === undefined)
   ) {
     return item as CueEvent;
   }
@@ -95,9 +143,15 @@ export function emoteCue(emote: "applause" | "surprise" | "thinking"): CueEvent 
 }
 
 export function stealAnimationCue(
-  stage: "preview" | "shuffle" | "point" | "confirm",
+  stage: "target" | "point" | "take" | "complete",
   targetPlayerId: string,
-  slot?: number,
+  detail: {
+    cardCount: number;
+    takeCount: number;
+    slot?: number;
+    pointerX?: number;
+    selectedSlots?: number[];
+  },
 ): CueEvent {
   return {
     version: 1,
@@ -106,7 +160,11 @@ export function stealAnimationCue(
     cue: "steal",
     stage,
     targetPlayerId,
-    ...(slot === undefined ? {} : { slot }),
+    cardCount: detail.cardCount,
+    takeCount: detail.takeCount,
+    ...(detail.slot === undefined ? {} : { slot: detail.slot }),
+    ...(detail.pointerX === undefined ? {} : { pointerX: detail.pointerX }),
+    ...(detail.selectedSlots === undefined ? {} : { selectedSlots: detail.selectedSlots }),
     atMs: Date.now(),
   };
 }

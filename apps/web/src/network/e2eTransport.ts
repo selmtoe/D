@@ -1,7 +1,8 @@
 import type { PublicRoom, RoomView } from "../app/model";
+import type { CueEvent } from "./peerCues";
 
 type E2ERequest = {
-  op: "command" | "presence" | "publicRooms" | "roomBase" | "roomView";
+  op: "command" | "presence" | "publicRooms" | "roomBase" | "roomView" | "cueSend" | "cueLast";
   name?: string;
   payload?: Record<string, unknown>;
   roomId?: string;
@@ -10,6 +11,7 @@ type E2ERequest = {
 
 type E2EBridge = {
   uid: string;
+  cues?: boolean;
   call: (request: E2ERequest) => Promise<unknown>;
 };
 
@@ -26,6 +28,10 @@ function bridge(): E2EBridge | undefined {
 
 export function isE2ETransport(): boolean {
   return bridge() !== undefined;
+}
+
+export function isE2ECueTransport(): boolean {
+  return bridge()?.cues === true;
 }
 
 export function e2eViewerUid(): string | undefined {
@@ -91,5 +97,23 @@ export function subscribeE2EPublicRooms(
     (rooms) => JSON.stringify(rooms),
     onRooms,
     onError,
+  );
+}
+
+export async function e2eSendCue(roomId: string, cue: CueEvent): Promise<void> {
+  await e2eCall({ op: "cueSend", roomId, payload: { cue } });
+}
+
+export function subscribeE2ECues(
+  roomId: string,
+  onCue: (cue: CueEvent, sender: string) => void,
+): () => void {
+  return poll<{ cue: CueEvent; sender: string } | null>(
+    { op: "cueLast", roomId },
+    (value) => (value ? `${value.sender}:${value.cue.eventId}` : "none"),
+    (value) => {
+      if (value) onCue(value.cue, value.sender);
+    },
+    () => undefined,
   );
 }

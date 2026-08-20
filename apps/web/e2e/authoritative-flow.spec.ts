@@ -14,12 +14,13 @@ async function contextPage(
   browser: Browser,
   authority: AuthoritativeE2EServer,
   uid: string,
+  renderCanvas = false,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
     reducedMotion: "reduce",
   });
-  await authority.install(context, uid);
+  await authority.install(context, uid, { renderCanvas });
   return { context, page: await context.newPage() };
 }
 
@@ -58,9 +59,20 @@ test.describe("browser-injected authoritative room transport", () => {
     );
     test.setTimeout(180_000);
     const authority = new AuthoritativeE2EServer();
+    const capturePerspective = process.env.DAIFUGO_CAPTURE_VISUAL_EVIDENCE;
     const host = await contextPage(browser, authority, "uid-host");
-    const player2 = await contextPage(browser, authority, "uid-player-2");
-    const player3 = await contextPage(browser, authority, "uid-player-3");
+    const player2 = await contextPage(
+      browser,
+      authority,
+      "uid-player-2",
+      capturePerspective === "victim",
+    );
+    const player3 = await contextPage(
+      browser,
+      authority,
+      "uid-player-3",
+      capturePerspective === "actor" || capturePerspective === "1",
+    );
     const spectator = await contextPage(browser, authority, "uid-spectator");
     const contexts = [host.context, player2.context, player3.context, spectator.context];
 
@@ -86,6 +98,10 @@ test.describe("browser-injected authoritative room transport", () => {
       await expect(host.page.getByRole("button", { name: "パス" })).toBeEnabled();
       await expect(player2.page.getByRole("button", { name: "パス" })).toBeVisible();
       await expect(player3.page.getByRole("button", { name: "パス" })).toBeVisible();
+      if (capturePerspective === "actor" || capturePerspective === "1") {
+        await player3.page.waitForTimeout(800);
+        await player3.page.screenshot({ path: testInfo.outputPath("hand-right-card-front.png") });
+      }
 
       const tokenBeforeReload = await host.page.evaluate(() =>
         sessionStorage.getItem("daifugo-reconnect-TST23"),
@@ -159,13 +175,19 @@ test.describe("browser-injected authoritative room transport", () => {
       await playCard(player3.page, /ハートA/);
       const effect = player3.page.getByRole("region", { name: "A奪い" });
       await expect(effect).toBeVisible();
-      await effect
-        .getByRole("group", { name: "奪う相手" })
-        .getByRole("button", { name: /プレイヤー2/ })
-        .click();
-      await effect.getByRole("button", { name: "応答がない場合は卓上で代理シャッフル" }).click();
+      await effect.getByRole("button", { name: "プレイヤー2から奪う枚数を増やす" }).click();
+      await effect.getByRole("button", { name: "この配分で位置を選ぶ" }).click();
       await effect.getByRole("option", { name: /1番目/ }).click();
-      await effect.getByRole("button", { name: "この位置から奪う" }).click();
+      if (capturePerspective === "actor" || capturePerspective === "1") {
+        await player3.page.waitForTimeout(900);
+        await player3.page.screenshot({ path: testInfo.outputPath("a-steal-actor-view.png") });
+      }
+      if (capturePerspective === "victim") {
+        await expect(player2.page.getByRole("heading", { name: "相手が札を選択中" })).toBeVisible();
+        await player2.page.waitForTimeout(900);
+        await player2.page.screenshot({ path: testInfo.outputPath("a-steal-victim-view.png") });
+      }
+      await effect.getByRole("button", { name: "選択内容を確認" }).click();
       await effect.getByRole("button", { name: "A奪いを確定" }).click();
       await expect(effect).toBeHidden();
       await expectTurn(host.page, "ホスト");

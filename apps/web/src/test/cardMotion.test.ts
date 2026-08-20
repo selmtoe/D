@@ -100,4 +100,18 @@ describe("card motion projection diff", () => {
     };
     expect(deriveCardMotions(previous, next)).toEqual([]);
   });
+
+  it("holds an immediately-cleared play on the field before flushing it", () => {
+    const eight = card("eight");
+    const oldField = card("old-field");
+    const previous = view(10, [eight], [oldField]);
+    const next = view(11, [], [], [oldField, eight]);
+    next.log = [{ id: "played-11", atMs: 11, kind: "play", text: "8を出しました" }];
+    const motions = deriveCardMotions(previous, next);
+    const play = motions.find((motion) => motion.card.id === "eight" && motion.kind === "play");
+    const flushes = motions.filter((motion) => motion.kind === "flush");
+    expect(play).toMatchObject({ holdMs: 1000, batchId: "11-immediate-play" });
+    expect(flushes).toHaveLength(2);
+    expect(flushes.every((motion) => motion.batchId === "11-immediate-flush")).toBe(true);
+  });
 });

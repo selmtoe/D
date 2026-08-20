@@ -227,6 +227,7 @@ function eventText(event: GameEvent, members: Record<string, SparkMember>): stri
 
 export class SparkAuthority {
   private snapshot: SparkRoomSnapshot;
+  private evictions: { uid: string; peerId: string }[] = [];
 
   private constructor(snapshot: SparkRoomSnapshot) {
     this.snapshot = clone(snapshot);
@@ -395,23 +396,26 @@ export class SparkAuthority {
   disqualifyDisconnected(uid: string, now = Date.now()): boolean {
     const member = this.snapshot.members[uid];
     const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
-    if (!member || member.online || !this.snapshot.game || player?.status !== "active")
-      return false;
-    const result = applyGameCommand(
-      this.snapshot.game,
-      {
-        type: "disqualify",
-        reason: "disconnect",
-        playerId: uid,
-        actionId: `disconnect-${uid}-${now}`,
-        expectedVersion: this.snapshot.game.version,
-      },
-      now,
-    );
-    if (!result.ok) return false;
-    this.snapshot.game = result.state;
-    this.appendGameEvents(result.events, now);
-    this.afterGameMutation(now);
+    if (!member || member.online) return false;
+    if (this.snapshot.game && player?.status === "active") {
+      const result = applyGameCommand(
+        this.snapshot.game,
+        {
+          type: "disqualify",
+          reason: "disconnect",
+          playerId: uid,
+          actionId: `disconnect-${uid}-${now}`,
+          expectedVersion: this.snapshot.game.version,
+        },
+        now,
+      );
+      if (!result.ok) return false;
+      this.snapshot.game = result.state;
+      this.appendGameEvents(result.events, now);
+      this.afterGameMutation(now);
+    }
+    this.removeMember(uid, now, `${member.name}を切断のため部屋から追放しました`);
+    this.commit(now);
     return true;
   }
 
@@ -525,7 +529,20 @@ export class SparkAuthority {
           commandError("failed-precondition", "接続中プレイヤーだけに移譲できます");
         }
         this.snapshot.hostUid = targetUid;
+        this.snapshot.coordinatorUid = targetUid;
         this.finishRoomCommand(actionId, now);
+        return response;
+      }
+      case "kickMember": {
+        this.requireHost(uid);
+        const targetUid = String(payload.targetUid ?? "");
+        if (!targetUid || targetUid === uid) {
+          commandError("invalid-argument", "自分自身はキックできません");
+        }
+        if (!this.snapshot.members[targetUid]) {
+          commandError("failed-precondition", "対象の参加者が見つかりません");
+        }
+        this.leave(targetUid, actionId, now, "moderation");
         return response;
       }
       case "startGame": {
@@ -605,6 +622,12 @@ export class SparkAuthority {
         response = this.handleGameCommand(uid, name, payload, actionId, now);
         return response;
     }
+  }
+
+  consumeEvictions(): { uid: string; peerId: string }[] {
+    const evictions = this.evictions;
+    this.evictions = [];
+    return evictions;
   }
 
   private handleGameCommand(
@@ -726,7 +749,12 @@ export class SparkAuthority {
     return {};
   }
 
-  private leave(uid: string, actionId: string, now: number): void {
+  private leave(
+    uid: string,
+    actionId: string,
+    now: number,
+    reason: "exit" | "moderation" = "exit",
+  ): void {
     const member = this.snapshot.members[uid];
     if (!member) return;
     const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
@@ -735,7 +763,7 @@ export class SparkAuthority {
         this.snapshot.game,
         {
           type: "disqualify",
-          reason: "exit",
+          reason,
           playerId: uid,
           actionId,
           expectedVersion: this.snapshot.game.version,
@@ -745,8 +773,21 @@ export class SparkAuthority {
       if (result.ok) {
         this.snapshot.game = result.state;
         this.appendGameEvents(result.events, now);
+        this.afterGameMutation(now);
       }
     }
+    if (reason === "moderation") this.evictions.push({ uid, peerId: member.peerId });
+    this.removeMember(
+      uid,
+      now,
+      reason === "moderation"
+        ? `${member.name}がホストによりキックされました`
+        : `${member.name}が退出しました`,
+    );
+    this.finishRoomCommand(actionId, now);
+  }
+
+  private removeMember(uid: string, now: number, logText: string): void {
     delete this.snapshot.members[uid];
     if (this.snapshot.hostUid === uid) {
       this.snapshot.hostUid =
@@ -765,10 +806,9 @@ export class SparkAuthority {
     this.snapshot.socialLog.push({
       id: `leave-${uid}-${now}`,
       atMs: now,
-      text: `${member.name}が退出しました`,
+      text: logText,
       kind: "system",
     });
-    this.finishRoomCommand(actionId, now);
   }
 
   private requireHost(uid: string): void {

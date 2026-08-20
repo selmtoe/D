@@ -36,6 +36,7 @@ function MotionCard({
 }) {
   const root = useRef<Group>(null);
   const startedAt = useRef<number | undefined>(undefined);
+  const arrivedAt = useRef<number | undefined>(undefined);
   const finished = useRef(false);
   const from = useMemo(
     () => cardAnchorPosition(motion.from, room, mobile),
@@ -56,7 +57,12 @@ function MotionCard({
     );
     root.current.rotation.y = Math.sin(progress * Math.PI) * 0.55;
     root.current.rotation.z = MathUtils.lerp(-0.12, 0.08, eased);
-    if (progress === 1 && !finished.current) {
+    if (progress === 1) {
+      arrivedAt.current ??= clock.elapsedTime;
+    }
+    const heldForMs =
+      arrivedAt.current === undefined ? 0 : (clock.elapsedTime - arrivedAt.current) * 1000;
+    if (progress === 1 && heldForMs >= (motion.holdMs ?? 0) && !finished.current) {
       finished.current = true;
       root.current.visible = false;
       onDone(motion.id);
@@ -80,7 +86,10 @@ export function CardMotionLayer({
   mobile: boolean;
   onDone: (id: string) => void;
 }) {
-  return motions.map((motion) => (
-    <MotionCard key={motion.id} motion={motion} room={room} mobile={mobile} onDone={onDone} />
-  ));
+  const firstBatchId = motions[0]?.batchId;
+  return motions
+    .filter((motion) => motion.batchId === firstBatchId)
+    .map((motion) => (
+      <MotionCard key={motion.id} motion={motion} room={room} mobile={mobile} onDone={onDone} />
+    ));
 }

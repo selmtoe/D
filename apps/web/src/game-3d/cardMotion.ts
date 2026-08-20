@@ -5,10 +5,12 @@ export type CardAnchor =
 
 export interface CardMotionEvent {
   id: string;
+  batchId: string;
   card: CardView;
   from: CardAnchor;
   to: CardAnchor;
   kind: "play" | "flush" | "acquire" | "give" | "discard" | "collect";
+  holdMs?: number;
 }
 
 const cardsAtSeats = (room: RoomView) =>
@@ -32,12 +34,60 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
   const previousSeats = cardsAtSeats(previous);
   const nextSeats = cardsAtSeats(next);
   const used = new Set<string>();
-  const push = (motion: Omit<CardMotionEvent, "id">) => {
-    const key = `${motion.card.id}:${motion.to.kind}:${"playerId" in motion.to ? motion.to.playerId : ""}`;
+  const push = (motion: Omit<CardMotionEvent, "id" | "batchId"> & { batchId?: string }) => {
+    const key = `${motion.kind}:${motion.card.id}:${motion.to.kind}:${"playerId" in motion.to ? motion.to.playerId : ""}`;
     if (used.has(key)) return;
     used.add(key);
-    motions.push({ ...motion, id: `${next.revision}-${key}` });
+    motions.push({
+      ...motion,
+      batchId: motion.batchId ?? `${next.revision}-${motion.kind}`,
+      id: `${next.revision}-${key}`,
+    });
   };
+
+  const newLogIds = new Set(previous.log.map((entry) => entry.id));
+  const hasNewPlayEvent = next.log.some(
+    (entry) => !newLogIds.has(entry.id) && entry.kind === "play",
+  );
+  const newDiscard = next.discard.filter((card) => !previousDiscard.has(card.id));
+  const playedStraightToDiscard =
+    next.field.length === 0 && hasNewPlayEvent
+      ? newDiscard.filter((card) => !previousField.has(card.id))
+      : [];
+  const immediateFlushIds = new Set(
+    playedStraightToDiscard.length
+      ? [
+          ...previous.field.map((card) => card.id),
+          ...playedStraightToDiscard.map((card) => card.id),
+        ]
+      : [],
+  );
+
+  if (playedStraightToDiscard.length) {
+    for (const card of playedStraightToDiscard) {
+      push({
+        card,
+        from: previousHand.has(card.id)
+          ? { kind: "hand" }
+          : previous.currentPlayerId
+            ? { kind: "seat", playerId: previous.currentPlayerId }
+            : { kind: "deck" },
+        to: { kind: "field" },
+        kind: "play",
+        batchId: `${next.revision}-immediate-play`,
+        holdMs: 1000,
+      });
+    }
+    for (const card of [...previous.field, ...playedStraightToDiscard]) {
+      push({
+        card,
+        from: { kind: "field" },
+        to: { kind: "discard" },
+        kind: "flush",
+        batchId: `${next.revision}-immediate-flush`,
+      });
+    }
+  }
 
   for (const card of next.field) {
     if (previousField.has(card.id)) continue;
@@ -58,6 +108,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
 
   for (const card of previous.field) {
     if (nextField.has(card.id)) continue;
+    if (immediateFlushIds.has(card.id)) continue;
     push({ card, from: { kind: "field" }, to: { kind: "discard" }, kind: "flush" });
   }
 
@@ -80,6 +131,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
 
   for (const card of previous.hand) {
     if (nextHand.has(card.id) || nextField.has(card.id)) continue;
+    if (immediateFlushIds.has(card.id)) continue;
     const seated = nextSeats.get(card.id);
     if (seated) {
       push({
@@ -159,5 +211,5 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
       kind: sourceId === next.viewerId ? "give" : "acquire",
     });
   }
-  return motions.slice(0, 18);
+  return motions;
 }

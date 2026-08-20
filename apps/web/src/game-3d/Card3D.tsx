@@ -79,6 +79,7 @@ export function Card3D({
   hidden = false,
   onSelect,
   scale = 1,
+  renderOrder = 0,
 }: {
   card: CardView;
   position?: [number, number, number];
@@ -88,6 +89,7 @@ export function Card3D({
   hidden?: boolean;
   onSelect?: () => void;
   scale?: number;
+  renderOrder?: number;
 }) {
   const front = useMemo(() => cardTexture(card, card.visibility === "hidden"), [card]);
   const back = useMemo(() => cardTexture(card, true), [card]);
@@ -102,6 +104,7 @@ export function Card3D({
   const edge = selected ? "#f4d47f" : inactive ? "#242827" : "#d8cfb8";
   return (
     <group
+      renderOrder={renderOrder}
       visible={!hidden}
       position={[position[0], position[1] + (selected ? 0.18 : 0), position[2]]}
       rotation={rotation}
@@ -111,7 +114,14 @@ export function Card3D({
         if (!inactive) onSelect?.();
       }}
     >
-      <RoundedBox args={[1.22, 1.78, 0.075]} radius={0.08} smoothness={3} castShadow receiveShadow>
+      <RoundedBox
+        renderOrder={renderOrder}
+        args={[1.22, 1.78, 0.075]}
+        radius={0.08}
+        smoothness={3}
+        castShadow
+        receiveShadow
+      >
         <meshStandardMaterial
           color={new Color(edge)}
           roughness={0.48}
@@ -120,7 +130,7 @@ export function Card3D({
           opacity={inactive ? 0.55 : 1}
         />
       </RoundedBox>
-      <mesh position={[0, 0, 0.0405]}>
+      <mesh renderOrder={renderOrder} position={[0, 0, 0.0405]}>
         <planeGeometry args={[1.13, 1.68]} />
         <meshStandardMaterial
           map={front}
@@ -130,7 +140,7 @@ export function Card3D({
           opacity={inactive ? 0.42 : 1}
         />
       </mesh>
-      <mesh position={[0, 0, -0.0405]} rotation={[0, Math.PI, 0]}>
+      <mesh renderOrder={renderOrder} position={[0, 0, -0.0405]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[1.13, 1.68]} />
         <meshStandardMaterial
           map={back}

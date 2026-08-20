@@ -9,9 +9,10 @@ import type {
   RoomView,
   Suit,
 } from "../../src/app/model";
+import type { CueEvent } from "../../src/network/peerCues";
 
 type BridgeRequest = {
-  op: "command" | "presence" | "publicRooms" | "roomBase" | "roomView";
+  op: "command" | "presence" | "publicRooms" | "roomBase" | "roomView" | "cueSend" | "cueLast";
   name?: string;
   payload?: Record<string, unknown>;
   roomId?: string;
@@ -98,33 +99,46 @@ export class AuthoritativeE2EServer {
   private readonly pausedViewers = new Set<string>();
   private readonly cachedViews = new Map<string, RoomView>();
   private readonly processedActions = new Map<string, { name: string; result: unknown }>();
+  private readonly latestCues = new Map<string, { cue: CueEvent; sender: string }>();
 
   constructor(private readonly options: AuthorityOptions = {}) {}
 
-  async install(context: BrowserContext, uid: string): Promise<void> {
+  async install(
+    context: BrowserContext,
+    uid: string,
+    options: { renderCanvas?: boolean; cueBridge?: boolean } = {},
+  ): Promise<void> {
     await context.exposeBinding("__daifugoE2ECall", (_source, request: BridgeRequest) =>
       this.handle(uid, request),
     );
     await context.addInitScript(
-      ({ viewerUid }) => {
-        // This scenario exercises the semantic UI and command boundary in four contexts.
-        // Keep WebGL mounted but stop its continuous render loop so headless CI does not
-        // starve command polling; dedicated smoke tests cover the animated canvas itself.
-        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-        Object.defineProperty(document, "visibilityState", {
-          configurable: true,
-          get: () => "hidden",
-        });
+      ({ viewerUid, renderCanvas, cueBridge }) => {
+        (
+          window as unknown as { __DAIFUGO_E2E_RENDER_CANVAS__?: boolean }
+        ).__DAIFUGO_E2E_RENDER_CANVAS__ = renderCanvas;
+        // Semantic multi-context scenarios may suppress WebGL so several pages do not starve
+        // React timers. Dedicated visual gameplay tests opt into a visible real Canvas.
+        if (!renderCanvas) {
+          Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            get: () => "hidden",
+          });
+        }
         const call = (window as unknown as Record<string, unknown>).__daifugoE2ECall as (
           request: BridgeRequest,
         ) => Promise<unknown>;
         (
           window as unknown as {
-            __DAIFUGO_E2E__: { uid: string; call: typeof call };
+            __DAIFUGO_E2E__: { uid: string; cues: boolean; call: typeof call };
           }
-        ).__DAIFUGO_E2E__ = { uid: viewerUid, call };
+        ).__DAIFUGO_E2E__ = { uid: viewerUid, cues: cueBridge, call };
       },
-      { viewerUid: uid },
+      {
+        viewerUid: uid,
+        renderCanvas: options.renderCanvas === true,
+        cueBridge: options.cueBridge === true,
+      },
     );
   }
 
@@ -625,6 +639,15 @@ export class AuthoritativeE2EServer {
   async handle(uid: string, request: BridgeRequest): Promise<unknown> {
     if (request.op === "presence") return {};
     if (request.op === "publicRooms") return this.publicRooms();
+    if (request.op === "cueSend") {
+      const cue = request.payload?.cue as CueEvent | undefined;
+      if (!cue) throw new Error("invalid-argument: cue");
+      this.latestCues.set(String(request.roomId), { cue: structuredClone(cue), sender: uid });
+      return {};
+    }
+    if (request.op === "cueLast") {
+      return structuredClone(this.latestCues.get(String(request.roomId)) ?? null);
+    }
     if (request.op === "roomBase") {
       const room = this.room(String(request.roomId));
       return {

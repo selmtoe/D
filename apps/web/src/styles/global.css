@@ -562,6 +562,60 @@ h2 {
   font-size: 0.62rem;
   white-space: nowrap;
 }
+.host-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+.host-kick {
+  min-height: 44px;
+  color: #ffd7d7;
+  border-color: #a34c55;
+  background: #4b1820;
+}
+.moderation-panel {
+  position: absolute;
+  z-index: 18;
+  top: 76px;
+  left: max(1rem, env(safe-area-inset-left));
+  width: min(360px, calc(100% - 2rem));
+  max-height: 65vh;
+  overflow: auto;
+  padding: 0.8rem;
+  border: 1px solid #875159;
+  border-radius: 16px;
+  background: rgba(13, 25, 23, 0.97);
+  box-shadow: 0 20px 60px #000b;
+}
+.moderation-panel header,
+.moderation-panel li,
+.moderation-panel li > span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.moderation-panel header {
+  justify-content: space-between;
+}
+.moderation-panel ul {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+.moderation-panel li {
+  justify-content: space-between;
+  padding: 0.4rem;
+  border: 1px solid #354943;
+  border-radius: 10px;
+}
+.moderation-panel li > span {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.moderation-panel small {
+  color: #9cafaa;
+}
 .player-slot.empty {
   justify-content: center;
   color: #758179;
@@ -1006,7 +1060,7 @@ h2 {
 }
 .steal-progress {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.25rem;
   padding: 0;
   list-style: none;
@@ -1027,6 +1081,39 @@ h2 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.4rem;
+}
+.steal-allocations {
+  display: grid;
+  gap: 0.55rem;
+}
+.steal-allocation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px 38px 44px;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  border: 1px solid #32473f;
+  border-radius: 12px;
+  background: #0a2922;
+}
+.steal-allocation-row > span {
+  display: grid;
+  min-width: 0;
+}
+.steal-allocation-row small {
+  color: #a9b8af;
+}
+.steal-allocation-row output {
+  color: var(--brass-light);
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.steal-allocation-row button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 1.15rem;
 }
 .steal-targets span,
 .steal-slots small {
@@ -1057,6 +1144,14 @@ h2 {
 .steal-review > .primary,
 .steal-panel.victim > .primary {
   width: 100%;
+}
+.steal-next-target {
+  width: 100%;
+  margin-top: 0.6rem;
+}
+.steal-victim-note {
+  color: #adbbb3;
+  font-size: 0.76rem;
 }
 
 .modal-backdrop {
