@@ -1,4 +1,4 @@
-import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
+import { migrateAvatar, type AvatarProfileV1 } from "@daifugo/avatar-schema";
 import {
   applyGameCommand,
   createInitialGameState,
@@ -243,7 +243,7 @@ export class SparkAuthority {
       uid,
       peerId,
       name: profile.name.trim().slice(0, 32) || "ゲスト",
-      avatar: clone(profile.avatar),
+      avatar: migrateAvatar(profile.avatar),
       role: "player",
       joinedAtMs: now,
       online: true,
@@ -276,9 +276,15 @@ export class SparkAuthority {
 
   static restore(snapshot: SparkRoomSnapshot): SparkAuthority {
     if (snapshot.schemaVersion !== 1) commandError("failed-precondition", "部屋形式が古すぎます");
+    const restored = clone(snapshot);
+    for (const member of Object.values(restored.members)) {
+      // Snapshot/profile data crosses a browser trust boundary. Migration keeps
+      // old v1 profiles usable while dropping unknown or oversized paint data.
+      member.avatar = migrateAvatar(member.avatar);
+    }
     return new SparkAuthority({
-      ...snapshot,
-      appliedRoomActionResults: clone(snapshot.appliedRoomActionResults ?? {}),
+      ...restored,
+      appliedRoomActionResults: clone(restored.appliedRoomActionResults ?? {}),
     });
   }
 
@@ -355,7 +361,7 @@ export class SparkAuthority {
       uid: request.uid,
       peerId: request.peerId,
       name: request.profile.name.trim().slice(0, 32) || "ゲスト",
-      avatar: clone(request.profile.avatar),
+      avatar: migrateAvatar(request.profile.avatar),
       role: existing?.role ?? request.role,
       joinedAtMs: existing?.joinedAtMs ?? now,
       online: true,

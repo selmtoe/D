@@ -155,6 +155,42 @@ describe("Spark browser authority", () => {
     ).toThrow(/6人まで/);
   });
 
+  it("bounds peer face paint and migrates old snapshot profiles before projection", () => {
+    const authority = waitingRoom();
+    authority.join({
+      uid: "p4",
+      peerId: "peer-4",
+      profile: {
+        name: "四郎",
+        avatar: {
+          ...structuredClone(defaultAvatar),
+          facePaint: {
+            version: 1,
+            strokes: [
+              {
+                mode: "paint",
+                color: "#abcdef",
+                width: 0.04,
+                points: [{ x: 0.25, y: 0.75 }],
+              },
+            ],
+            unsafeTextureUrl: "https://example.invalid/private.png",
+          },
+        } as never,
+      },
+      role: "player",
+    });
+    expect(authority.member("p4")?.avatar).not.toHaveProperty("facePaint");
+
+    const legacySnapshot = authority.exportSnapshot();
+    legacySnapshot.members.p2!.avatar = { schemaVersion: 1 } as never;
+    const restored = SparkAuthority.restore(legacySnapshot);
+    expect(restored.member("p2")?.avatar).toEqual(defaultAvatar);
+    expect(restored.project("p1").players.find((player) => player.id === "p2")?.avatar).toEqual(
+      defaultAvatar,
+    );
+  });
+
   it("marks a one-person waiting room empty when its coordinator leaves", () => {
     const authority = SparkAuthority.create("ABCDE", "p1", "peer-1", profile("一郎"), 1_000);
     authority.handleCommand(

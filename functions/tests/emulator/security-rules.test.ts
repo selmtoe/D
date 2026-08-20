@@ -16,6 +16,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
@@ -106,6 +107,9 @@ describe("Spark-plan P2P storage boundary", () => {
     heartbeatAt: serverTimestamp(),
     heartbeatAtMs: 1_000,
     updatedAtMs: 1_000,
+    lastActivityAt: serverTimestamp(),
+    lastActivityAtMs: 1_000,
+    authorityRevision: 1,
     hostName: "Alice",
     hostAvatar: { schemaVersion: 1 },
     playerCount: 1,
@@ -118,13 +122,49 @@ describe("Spark-plan P2P storage boundary", () => {
 
   test("the signed-in coordinator can create the directory and crash snapshot", async () => {
     const alice = environment.authenticatedContext("alice").firestore();
+    const snapshot = {
+      schemaVersion: 1,
+      roomId: "P2P22",
+      coordinatorUid: "alice",
+      revision: 1,
+    };
+    // This is the production regression: snapshot-first bootstrap has no lease
+    // document for Rules to authorize against and must fail.
+    await assertFails(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
     await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), directory));
+    // A directory without a snapshot cannot be heartbeated/revived. Bootstrap
+    // must finish directory -> snapshot before the normal snapshot -> directory cycle.
+    await assertFails(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 2_000,
+      }),
+    );
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
+    await assertFails(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        heartbeatAt: serverTimestamp(),
+        lastActivityAt: serverTimestamp(),
+        lastActivityAtMs: 2_000,
+        authorityRevision: 1,
+      }),
+    );
     await assertSucceeds(
-      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
-        schemaVersion: 1,
-        roomId: "P2P22",
-        coordinatorUid: "alice",
-        revision: 1,
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 2_000,
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), { ...snapshot, revision: 2 }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 3_000,
+        lastActivityAt: serverTimestamp(),
+        lastActivityAtMs: 3_000,
+        authorityRevision: 2,
       }),
     );
     await assertSucceeds(
@@ -138,6 +178,90 @@ describe("Spark-plan P2P storage boundary", () => {
         revision: 2,
       }),
     );
+  });
+
+  test("stale cleanup is server-time gated and enforces snapshot then directory", async () => {
+    const oldHeartbeat = Timestamp.fromMillis(Date.now() - 31 * 60_000);
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "sparkRoomDirectory/P2P22"), {
+        ...directory,
+        heartbeatAt: oldHeartbeat,
+        lastActivityAt: oldHeartbeat,
+      });
+      await setDoc(doc(context.firestore(), "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "alice",
+        revision: 1,
+      });
+    });
+
+    const cleaner = environment.authenticatedContext("bob").firestore();
+    await assertFails(deleteDoc(doc(cleaner, "sparkRoomDirectory/P2P22")));
+    await assertSucceeds(deleteDoc(doc(cleaner, "sparkRoomSnapshots/P2P22")));
+    await assertSucceeds(deleteDoc(doc(cleaner, "sparkRoomDirectory/P2P22")));
+  });
+
+  test("an abandoned pre-lastActivityAt directory uses its stale heartbeat as a safe fallback", async () => {
+    const oldHeartbeat = Timestamp.fromMillis(Date.now() - 31 * 60_000);
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const legacyDirectory: Record<string, unknown> = { ...directory };
+      delete legacyDirectory.lastActivityAt;
+      delete legacyDirectory.lastActivityAtMs;
+      delete legacyDirectory.authorityRevision;
+      await setDoc(doc(context.firestore(), "sparkRoomDirectory/P2P22"), {
+        ...legacyDirectory,
+        heartbeatAt: oldHeartbeat,
+      });
+      await setDoc(doc(context.firestore(), "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "alice",
+        revision: 1,
+      });
+    });
+    const cleaner = environment.authenticatedContext("bob").firestore();
+    await assertSucceeds(deleteDoc(doc(cleaner, "sparkRoomSnapshots/P2P22")));
+    await assertSucceeds(deleteDoc(doc(cleaner, "sparkRoomDirectory/P2P22")));
+  });
+
+  test("rolling deploy permits a legacy coordinator until the new client migrates it", async () => {
+    const legacyDirectory: Record<string, unknown> = { ...directory };
+    delete legacyDirectory.lastActivityAt;
+    delete legacyDirectory.lastActivityAtMs;
+    delete legacyDirectory.authorityRevision;
+    const alice = environment.authenticatedContext("alice").firestore();
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), legacyDirectory));
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "alice",
+        revision: 1,
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 2_000,
+      }),
+    );
+  });
+
+  test("a non-coordinator cannot reap a fresh room", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), directory));
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
+        schemaVersion: 1,
+        roomId: "P2P22",
+        coordinatorUid: "alice",
+        revision: 1,
+      }),
+    );
+    const bob = environment.authenticatedContext("bob").firestore();
+    await assertFails(deleteDoc(doc(bob, "sparkRoomSnapshots/P2P22")));
+    await assertFails(deleteDoc(doc(bob, "sparkRoomDirectory/P2P22")));
   });
 
   test("presence is writable only by the addressed anonymous Auth UID", async () => {

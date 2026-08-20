@@ -1407,6 +1407,114 @@ h2 {
   height: 44px;
   padding: 2px;
 }
+.face-paint-editor {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.2rem;
+}
+.face-paint-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.face-paint-heading h3,
+.face-paint-heading p {
+  margin: 0;
+}
+.face-paint-heading p {
+  margin-top: 0.25rem;
+  color: #b7c2ba;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.face-paint-heading output {
+  flex: 0 0 auto;
+  color: #f1d98d;
+  font-size: 0.72rem;
+}
+.face-paint-surface {
+  position: relative;
+  width: min(100%, 360px);
+  aspect-ratio: 1;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid #d1b879;
+  border-radius: 48% 48% 44% 44%;
+  background:
+    radial-gradient(circle at 35% 38%, #30231e 0 2.5%, transparent 2.8%),
+    radial-gradient(circle at 65% 38%, #30231e 0 2.5%, transparent 2.8%), var(--paint-skin, #bd7e5a);
+  box-shadow: inset 0 -24px 55px rgba(72, 35, 20, 0.28);
+}
+.face-paint-surface canvas {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+.face-paint-guide {
+  position: absolute;
+  z-index: 1;
+  top: 31%;
+  left: 50%;
+  color: rgba(49, 29, 26, 0.55);
+  font-size: clamp(1.2rem, 8vw, 2.3rem);
+  letter-spacing: clamp(2.3rem, 13vw, 4.3rem);
+  line-height: 4.5;
+  pointer-events: none;
+  transform: translateX(-48%);
+}
+.face-paint-colors,
+.face-paint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.face-paint-colors > button {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+.face-paint-colors > button[aria-selected="true"] {
+  outline: 3px solid #fff0b5;
+  outline-offset: 2px;
+}
+.face-paint-custom-color {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #c0cbc3;
+  font-size: 0.7rem;
+}
+.face-paint-custom-color input {
+  width: 48px;
+  height: 44px;
+  padding: 2px;
+}
+.face-paint-tools,
+.face-paint-width {
+  display: grid;
+  gap: 0.55rem;
+}
+.face-paint-width {
+  grid-template-columns: 82px minmax(120px, 1fr);
+  align-items: center;
+  color: #c0cbc3;
+  font-size: 0.72rem;
+}
+.face-paint-width input {
+  width: 100%;
+  min-height: 44px;
+}
+.face-paint-actions button[aria-pressed="true"] {
+  color: #13211d;
+  background: var(--brass);
+}
 .color-grid button {
   width: 44px;
   padding: 0;
@@ -1781,6 +1889,21 @@ h2 {
   }
   .range-field {
     grid-template-columns: 62px minmax(110px, 1fr) 34px;
+  }
+  .face-paint-surface {
+    width: min(100%, 290px);
+  }
+  .face-paint-heading p {
+    max-width: 240px;
+  }
+  .face-paint-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .face-paint-actions button {
+    min-height: 44px;
+    padding-inline: 0.35rem;
+    font-size: 0.72rem;
   }
   .avatar-editor > footer button {
     padding-inline: 0.55rem;

@@ -5,11 +5,14 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
   onSnapshot,
   query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
   where,
   type Firestore,
   type Unsubscribe,
@@ -26,6 +29,9 @@ interface DirectoryDocument extends PublicRoom {
   heartbeatAtMs: number;
   heartbeatAt?: unknown;
   updatedAtMs: number;
+  lastActivityAtMs?: number;
+  lastActivityAt?: unknown;
+  authorityRevision?: number;
 }
 
 interface RelayDocument {
@@ -76,6 +82,70 @@ const COORDINATOR_STALE_MS = 75_000;
 const MEMBER_OFFLINE_MS = 70_000;
 const DISCONNECT_LIMIT_MS = 120_000;
 const RELAY_TTL_MS = 10 * 60_000;
+export const SPARK_ROOM_STALE_MS = 30 * 60_000;
+const STALE_CLEANUP_BATCH_SIZE = 12;
+
+export function nextSparkActivityMetadata(
+  markActivity: boolean,
+  previous: { lastActivityAtMs?: number; authorityRevision?: number } | undefined,
+  now: number,
+  snapshotUpdatedAtMs: number,
+): { recordsActivity: boolean; lastActivityAtMs: number } {
+  const recordsActivity =
+    markActivity || previous?.lastActivityAtMs == null || previous.authorityRevision == null;
+  return {
+    recordsActivity,
+    lastActivityAtMs: recordsActivity ? now : (previous?.lastActivityAtMs ?? snapshotUpdatedAtMs),
+  };
+}
+
+/**
+ * Best-effort Spark-plan garbage collection. Client time is used only to find
+ * candidates; Firestore Rules compare the current directory heartbeat against
+ * request.time before either delete is authorized. The recovery snapshot must
+ * disappear first so a room can never be advertised without its authority
+ * state after cleanup completes.
+ */
+export async function cleanupStaleSparkRooms(db: Firestore): Promise<number> {
+  const cutoff = Timestamp.fromMillis(Date.now() - SPARK_ROOM_STALE_MS);
+  const candidates = new Map<string, ReturnType<typeof doc>>();
+  // heartbeatAt is queried as a migration fallback for old directory documents
+  // that predate lastActivityAt. Rules use lastActivityAt whenever it exists,
+  // so including a fresh new-format document here can never delete it early.
+  for (const field of ["lastActivityAt", "heartbeatAt"] as const) {
+    try {
+      const batch = await getDocs(
+        query(
+          collection(db, "sparkRoomDirectory"),
+          where(field, "<", cutoff),
+          limit(STALE_CLEANUP_BATCH_SIZE),
+        ),
+      );
+      for (const candidate of batch.docs) candidates.set(candidate.id, candidate.ref);
+    } catch {
+      // A failed best-effort query must not block the room flow or the other
+      // (legacy/new-format) candidate query.
+    }
+  }
+
+  let removed = 0;
+  for (const [roomId, directoryRef] of candidates) {
+    if (!/^[A-HJ-NP-Z2-9]{5}$/.test(roomId)) continue;
+    const snapshotRef = doc(db, "sparkRoomSnapshots", roomId);
+    try {
+      // Rules re-read the current directory and reject this if a heartbeat won
+      // the race after the query. Never reverse these two operations.
+      await deleteDoc(snapshotRef);
+      if ((await getDoc(snapshotRef)).exists()) continue;
+      await deleteDoc(directoryRef);
+      removed += 1;
+    } catch {
+      // Cleanup is opportunistic. A concurrent heartbeat or another cleaner is
+      // an expected race and must not block room creation/connection.
+    }
+  }
+  return removed;
+}
 
 function safeJson(value: unknown): string {
   return JSON.stringify(value);
@@ -176,6 +246,7 @@ export class SparkP2PSession {
     user: User,
     profile: { name: string; avatar: AvatarProfileV1 },
   ): Promise<SparkP2PSession> {
+    await cleanupStaleSparkRooms(db);
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const roomId = randomRoomId();
       const directoryRef = doc(db, "sparkRoomDirectory", roomId);
@@ -186,8 +257,11 @@ export class SparkP2PSession {
       session.authority = SparkAuthority.create(roomId, user.uid, session.peerId, profile);
       session.coordinatorUid = user.uid;
       session.coordinatorPeerId = session.peerId;
+      // Snapshot writes are authorized through an existing directory lease.
+      // Creation therefore has its own directory -> snapshot contract; normal
+      // mutations and handoff keep the recovery-safe snapshot -> directory order.
+      await session.persistInitialRoom();
       await session.startCommon();
-      await session.persistAndBroadcast();
       return session;
     }
     throw new Error("resource-exhausted: 部屋IDを確保できませんでした");
@@ -201,6 +275,7 @@ export class SparkP2PSession {
     profile?: { name: string; avatar: AvatarProfileV1 },
   ): Promise<SparkP2PSession> {
     const normalized = roomId.toUpperCase().slice(0, 5);
+    await cleanupStaleSparkRooms(db);
     const directorySnapshot = await getDoc(doc(db, "sparkRoomDirectory", normalized));
     if (!directorySnapshot.exists()) throw new Error("not-found: 指定された部屋が見つかりません");
     const directory = directorySnapshot.data() as DirectoryDocument;
@@ -295,6 +370,7 @@ export class SparkP2PSession {
       onSnapshot(doc(this.db, "sparkRoomDirectory", this.roomId), (snapshot) => {
         if (!snapshot.exists()) {
           this.setMode("offline");
+          void this.stop(false);
           return;
         }
         const next = snapshot.data() as DirectoryDocument;
@@ -358,7 +434,7 @@ export class SparkP2PSession {
     const now = Date.now();
     if (this.authority) {
       if (this.directory && now - this.directory.heartbeatAtMs >= HEARTBEAT_MS) {
-        await this.persistDirectory();
+        await this.persistDirectory(false).catch(() => this.setMode("offline"));
       }
       const snapshot = this.authority.exportSnapshot();
       if (
@@ -401,6 +477,13 @@ export class SparkP2PSession {
         heartbeatAtMs: now,
         heartbeatAt: serverTimestamp(),
         updatedAtMs: now,
+        ...(data.lastActivityAt
+          ? {}
+          : {
+              lastActivityAt: serverTimestamp(),
+              lastActivityAtMs: now,
+              authorityRevision: snapshot.revision,
+            }),
       });
       return true;
     }).catch(() => false);
@@ -448,7 +531,7 @@ export class SparkP2PSession {
     const recoverySnapshot =
       snapshot.coordinatorUid === this.uid ? snapshot : { ...snapshot, coordinatorUid: this.uid };
     await setDoc(doc(this.db, "sparkRoomSnapshots", this.roomId), plain(recoverySnapshot));
-    await this.persistDirectory();
+    await this.persistDirectory(true);
     for (const member of Object.values(snapshot.members)) {
       const view = this.authority.project(member.uid);
       if (member.uid === this.uid) this.acceptView(view);
@@ -458,10 +541,36 @@ export class SparkP2PSession {
     }
   }
 
-  private async persistDirectory(): Promise<void> {
+  private async persistInitialRoom(): Promise<void> {
+    if (!this.authority) return;
+    const snapshotRef = doc(this.db, "sparkRoomSnapshots", this.roomId);
+    const directoryRef = doc(this.db, "sparkRoomDirectory", this.roomId);
+    await this.persistDirectory(true);
+    try {
+      await setDoc(snapshotRef, plain(this.authority.exportSnapshot()));
+      this.acceptView(this.authority.project(this.uid));
+    } catch (error) {
+      // A failed bootstrap must not leave a public directory pointing at a
+      // missing recovery snapshot. Rules enforce the same deletion order.
+      await deleteDoc(snapshotRef).catch(() => undefined);
+      await deleteDoc(directoryRef).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async persistDirectory(markActivity: boolean): Promise<void> {
     if (!this.authority) return;
     const now = Date.now();
     const publicRoom = this.authority.publicRoom();
+    const snapshot = this.authority.exportSnapshot();
+    // Existing rooms without the field are migrated conservatively to "active
+    // now" by their coordinator; abandoned legacy rooms use heartbeatAt only.
+    const activity = nextSparkActivityMetadata(
+      markActivity,
+      this.directory,
+      now,
+      snapshot.updatedAtMs,
+    );
     const directory: DirectoryDocument = {
       ...publicRoom,
       visibility: "public",
@@ -469,14 +578,22 @@ export class SparkP2PSession {
       coordinatorPeerId: publicRoom.coordinatorPeerId,
       heartbeatAtMs: now,
       updatedAtMs: now,
+      lastActivityAtMs: activity.lastActivityAtMs,
+      authorityRevision: snapshot.revision,
+      ...(this.directory?.lastActivityAt ? { lastActivityAt: this.directory.lastActivityAt } : {}),
     };
     this.directory = directory;
     this.coordinatorUid = directory.coordinatorUid;
     this.coordinatorPeerId = directory.coordinatorPeerId;
-    await setDoc(doc(this.db, "sparkRoomDirectory", this.roomId), {
-      ...directory,
-      heartbeatAt: serverTimestamp(),
-    });
+    await setDoc(
+      doc(this.db, "sparkRoomDirectory", this.roomId),
+      {
+        ...directory,
+        heartbeatAt: serverTimestamp(),
+        ...(activity.recordsActivity ? { lastActivityAt: serverTimestamp() } : {}),
+      },
+      { merge: true },
+    );
   }
 
   private async connectToCoordinator(): Promise<void> {

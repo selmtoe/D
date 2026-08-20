@@ -21,7 +21,9 @@ sparkMailboxes/{roomId}/items/{messageId}   DataChannel fallback packet
 
 ### `sparkRoomDirectory`
 
-公開一覧に必要なhost、人数、mode、phaseと、coordinator UID/peer ID、`heartbeatAt` / `heartbeatAtMs` を持ちます。coordinator本人だけが通常更新できます。heartbeat停止から75秒後は、後継coordinatorがleaseを取得できます。
+公開一覧に必要なhost、人数、mode、phaseと、coordinator UID/peer ID、`heartbeatAt` / `heartbeatAtMs`、`lastActivityAt`、`authorityRevision` を持ちます。coordinator本人だけが通常更新できます。heartbeat停止から75秒後は、後継coordinatorがleaseを取得できます。
+
+`lastActivityAt` はserver timestampであり、30分stale cleanupの権限時刻です。`authorityRevision`がsnapshot revisionまで進む権威mutation時だけ更新でき、30秒lease heartbeatでは変わりません。clientのms値は表示・候補検索用で、削除権限には使いません。新規roomはdirectory leaseを作ってからsnapshotを保存します。通常更新とcleanupはsnapshotを先に処理し、Rulesはsnapshotが残るdirectory削除とsnapshot不在directoryのheartbeat復活を拒否します。旧documentに`lastActivityAt`がなければserver `heartbeatAt`をfallbackにします。
 
 ### `sparkRoomSnapshots`
 

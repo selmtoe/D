@@ -69,9 +69,12 @@ TURN serverを使わないため、学校・会社・一部mobile carrierなど�
 - presence listenerはcoordinatorだけ。
 - 典型的な4人roomのアイドル目安は約600 writes/時、約1,000 reads/時。
 - Firestore fallback中は各command/viewが追加read/writeになる。
+- 公開ロビー購読/create/connect時、権威操作が30分ないroomを最大24候補ずつsnapshot→directoryの順で整理する。
 - 古い`signals` / `mailboxes`は受信時に削除しますが、宛先が二度とonlineにならないpacketは残り得る。
 
 quotaが近づいた場合は新規room利用を止め、翌日のquota resetを待ちます。Blazeへ自動移行する処理はありません。
+
+この整理にはrepositoryの `firestore.rules` のdeployが必須です。Rulesを旧版のままWebだけ公開すると、非coordinatorによるstale削除は拒否されます。逆にRulesだけ先行deployしても、`lastActivityAt`の30分経過とsnapshot-first順序がserver側で強制されるためfresh roomは削除されません。旧directoryはfieldがないためheartbeatを安全側のfallbackにし、まだ動いている旧roomは次のcoordinator heartbeatで`lastActivityAt`を「現在」に移行します。
 
 ## 既知の制約
 

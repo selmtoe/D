@@ -17,6 +17,30 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/v2Rooms/$(roomId)).data.members[uid].connectionStatus != 'left';
     }
 
+    function isSparkRoomStale(roomId) {
+      return exists(/databases/$(database)/documents/sparkRoomDirectory/$(roomId))
+        && (
+          (
+            get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.keys()
+              .hasAll(['lastActivityAt'])
+            && get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.lastActivityAt
+              is timestamp
+            && request.time
+              > get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.lastActivityAt
+                + duration.value(30, 'm')
+          )
+          || (
+            !get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.keys()
+              .hasAny(['lastActivityAt'])
+            && get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.heartbeatAt
+              is timestamp
+            && request.time
+              > get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.heartbeatAt
+                + duration.value(30, 'm')
+          )
+        );
+    }
+
     // Legacy v1 namespace. The deployed legacy policy is not present in this
     // repository. Keeping its direct-client access preserves the running app;
     // do not tighten this match until the documented migration is complete.
@@ -58,9 +82,47 @@ service cloud.firestore {
         && request.resource.data.coordinatorUid == request.auth.uid
         && request.resource.data.coordinatorPeerId is string
         && request.resource.data.visibility == 'public'
-        && request.resource.data.heartbeatAt == request.time;
+        && request.resource.data.heartbeatAt == request.time
+        && (
+          (
+            request.resource.data.keys()
+              .hasAll(['lastActivityAt', 'lastActivityAtMs', 'authorityRevision'])
+            && request.resource.data.lastActivityAt == request.time
+            && request.resource.data.authorityRevision is int
+            && request.resource.data.authorityRevision >= 0
+          )
+          // Rolling-deploy compatibility. New coordinators migrate this shape
+          // on their next heartbeat; abandoned documents use heartbeatAt.
+          || !request.resource.data.keys()
+            .hasAny(['lastActivityAt', 'lastActivityAtMs', 'authorityRevision'])
+        );
       allow update: if signedIn()
         && request.resource.data.heartbeatAt == request.time
+        && exists(/databases/$(database)/documents/sparkRoomSnapshots/$(roomId))
+        && (
+          (
+            resource.data.keys().hasAll(['lastActivityAt', 'authorityRevision'])
+            && request.resource.data.lastActivityAt == resource.data.lastActivityAt
+            && request.resource.data.authorityRevision == resource.data.authorityRevision
+          )
+          || (
+            !resource.data.keys()
+              .hasAny(['lastActivityAt', 'lastActivityAtMs', 'authorityRevision'])
+            && !request.resource.data.keys()
+              .hasAny(['lastActivityAt', 'lastActivityAtMs', 'authorityRevision'])
+          )
+          || (
+            request.resource.data.keys().hasAll(['lastActivityAt', 'authorityRevision'])
+            && request.resource.data.lastActivityAt == request.time
+            && request.resource.data.authorityRevision is int
+            && request.resource.data.authorityRevision
+              == get(/databases/$(database)/documents/sparkRoomSnapshots/$(roomId)).data.revision
+            && (
+              !resource.data.keys().hasAll(['lastActivityAt', 'authorityRevision'])
+              || request.resource.data.authorityRevision > resource.data.authorityRevision
+            )
+          )
+        )
         && (
           resource.data.coordinatorUid == request.auth.uid
           || (
@@ -68,7 +130,15 @@ service cloud.firestore {
             && request.resource.data.coordinatorUid == request.auth.uid
           )
         );
-      allow delete: if signedIn() && resource.data.coordinatorUid == request.auth.uid;
+      // Snapshot-first deletion is mandatory. The owner may explicitly close a
+      // room; any authenticated client may opportunistically reap a server-time
+      // stale room, but only after its recovery snapshot is already absent.
+      allow delete: if signedIn()
+        && !exists(/databases/$(database)/documents/sparkRoomSnapshots/$(roomId))
+        && (
+          resource.data.coordinatorUid == request.auth.uid
+          || isSparkRoomStale(roomId)
+        );
     }
 
     // A full snapshot lets a peer take over if the coordinator tab closes.
@@ -84,8 +154,11 @@ service cloud.firestore {
         && request.resource.data.schemaVersion == 1;
       allow delete: if signedIn()
         && exists(/databases/$(database)/documents/sparkRoomDirectory/$(roomId))
-        && get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.coordinatorUid
-          == request.auth.uid;
+        && (
+          get(/databases/$(database)/documents/sparkRoomDirectory/$(roomId)).data.coordinatorUid
+            == request.auth.uid
+          || isSparkRoomStale(roomId)
+        );
     }
 
     match /sparkPresence/{roomId}/members/{uid} {

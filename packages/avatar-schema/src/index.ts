@@ -4,7 +4,7 @@ export const avatarCatalog = {
   skinTone: Array.from({ length: 24 }, (_, index) => `skin-${index + 1}`),
   bodyPresetId: Array.from({ length: 12 }, (_, index) => `body-${index + 1}`),
   headPresetId: Array.from({ length: 16 }, (_, index) => `head-${index + 1}`),
-  hair: Array.from({ length: 72 }, (_, index) => `hair-${index + 1}`),
+  hair: Array.from({ length: 144 }, (_, index) => `hair-${index + 1}`),
   eyes: Array.from({ length: 36 }, (_, index) => `eyes-${index + 1}`),
   iris: Array.from({ length: 18 }, (_, index) => `iris-${index + 1}`),
   brows: Array.from({ length: 28 }, (_, index) => `brows-${index + 1}`),
@@ -12,9 +12,9 @@ export const avatarCatalog = {
   mouth: Array.from({ length: 32 }, (_, index) => `mouth-${index + 1}`),
   ears: Array.from({ length: 12 }, (_, index) => `ears-${index + 1}`),
   beard: ["none", ...Array.from({ length: 24 }, (_, index) => `beard-${index + 1}`)],
-  marks: ["none", ...Array.from({ length: 32 }, (_, index) => `marks-${index + 1}`)],
-  eyewear: ["none", ...Array.from({ length: 28 }, (_, index) => `eyewear-${index + 1}`)],
-  headwear: ["none", ...Array.from({ length: 40 }, (_, index) => `headwear-${index + 1}`)],
+  marks: ["none", ...Array.from({ length: 96 }, (_, index) => `marks-${index + 1}`)],
+  eyewear: ["none", ...Array.from({ length: 80 }, (_, index) => `eyewear-${index + 1}`)],
+  headwear: ["none", ...Array.from({ length: 120 }, (_, index) => `headwear-${index + 1}`)],
   earrings: ["none", ...Array.from({ length: 28 }, (_, index) => `earrings-${index + 1}`)],
   jewelry: ["none", ...Array.from({ length: 32 }, (_, index) => `jewelry-${index + 1}`)],
   tops: Array.from({ length: 60 }, (_, index) => `tops-${index + 1}`),
@@ -127,6 +127,33 @@ export type AvatarPartKey =
   | "shoes"
   | "gloves"
   | "expression";
+
+export const FACE_PAINT_LIMITS = {
+  maxStrokes: 32,
+  maxPointsPerStroke: 128,
+  maxTotalPoints: 2048,
+  maxSerializedLength: 65_536,
+  minWidth: 0.004,
+  maxWidth: 0.12,
+} as const;
+
+export interface FacePaintPoint {
+  x: number;
+  y: number;
+}
+
+export interface FacePaintStroke {
+  mode: "paint" | "erase";
+  color: string;
+  width: number;
+  points: FacePaintPoint[];
+}
+
+export interface FacePaintLayer {
+  version: 1;
+  strokes: FacePaintStroke[];
+}
+
 export interface AvatarProfileV1 {
   schemaVersion: 1;
   bodyPresetId: string;
@@ -139,6 +166,8 @@ export interface AvatarProfileV1 {
     accent: "brass" | "silver" | "enamel";
   };
   animationSetId: string;
+  /** Optional v1 extension: old schemaVersion 1 profiles remain valid without it. */
+  facePaint?: FacePaintLayer;
 }
 
 export interface AvatarBodyMetrics {
@@ -235,6 +264,67 @@ const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
   const expected = [...keys].sort();
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 };
+const hasRequiredKeysAndNoExtras = (
+  value: object,
+  required: readonly string[],
+  optional: readonly string[],
+): boolean => {
+  const allowedKeys = new Set([...required, ...optional]);
+  return (
+    required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
+    Object.keys(value).every((key) => allowedKeys.has(key))
+  );
+};
+
+export function validateFacePaint(input: unknown): FacePaintLayer {
+  if (!input || typeof input !== "object" || !hasExactKeys(input, ["version", "strokes"]))
+    throw new Error("フェイスペイント情報が不正です");
+  const value = input as Partial<FacePaintLayer>;
+  if (
+    value.version !== 1 ||
+    !Array.isArray(value.strokes) ||
+    value.strokes.length > FACE_PAINT_LIMITS.maxStrokes
+  )
+    throw new Error("フェイスペイントのストローク数が上限を超えています");
+  let totalPoints = 0;
+  for (const stroke of value.strokes) {
+    if (
+      !stroke ||
+      typeof stroke !== "object" ||
+      !hasExactKeys(stroke, ["mode", "color", "width", "points"])
+    )
+      throw new Error("フェイスペイントの線情報が不正です");
+    if (
+      (stroke.mode !== "paint" && stroke.mode !== "erase") ||
+      typeof stroke.color !== "string" ||
+      !hex.test(stroke.color) ||
+      typeof stroke.width !== "number" ||
+      !Number.isFinite(stroke.width) ||
+      stroke.width < FACE_PAINT_LIMITS.minWidth ||
+      stroke.width > FACE_PAINT_LIMITS.maxWidth ||
+      !Array.isArray(stroke.points) ||
+      stroke.points.length === 0 ||
+      stroke.points.length > FACE_PAINT_LIMITS.maxPointsPerStroke
+    )
+      throw new Error("フェイスペイントの線情報が範囲外です");
+    totalPoints += stroke.points.length;
+    if (totalPoints > FACE_PAINT_LIMITS.maxTotalPoints)
+      throw new Error("フェイスペイントの点数が上限を超えています");
+    for (const point of stroke.points) {
+      if (
+        !point ||
+        typeof point !== "object" ||
+        !hasExactKeys(point, ["x", "y"]) ||
+        !range(point.x) ||
+        !range(point.y)
+      )
+        throw new Error("フェイスペイントの座標が不正です");
+    }
+  }
+  if (JSON.stringify(input).length > FACE_PAINT_LIMITS.maxSerializedLength)
+    throw new Error("フェイスペイントの保存サイズが上限を超えています");
+  return structuredClone(value) as FacePaintLayer;
+}
 
 const partKeys: AvatarPartKey[] = [
   "skinTone",
@@ -262,18 +352,17 @@ const partKeys: AvatarPartKey[] = [
 
 export function validateAvatar(input: unknown): AvatarProfileV1 {
   if (!input || typeof input !== "object") throw new Error("アバター情報が不正です");
-  if (
-    !hasExactKeys(input, [
-      "schemaVersion",
-      "bodyPresetId",
-      "headPresetId",
-      "morphs",
-      "parts",
-      "colors",
-      "materials",
-      "animationSetId",
-    ])
-  )
+  const requiredAvatarKeys = [
+    "schemaVersion",
+    "bodyPresetId",
+    "headPresetId",
+    "morphs",
+    "parts",
+    "colors",
+    "materials",
+    "animationSetId",
+  ] as const;
+  if (!hasRequiredKeysAndNoExtras(input, requiredAvatarKeys, ["facePaint"]))
     throw new Error("アバター情報に未対応の項目があります");
   const value = input as Partial<AvatarProfileV1>;
   if (
@@ -311,6 +400,7 @@ export function validateAvatar(input: unknown): AvatarProfileV1 {
     throw new Error("素材指定が不正です");
   if (!allowed("animationSetId", value.animationSetId))
     throw new Error("アニメーション指定が不正です");
+  if (Object.prototype.hasOwnProperty.call(input, "facePaint")) validateFacePaint(value.facePaint);
   return structuredClone(value) as AvatarProfileV1;
 }
 
@@ -324,7 +414,15 @@ export function migrateAvatar(input: unknown): AvatarProfileV1 {
     const legacyParts = legacy.parts as Partial<AvatarProfileV1["parts"]> | undefined;
     const legacyColors = legacy.colors as Partial<AvatarProfileV1["colors"]> | undefined;
     const legacyMaterials = legacy.materials as Partial<AvatarProfileV1["materials"]> | undefined;
-    const migrated = {
+    let facePaint: FacePaintLayer | undefined;
+    if (legacy.facePaint !== undefined) {
+      try {
+        facePaint = validateFacePaint(legacy.facePaint);
+      } catch {
+        // A corrupt optional paint layer must not make an otherwise usable v1 avatar unreadable.
+      }
+    }
+    const migrated: AvatarProfileV1 = {
       schemaVersion: 1,
       bodyPresetId: allowed("bodyPresetId", legacy.bodyPresetId)
         ? legacy.bodyPresetId
@@ -344,7 +442,7 @@ export function migrateAvatar(input: unknown): AvatarProfileV1 {
           key,
           allowed(key, legacyParts?.[key]) ? legacyParts[key] : defaultAvatar.parts[key],
         ]),
-      ),
+      ) as AvatarProfileV1["parts"],
       colors: Object.fromEntries(
         (["skin", "hair", "eyes", "outfit", "accent"] as const).map((key) => [
           key,
@@ -352,19 +450,20 @@ export function migrateAvatar(input: unknown): AvatarProfileV1 {
             ? legacyColors[key]
             : defaultAvatar.colors[key],
         ]),
-      ),
+      ) as AvatarProfileV1["colors"],
       materials: {
         outfit: ["velvet", "satin", "wool", "silk"].includes(legacyMaterials?.outfit ?? "")
-          ? legacyMaterials!.outfit
+          ? legacyMaterials!.outfit!
           : defaultAvatar.materials.outfit,
         accent: ["brass", "silver", "enamel"].includes(legacyMaterials?.accent ?? "")
-          ? legacyMaterials!.accent
+          ? legacyMaterials!.accent!
           : defaultAvatar.materials.accent,
       },
       animationSetId: allowed("animationSetId", legacy.animationSetId)
         ? legacy.animationSetId
         : defaultAvatar.animationSetId,
     };
+    if (facePaint) migrated.facePaint = facePaint;
     return validateAvatar(migrated);
   }
 }

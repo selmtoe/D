@@ -56,7 +56,10 @@ TURN serverは置きません。NATやネットワーク制限によりP2Pが成
 - ゲーム中のviewはFirestore documentへ毎回投影せずP2P送信。
 - crash snapshotはstate mutation時だけ更新。
 - public room listは新しいheartbeatの最大40件だけ購読。
+- 公開ロビー購読開始/create/connect時に、対局・参加・チャット等の権威更新が30分ないroomを少数ずつopportunistic cleanupする。Cloud Functionsやscheduled jobは使わない。
 - mailbox/signalingは10分でclient上無効扱い（定期cleanupは行わない）。
+
+新規作成だけはRulesがsnapshotの書き込み元leaseを必要とするため `directory → snapshot` です。以後の通常mutationとcoordinator handoffは、復旧stateを先に確定する `snapshot → directory` です。stale cleanupも同様にsnapshotを先に削除し、snapshot不在を確認してからdirectoryを削除します。30分判定はclient時計を権限根拠にせず、Rulesの `request.time` と現在の `lastActivityAt` で再検証します。lease heartbeatは`lastActivityAt`を延長できず、snapshot revisionが進んだ時だけserver timestampへ更新できます。
 
 典型的な4人部屋では、アイドル時の目安は約600 writes/時、約1,000 reads/時です。実値はtab数、fallback率、再接続、操作数で変わるため、Firebase Usageを確認してください。
 

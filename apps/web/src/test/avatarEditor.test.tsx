@@ -26,7 +26,7 @@ describe("avatar editor breadth and mobile controls", () => {
     fireEvent.click(screen.getByRole("tab", { name: "髪" }));
     expect(
       within(screen.getByRole("listbox", { name: "hairのパーツ" })).getAllByRole("option"),
-    ).toHaveLength(72);
+    ).toHaveLength(144);
     fireEvent.click(screen.getByRole("option", { name: "髪色 18" }));
     expect(screen.getByRole("option", { name: "髪色 18" })).toHaveAttribute(
       "aria-selected",
@@ -36,10 +36,91 @@ describe("avatar editor breadth and mobile controls", () => {
     fireEvent.click(screen.getByRole("tab", { name: "装飾" }));
     expect(
       within(screen.getByRole("listbox", { name: "eyewearのパーツ" })).getAllByRole("option"),
-    ).toHaveLength(29);
+    ).toHaveLength(81);
     expect(
       within(screen.getByRole("listbox", { name: "headwearのパーツ" })).getAllByRole("option"),
-    ).toHaveLength(41);
+    ).toHaveLength(121);
+  });
+
+  it("offers touch drawing tools with eraser, per-stroke undo and clear", () => {
+    const context = {
+      clearRect: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
+    const painted = {
+      ...defaultAvatar,
+      facePaint: {
+        version: 1 as const,
+        strokes: [
+          {
+            mode: "paint" as const,
+            color: "#bc2942",
+            width: 0.035,
+            points: [{ x: 0.2, y: 0.3 }],
+          },
+        ],
+      },
+    };
+    render(<AvatarEditor value={painted} onCancel={vi.fn()} onSave={vi.fn()} lowPower />);
+    fireEvent.click(screen.getByRole("tab", { name: "ペイント" }));
+    const paintCanvas = screen.getByLabelText("顔へペイントする描画領域") as HTMLCanvasElement;
+    expect(paintCanvas).toHaveAttribute("width", "512");
+    expect(screen.getByRole("slider", { name: "フェイスペイントの太さ" })).toHaveAttribute(
+      "max",
+      "120",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "消しゴム" }));
+    expect(screen.getByRole("button", { name: "消しゴム中" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "1本戻す" }));
+    expect(screen.getByRole("button", { name: "1本戻す" })).toBeDisabled();
+    vi.spyOn(paintCanvas, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 300,
+      bottom: 300,
+      width: 300,
+      height: 300,
+      toJSON: () => ({}),
+    });
+    Object.assign(paintCanvas, {
+      setPointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+      releasePointerCapture: vi.fn(),
+    });
+    fireEvent.pointerDown(paintCanvas, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 60,
+      clientY: 80,
+    });
+    fireEvent.pointerMove(paintCanvas, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 150,
+      clientY: 170,
+    });
+    fireEvent.pointerUp(paintCanvas, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 150,
+      clientY: 170,
+    });
+    expect(screen.getByText(`1/32 本`)).toBeVisible();
+    expect(screen.getByRole("button", { name: "1本戻す" })).toBeEnabled();
+    contextSpy.mockRestore();
   });
 
   it("offers independent safe body controls and explicit touch-friendly preview buttons", () => {

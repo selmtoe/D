@@ -30,6 +30,8 @@
 - host移譲、効果actor切断の既定解決、active 1人以下の終了
 - public listのheartbeat/24時間filter
 - 75秒coordinator lease移譲とsnapshot復元
+- 新規createのdirectory→snapshot bootstrapと、`lastActivityAt`から30分stale roomのsnapshot→directory cleanup
+- fresh room、client時計ずれ、cleanup中のheartbeat競合ではRulesが削除を拒否すること
 - DataChannel不成立時のFirestore mailbox fallback
 - Security Rulesがdirectory lease、presence所有者、signal/mailbox senderを検証すること
 

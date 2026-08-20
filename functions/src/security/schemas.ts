@@ -195,6 +195,42 @@ const catalogId = (prefix: string, maximum: number, allowNone = false) =>
     return index >= 1 && index <= maximum;
   }, `unsupported ${prefix} id`);
 
+const facePaintPointSchema = z
+  .object({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+  })
+  .strict();
+
+const facePaintStrokeSchema = z
+  .object({
+    mode: z.enum(["paint", "erase"]),
+    color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    width: z.number().finite().min(0.004).max(0.12),
+    points: z.array(facePaintPointSchema).min(1).max(128),
+  })
+  .strict();
+
+const facePaintSchema = z
+  .object({
+    version: z.literal(1),
+    strokes: z.array(facePaintStrokeSchema).max(32),
+  })
+  .strict()
+  .superRefine((layer, context) => {
+    const totalPoints = layer.strokes.reduce((total, stroke) => total + stroke.points.length, 0);
+    if (totalPoints > 2_048) {
+      context.addIssue({
+        code: "custom",
+        path: ["strokes"],
+        message: "face paint has too many points",
+      });
+    }
+    if (JSON.stringify(layer).length > 65_536) {
+      context.addIssue({ code: "custom", message: "face paint payload is too large" });
+    }
+  });
+
 export const avatarProfileSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -210,7 +246,7 @@ export const avatarProfileSchema = z
     parts: z
       .object({
         skinTone: catalogId("skin", 24),
-        hair: catalogId("hair", 72),
+        hair: catalogId("hair", 144),
         eyes: catalogId("eyes", 36),
         iris: catalogId("iris", 18),
         brows: catalogId("brows", 28),
@@ -218,9 +254,9 @@ export const avatarProfileSchema = z
         mouth: catalogId("mouth", 32),
         ears: catalogId("ears", 12),
         beard: catalogId("beard", 24, true),
-        marks: catalogId("marks", 32, true),
-        eyewear: catalogId("eyewear", 28, true),
-        headwear: catalogId("headwear", 40, true),
+        marks: catalogId("marks", 96, true),
+        eyewear: catalogId("eyewear", 80, true),
+        headwear: catalogId("headwear", 120, true),
         earrings: catalogId("earrings", 28, true),
         jewelry: catalogId("jewelry", 32, true),
         tops: catalogId("tops", 60),
@@ -248,6 +284,7 @@ export const avatarProfileSchema = z
       })
       .strict(),
     animationSetId: catalogId("animation", 24),
+    facePaint: facePaintSchema.optional(),
   })
   .strict();
 

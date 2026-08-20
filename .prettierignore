@@ -4,6 +4,7 @@ functions/lib
 coverage
 playwright-report
 test-results
+artifacts/qa/bot-match-proof.md
 index.html
 manifest.json
 service-worker.js

@@ -10,13 +10,15 @@ import {
   type AvatarProfileV1,
 } from "@daifugo/avatar-schema";
 import { Avatar3D } from "./Avatar3D";
+import { FacePaintEditor } from "./FacePaintEditor";
 import { animationNames, proceduralPartStyle } from "./proceduralAvatar";
 import { loadPresets, savePresets } from "./avatarStorage";
 import { firebaseErrorMessage, sendCommand } from "../network/firebaseClient";
 
-type Tab = "face" | "hair" | "expression" | "clothes" | "decor" | "body";
+type Tab = "face" | "paint" | "hair" | "expression" | "clothes" | "decor" | "body";
 const tabs: { id: Tab; label: string }[] = [
   { id: "face", label: "顔" },
+  { id: "paint", label: "ペイント" },
   { id: "hair", label: "髪" },
   { id: "expression", label: "表情" },
   { id: "clothes", label: "服" },
@@ -439,6 +441,18 @@ export function AvatarEditor({
                     }
                   />
                 </>
+              )}
+              {tab === "paint" && (
+                <FacePaintEditor
+                  layer={draft.facePaint}
+                  skinColor={draft.colors.skin}
+                  onChange={(facePaint) => {
+                    const next = structuredClone(draft);
+                    if (facePaint) next.facePaint = facePaint;
+                    else delete next.facePaint;
+                    commit(next);
+                  }}
+                />
               )}
               {tab === "expression" && (
                 <>

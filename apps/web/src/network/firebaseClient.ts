@@ -32,7 +32,7 @@ import {
   subscribeE2EPublicRooms,
   subscribeE2ERoomView,
 } from "./e2eTransport";
-import { SparkP2PSession } from "./sparkP2P";
+import { cleanupStaleSparkRooms, SparkP2PSession } from "./sparkP2P";
 
 type FirebaseContext = {
   app: FirebaseApp;
@@ -369,6 +369,7 @@ export async function subscribePublicRooms(
     return subscribeE2EPublicRooms(onRooms, onError);
   }
   const { db } = await getFirebase();
+  await cleanupStaleSparkRooms(db);
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const publicQuery = query(
     collection(db, "sparkRoomDirectory"),

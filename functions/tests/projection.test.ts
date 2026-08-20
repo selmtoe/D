@@ -3,7 +3,11 @@ import { createInitialGameState } from "@daifugo/rules";
 import { describe, expect, test } from "vitest";
 import { createCardTokenMap } from "../src/game/rules-adapter.js";
 import type { RoomDocument, RoomMember } from "../src/model.js";
-import { projectPendingEffect, projectRoomForViewer } from "../src/projections/project-room.js";
+import {
+  projectPendingEffect,
+  projectPublicRoom,
+  projectRoomForViewer,
+} from "../src/projections/project-room.js";
 
 function member(uid: string, role: "player" | "spectator", order: number): RoomMember {
   const now = Timestamp.fromMillis(1_000);
@@ -65,6 +69,31 @@ function blindRoom(): RoomDocument {
 }
 
 describe("viewer-specific projection", () => {
+  test("expanded optional face paint survives private and lobby avatar projections", () => {
+    const room = blindRoom();
+    const avatar = {
+      schemaVersion: 1,
+      facePaint: {
+        version: 1,
+        strokes: [
+          {
+            mode: "paint",
+            color: "#aabbcc",
+            width: 0.04,
+            points: [{ x: 0.25, y: 0.75 }],
+          },
+        ],
+      },
+    };
+    room.members.alice!.avatar = avatar;
+    const view = projectRoomForViewer(room, "alice");
+    const alice = (view.players as Array<Record<string, unknown>>).find(
+      (player) => player.id === "alice",
+    );
+    expect(alice?.avatar).toEqual(avatar);
+    expect(projectPublicRoom(room).hostAvatar).toEqual(avatar);
+  });
+
   test("public game events keep their authoritative timestamps in the log", () => {
     const room = blindRoom();
     room.publicEvents = [

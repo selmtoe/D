@@ -1,11 +1,26 @@
 import { avatarBodyMetrics, type AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
-import type { Group } from "three";
+import { useEffect, useMemo, useRef } from "react";
+import { CanvasTexture, Color, SRGBColorSpace, type Group } from "three";
+import { createFacePaintCanvas } from "./facePaint";
 import { animationPose, proceduralPartStyle } from "./proceduralAvatar";
 
 function materialRoughness(material: AvatarProfileV1["materials"]["outfit"]): number {
   return { velvet: 0.88, satin: 0.24, wool: 0.76, silk: 0.34 }[material];
+}
+
+function proceduralColor(
+  base: string,
+  style: ReturnType<typeof proceduralPartStyle>,
+  strength = 1,
+): string {
+  const color = new Color(base);
+  color.offsetHSL(
+    (style.wave - 0.5) * 0.12 * strength,
+    (style.sweep - 0.5) * 0.16 * strength,
+    (style.signature - 0.5) * 0.14 * strength,
+  );
+  return `#${color.getHexString()}`;
 }
 
 function Hair({
@@ -18,18 +33,20 @@ function Hair({
   headY: number;
 }) {
   const style = proceduralPartStyle("hair", profile.parts.hair);
+  const family = Math.min(11, Math.floor(style.signature * 12));
+  const hairColor = proceduralColor(profile.colors.hair, style, 0.72);
   const strands = 5 + Math.floor(style.sweep * 7);
   const spikes = 3 + Math.floor(style.wave * 4);
   const alternating = (index: number) => index - Math.floor(index / 2) * 2;
   return (
     <group position={[0, headY + 0.35 + style.signature * 0.045, -0.02]}>
-      {style.family === 0 && (
+      {family === 0 && (
         <mesh scale={[0.98 + style.signature * 0.11, 0.46 + style.wave * 0.2, 0.96]}>
           <sphereGeometry args={[0.59, lowPower ? 14 : 22, lowPower ? 10 : 16]} />
-          <meshStandardMaterial color={profile.colors.hair} roughness={0.68 + style.sweep * 0.22} />
+          <meshStandardMaterial color={hairColor} roughness={0.68 + style.sweep * 0.22} />
         </mesh>
       )}
-      {style.family === 1 &&
+      {family === 1 &&
         Array.from({ length: strands }, (_, index) => {
           const center = index - (strands - 1) / 2;
           return (
@@ -50,15 +67,15 @@ function Hair({
                   lowPower ? 7 : 11,
                 ]}
               />
-              <meshStandardMaterial color={profile.colors.hair} roughness={0.76} />
+              <meshStandardMaterial color={hairColor} roughness={0.76} />
             </mesh>
           );
         })}
-      {style.family === 2 && (
+      {family === 2 && (
         <>
           <mesh scale={[1.02 + style.signature * 0.06, 0.48 + style.wave * 0.16, 1]}>
             <sphereGeometry args={[0.6, lowPower ? 14 : 22, lowPower ? 10 : 15]} />
-            <meshStandardMaterial color={profile.colors.hair} roughness={0.84} />
+            <meshStandardMaterial color={hairColor} roughness={0.84} />
           </mesh>
           {[-1, 1].map((side) => (
             <mesh
@@ -69,12 +86,12 @@ function Hair({
               <capsuleGeometry
                 args={[0.1 + style.signature * 0.025, 0.42 + style.sweep * 0.42, 6, 10]}
               />
-              <meshStandardMaterial color={profile.colors.hair} roughness={0.72} />
+              <meshStandardMaterial color={hairColor} roughness={0.72} />
             </mesh>
           ))}
         </>
       )}
-      {style.family === 3 &&
+      {family === 3 &&
         Array.from({ length: spikes }, (_, index) => (
           <mesh
             key={index}
@@ -86,14 +103,14 @@ function Hair({
             rotation={[style.sweep * 0.22, 0, (style.signature - 0.5) * 0.12]}
           >
             <coneGeometry args={[0.22 + style.wave * 0.08, 0.46 + style.signature * 0.42, 10]} />
-            <meshStandardMaterial color={profile.colors.hair} roughness={0.67} />
+            <meshStandardMaterial color={hairColor} roughness={0.67} />
           </mesh>
         ))}
-      {style.family === 4 && (
+      {family === 4 && (
         <>
           <mesh scale={[1.02, 0.43 + style.signature * 0.1, 1]}>
             <sphereGeometry args={[0.58, lowPower ? 14 : 20, 12]} />
-            <meshStandardMaterial color={profile.colors.hair} roughness={0.9} />
+            <meshStandardMaterial color={hairColor} roughness={0.9} />
           </mesh>
           {[-1, 1].map((side) => (
             <mesh
@@ -101,12 +118,12 @@ function Hair({
               position={[side * (0.5 + style.wave * 0.08), 0.12 + style.sweep * 0.1, -0.02]}
             >
               <sphereGeometry args={[0.17 + style.signature * 0.09, lowPower ? 10 : 16, 10]} />
-              <meshStandardMaterial color={profile.colors.hair} roughness={0.92} />
+              <meshStandardMaterial color={hairColor} roughness={0.92} />
             </mesh>
           ))}
         </>
       )}
-      {style.family === 5 &&
+      {family === 5 &&
         Array.from({ length: strands }, (_, index) => {
           const angle = (index / strands) * Math.PI * 2;
           return (
@@ -122,10 +139,186 @@ function Hair({
               <torusGeometry
                 args={[0.1 + style.wave * 0.035, 0.035 + style.signature * 0.018, 7, 14]}
               />
-              <meshStandardMaterial color={profile.colors.hair} roughness={0.82} />
+              <meshStandardMaterial color={hairColor} roughness={0.82} />
             </mesh>
           );
         })}
+      {family === 6 && (
+        <>
+          <mesh scale={[1.02, 0.42 + style.wave * 0.12, 0.98]}>
+            <sphereGeometry args={[0.59, lowPower ? 14 : 22, lowPower ? 10 : 15]} />
+            <meshStandardMaterial color={hairColor} roughness={0.76} />
+          </mesh>
+          <mesh position={[0, -0.16, -0.46]} rotation={[0.18, 0, 0]}>
+            <capsuleGeometry
+              args={[0.13 + style.signature * 0.04, 0.5 + style.sweep * 0.5, 7, 12]}
+            />
+            <meshStandardMaterial color={hairColor} roughness={0.82} />
+          </mesh>
+        </>
+      )}
+      {family === 7 && (
+        <>
+          <mesh scale={[1.03, 0.43, 0.98]}>
+            <sphereGeometry args={[0.58, lowPower ? 14 : 22, 12]} />
+            <meshStandardMaterial color={hairColor} roughness={0.79} />
+          </mesh>
+          {[-1, 1].map((side) => (
+            <mesh
+              key={side}
+              position={[side * (0.51 + style.sweep * 0.06), -0.24, -0.02]}
+              rotation={[0, 0, side * 0.2]}
+            >
+              <capsuleGeometry
+                args={[0.1 + style.wave * 0.03, 0.42 + style.signature * 0.45, 6, 11]}
+              />
+              <meshStandardMaterial color={hairColor} roughness={0.84} />
+            </mesh>
+          ))}
+        </>
+      )}
+      {family === 8 &&
+        Array.from({ length: lowPower ? 8 : 14 }, (_, index) => {
+          const angle = (index / (lowPower ? 8 : 14)) * Math.PI * 2;
+          return (
+            <mesh
+              key={index}
+              position={[
+                Math.cos(angle) * 0.42,
+                Math.sin(angle * 2) * 0.16,
+                Math.sin(angle) * 0.34,
+              ]}
+            >
+              <sphereGeometry args={[0.19 + style.wave * 0.055, lowPower ? 8 : 12, 8]} />
+              <meshStandardMaterial color={hairColor} roughness={0.95} />
+            </mesh>
+          );
+        })}
+      {family === 9 &&
+        Array.from({ length: 5 + Math.floor(style.sweep * 4) }, (_, index) => (
+          <mesh
+            key={index}
+            position={[0, 0.18, (index - 3.5) * 0.11]}
+            rotation={[style.wave * 0.25, 0, 0]}
+          >
+            <coneGeometry args={[0.13 + style.signature * 0.035, 0.4 + style.wave * 0.28, 8]} />
+            <meshStandardMaterial color={hairColor} roughness={0.66} />
+          </mesh>
+        ))}
+      {family === 10 && (
+        <>
+          <mesh scale={[1.04, 0.54 + style.wave * 0.08, 1]}>
+            <sphereGeometry args={[0.58, lowPower ? 14 : 22, 13]} />
+            <meshStandardMaterial color={hairColor} roughness={0.74} />
+          </mesh>
+          {[-1, 1].map((side) => (
+            <mesh
+              key={side}
+              position={[side * 0.48, -0.2, 0.08]}
+              scale={[0.75, 1.2 + style.signature * 0.4, 0.7]}
+            >
+              <sphereGeometry args={[0.2, 10, 8]} />
+              <meshStandardMaterial color={hairColor} roughness={0.78} />
+            </mesh>
+          ))}
+        </>
+      )}
+      {family === 11 && (
+        <>
+          <mesh scale={[1, 0.42, 0.96]}>
+            <sphereGeometry args={[0.58, lowPower ? 14 : 22, 12]} />
+            <meshStandardMaterial color={hairColor} roughness={0.78} />
+          </mesh>
+          {Array.from({ length: 4 + Math.floor(style.wave * 3) }, (_, index) => (
+            <mesh
+              key={index}
+              position={[0.28 + Math.sin(index) * 0.03, -0.12 - index * 0.14, -0.28]}
+            >
+              <sphereGeometry args={[0.095 - index * 0.006, 10, 8]} />
+              <meshStandardMaterial color={hairColor} roughness={0.86} />
+            </mesh>
+          ))}
+        </>
+      )}
+    </group>
+  );
+}
+
+function FaceMark({ profile }: { profile: AvatarProfileV1 }) {
+  const style = proceduralPartStyle("marks", profile.parts.marks);
+  if (!style.active) return null;
+  const family = Math.min(7, Math.floor(style.signature * 8));
+  const color = proceduralColor(profile.colors.accent, style, 0.86);
+  const position: [number, number, number] = [
+    -0.3 + style.sweep * 0.6,
+    -0.13 + style.wave * 0.27,
+    0.038,
+  ];
+  const material = (
+    <meshStandardMaterial color={color} transparent opacity={0.78} roughness={0.5} />
+  );
+  return (
+    <group position={position} rotation={[0, 0, style.signature * Math.PI]}>
+      {family === 0 && (
+        <mesh>
+          <circleGeometry
+            args={[0.025 + style.signature * 0.03, 3 + Math.floor(style.sweep * 5)]}
+          />
+          {material}
+        </mesh>
+      )}
+      {family === 1 && (
+        <mesh rotation={[0, 0, 0.55]}>
+          <boxGeometry args={[0.025 + style.wave * 0.025, 0.16 + style.signature * 0.09, 0.012]} />
+          {material}
+        </mesh>
+      )}
+      {family === 2 && (
+        <mesh>
+          <torusGeometry
+            args={[0.045 + style.signature * 0.025, 0.012 + style.wave * 0.008, 7, 16]}
+          />
+          {material}
+        </mesh>
+      )}
+      {family === 3 && (
+        <mesh scale={[0.8 + style.sweep * 0.5, 1, 0.5]}>
+          <octahedronGeometry args={[0.055 + style.signature * 0.025, 0]} />
+          {material}
+        </mesh>
+      )}
+      {family === 4 &&
+        [-1, 0, 1].map((offset) => (
+          <mesh key={offset} position={[offset * (0.038 + style.sweep * 0.012), 0, 0]}>
+            <circleGeometry args={[0.014 + style.wave * 0.008, 12]} />
+            {material}
+          </mesh>
+        ))}
+      {family === 5 && (
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <torusGeometry args={[0.06 + style.signature * 0.02, 0.012, 8, 18, Math.PI * 1.45]} />
+          {material}
+        </mesh>
+      )}
+      {family === 6 &&
+        [-1, 1].map((offset) => (
+          <mesh key={offset} position={[0, offset * 0.035, 0]} rotation={[0, 0, 0.35]}>
+            <boxGeometry args={[0.14 + style.sweep * 0.06, 0.015 + style.wave * 0.008, 0.01]} />
+            {material}
+          </mesh>
+        ))}
+      {family === 7 && (
+        <>
+          <mesh>
+            <tetrahedronGeometry args={[0.065 + style.signature * 0.025, 0]} />
+            {material}
+          </mesh>
+          <mesh position={[0, -0.09, 0]}>
+            <sphereGeometry args={[0.018 + style.wave * 0.009, 10, 8]} />
+            {material}
+          </mesh>
+        </>
+      )}
     </group>
   );
 }
@@ -227,10 +420,23 @@ export function Avatar3D({
     }),
     [profile],
   );
+  const facePaintTexture = useMemo(() => {
+    if (!profile.facePaint?.strokes.length || typeof document === "undefined") return null;
+    const texture = new CanvasTexture(createFacePaintCanvas(profile.facePaint));
+    texture.colorSpace = SRGBColorSpace;
+    texture.needsUpdate = true;
+    return texture;
+  }, [profile.facePaint]);
+  useEffect(() => () => facePaintTexture?.dispose(), [facePaintTexture]);
   const body = avatarBodyMetrics(profile);
   const headY = 1.75 + (body.torsoLength - 1) * 0.24 + (body.legLength - 1) * 0.08;
   const armY = 1.02 + (body.torsoLength - 1) * 0.2;
   const legY = 0.27 + (body.legLength - 1) * 0.18;
+  const headScale: [number, number, number] = [
+    (0.78 + profile.morphs.faceWidth * 0.36) * (0.86 + style.head.signature * 0.28),
+    0.84 + style.head.wave * 0.22,
+    0.82 + style.head.sweep * 0.18,
+  ];
   useFrame(({ clock }) => {
     if (lowPower || !root.current) return;
     const pose = animationPose(profile.animationSetId, clock.elapsedTime, active);
@@ -250,6 +456,10 @@ export function Avatar3D({
     if (rightLeg.current) rightLeg.current.position.y = legY - pose.legLift * 0.35;
   });
   const outfitRoughness = materialRoughness(profile.materials.outfit);
+  const eyewearFamily = Math.min(9, Math.floor(style.eyewear.signature * 10));
+  const headwearFamily = Math.min(11, Math.floor(style.headwear.signature * 12));
+  const eyewearColor = proceduralColor(profile.colors.accent, style.eyewear, 0.88);
+  const headwearColor = proceduralColor(profile.colors.accent, style.headwear, 1);
   return (
     <group ref={root} scale={[1, body.heightScale, 1]}>
       <group ref={bodyRig}>
@@ -318,20 +528,27 @@ export function Avatar3D({
       </group>
 
       <group ref={headRig} position={[0, headY, 0]}>
-        <mesh
-          scale={[
-            (0.78 + profile.morphs.faceWidth * 0.36) * (0.86 + style.head.signature * 0.28),
-            0.84 + style.head.wave * 0.22,
-            0.82 + style.head.sweep * 0.18,
-          ]}
-          castShadow
-        >
+        <mesh scale={headScale} castShadow>
           <sphereGeometry args={[0.56, lowPower ? 16 : 28, lowPower ? 12 : 22]} />
           <meshStandardMaterial
             color={profile.colors.skin}
             roughness={0.5 + style.skin.signature * 0.32}
           />
         </mesh>
+        {facePaintTexture && (
+          <mesh scale={headScale} renderOrder={2}>
+            <sphereGeometry args={[0.565, lowPower ? 16 : 28, lowPower ? 12 : 22]} />
+            <meshBasicMaterial
+              map={facePaintTexture}
+              transparent
+              alphaTest={0.01}
+              depthWrite={false}
+              polygonOffset
+              polygonOffsetFactor={-1}
+              toneMapped={false}
+            />
+          </mesh>
+        )}
         <group position={[0, 0.07, 0.5]}>
           {[-1, 1].map((side) => (
             <group
@@ -405,20 +622,7 @@ export function Avatar3D({
               <meshStandardMaterial color={profile.colors.hair} roughness={0.92} />
             </mesh>
           )}
-          {style.marks.active && (
-            <mesh
-              position={[-0.3 + style.marks.sweep * 0.6, -0.13 + style.marks.wave * 0.27, 0.035]}
-              rotation={[0, 0, style.marks.signature * Math.PI]}
-            >
-              <circleGeometry
-                args={[
-                  0.018 + style.marks.signature * 0.035,
-                  3 + Math.floor(style.marks.sweep * 9),
-                ]}
-              />
-              <meshStandardMaterial color="#7d493d" transparent opacity={0.72} />
-            </mesh>
-          )}
+          <FaceMark profile={profile} />
         </group>
       </group>
 
@@ -561,7 +765,7 @@ export function Avatar3D({
           position={[0, headY + 0.1 + style.eyewear.signature * 0.025, 0.55]}
           rotation={[0, 0, (style.eyewear.wave - 0.5) * 0.07]}
         >
-          {style.eyewear.family <= 1 &&
+          {eyewearFamily <= 1 &&
             [-1, 1].map((side) => (
               <mesh
                 key={side}
@@ -569,15 +773,15 @@ export function Avatar3D({
                 scale={[1 + style.eyewear.signature * 0.25, 0.72 + style.eyewear.sweep * 0.32, 1]}
               >
                 <torusGeometry args={[0.13, 0.014 + style.eyewear.wave * 0.018, 8, 20]} />
-                <meshStandardMaterial color={profile.colors.accent} metalness={0.74} />
+                <meshStandardMaterial color={eyewearColor} metalness={0.74} />
               </mesh>
             ))}
-          {(style.eyewear.family === 2 || style.eyewear.family === 3) &&
+          {(eyewearFamily === 2 || eyewearFamily === 3) &&
             [-1, 1].map((side) => (
               <group
                 key={side}
                 position={[side * 0.2, 0, 0]}
-                rotation={[0, 0, side * (style.eyewear.family === 3 ? -0.1 : 0)]}
+                rotation={[0, 0, side * (eyewearFamily === 3 ? -0.1 : 0)]}
               >
                 <mesh
                   scale={[
@@ -588,7 +792,7 @@ export function Avatar3D({
                 >
                   <boxGeometry args={[0.29, 0.18, 0.025]} />
                   <meshStandardMaterial
-                    color={style.eyewear.family === 3 ? profile.colors.eyes : "#11191d"}
+                    color={eyewearFamily === 3 ? profile.colors.eyes : "#11191d"}
                     metalness={0.28}
                     roughness={0.16}
                     transparent
@@ -597,15 +801,15 @@ export function Avatar3D({
                 </mesh>
                 <mesh position={[0, 0, -0.012]}>
                   <boxGeometry args={[0.31, 0.025, 0.035]} />
-                  <meshStandardMaterial color={profile.colors.accent} metalness={0.72} />
+                  <meshStandardMaterial color={eyewearColor} metalness={0.72} />
                 </mesh>
               </group>
             ))}
-          {style.eyewear.family >= 4 && (
+          {(eyewearFamily === 4 || eyewearFamily === 5) && (
             <mesh scale={[1 + style.eyewear.signature * 0.16, 0.72 + style.eyewear.wave * 0.25, 1]}>
               <boxGeometry args={[0.72, 0.2, 0.028]} />
               <meshStandardMaterial
-                color={style.eyewear.family === 5 ? profile.colors.accent : "#263d52"}
+                color={eyewearFamily === 5 ? eyewearColor : "#263d52"}
                 metalness={0.5}
                 roughness={0.12}
                 transparent
@@ -613,9 +817,53 @@ export function Avatar3D({
               />
             </mesh>
           )}
+          {eyewearFamily === 6 && (
+            <>
+              <mesh position={[-0.2, 0, 0]}>
+                <torusGeometry args={[0.145 + style.eyewear.signature * 0.02, 0.02, 9, 22]} />
+                <meshStandardMaterial color={eyewearColor} metalness={0.82} />
+              </mesh>
+              {Array.from({ length: 4 }, (_, index) => (
+                <mesh key={index} position={[-0.32 + index * 0.028, -0.13 - index * 0.055, -0.01]}>
+                  <sphereGeometry args={[0.012 + style.eyewear.wave * 0.005, 8, 6]} />
+                  <meshStandardMaterial color={eyewearColor} metalness={0.8} />
+                </mesh>
+              ))}
+            </>
+          )}
+          {eyewearFamily === 7 &&
+            [-1, 1].map((side) => (
+              <mesh key={side} position={[side * 0.2, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[0.14 + style.eyewear.wave * 0.025, 0.14, 0.07, 18]} />
+                <meshStandardMaterial color={eyewearColor} metalness={0.62} roughness={0.22} />
+              </mesh>
+            ))}
+          {eyewearFamily === 8 &&
+            Array.from({ length: 7 }, (_, index) => (
+              <mesh
+                key={index}
+                position={[(index - 3) * 0.095, 0.06 - Math.abs(index - 3) * 0.018, 0]}
+                scale={0.75 + style.eyewear.signature * 0.35}
+              >
+                <octahedronGeometry args={[0.035 + style.eyewear.wave * 0.012, 0]} />
+                <meshStandardMaterial color={eyewearColor} metalness={0.55} roughness={0.18} />
+              </mesh>
+            ))}
+          {eyewearFamily === 9 &&
+            [-1, 1].map((side) => (
+              <mesh key={side} position={[side * 0.21, 0, 0]} rotation={[0, 0, side * -0.18]}>
+                <coneGeometry args={[0.17 + style.eyewear.wave * 0.035, 0.31, 3]} />
+                <meshStandardMaterial
+                  color={eyewearColor}
+                  transparent
+                  opacity={0.84}
+                  metalness={0.36}
+                />
+              </mesh>
+            ))}
           <mesh>
             <boxGeometry args={[0.12 + style.eyewear.signature * 0.06, 0.018, 0.018]} />
-            <meshStandardMaterial color={profile.colors.accent} metalness={0.74} />
+            <meshStandardMaterial color={eyewearColor} metalness={0.74} />
           </mesh>
         </group>
       )}
@@ -624,7 +872,7 @@ export function Avatar3D({
           position={[0, headY + 0.7 + style.headwear.signature * 0.14, 0]}
           rotation={[0, 0, (style.headwear.wave - 0.5) * 0.16]}
         >
-          {style.headwear.family === 0 && (
+          {headwearFamily === 0 && (
             <>
               <mesh>
                 <cylinderGeometry
@@ -635,19 +883,19 @@ export function Avatar3D({
                     20,
                   ]}
                 />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.36} />
+                <meshStandardMaterial color={headwearColor} roughness={0.36} />
               </mesh>
               <mesh position={[0, -0.14, 0]} rotation={[Math.PI / 2, 0, 0]}>
                 <torusGeometry args={[0.43, 0.065, 8, 24]} />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.4} />
+                <meshStandardMaterial color={headwearColor} roughness={0.4} />
               </mesh>
             </>
           )}
-          {style.headwear.family === 1 && (
+          {headwearFamily === 1 && (
             <>
               <mesh position={[0, -0.12, 0]}>
                 <cylinderGeometry args={[0.4, 0.43, 0.19, 8]} />
-                <meshStandardMaterial color={profile.colors.accent} metalness={0.68} />
+                <meshStandardMaterial color={headwearColor} metalness={0.68} />
               </mesh>
               {[-1, -0.5, 0, 0.5, 1].map((offset) => (
                 <mesh
@@ -661,12 +909,12 @@ export function Avatar3D({
                       6,
                     ]}
                   />
-                  <meshStandardMaterial color={profile.colors.accent} metalness={0.76} />
+                  <meshStandardMaterial color={headwearColor} metalness={0.76} />
                 </mesh>
               ))}
             </>
           )}
-          {style.headwear.family === 2 && (
+          {headwearFamily === 2 && (
             <>
               <mesh>
                 <coneGeometry
@@ -676,27 +924,27 @@ export function Avatar3D({
                     20,
                   ]}
                 />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.3} />
+                <meshStandardMaterial color={headwearColor} roughness={0.3} />
               </mesh>
               <mesh position={[0, -0.27, 0]} rotation={[Math.PI / 2, 0, 0]}>
                 <torusGeometry args={[0.42, 0.055, 8, 24]} />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.34} />
+                <meshStandardMaterial color={headwearColor} roughness={0.34} />
               </mesh>
             </>
           )}
-          {style.headwear.family === 3 && (
+          {headwearFamily === 3 && (
             <>
               <mesh scale={[1 + style.headwear.signature * 0.14, 0.46, 0.94]}>
                 <sphereGeometry args={[0.49, 18, 12]} />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.62} />
+                <meshStandardMaterial color={headwearColor} roughness={0.62} />
               </mesh>
               <mesh position={[0, -0.11, 0.34 + style.headwear.sweep * 0.05]}>
                 <boxGeometry args={[0.5 + style.headwear.signature * 0.16, 0.055, 0.35]} />
-                <meshStandardMaterial color={profile.colors.accent} roughness={0.58} />
+                <meshStandardMaterial color={headwearColor} roughness={0.58} />
               </mesh>
             </>
           )}
-          {style.headwear.family === 4 && (
+          {headwearFamily === 4 && (
             <mesh
               position={[0, 0.12 + style.headwear.wave * 0.16, 0]}
               rotation={[Math.PI / 2, 0, 0]}
@@ -704,20 +952,20 @@ export function Avatar3D({
             >
               <torusGeometry args={[0.4, 0.035 + style.headwear.wave * 0.025, 9, 28]} />
               <meshStandardMaterial
-                color={profile.colors.accent}
-                emissive={profile.colors.accent}
+                color={headwearColor}
+                emissive={headwearColor}
                 emissiveIntensity={0.2}
                 metalness={0.82}
               />
             </mesh>
           )}
-          {style.headwear.family === 5 && (
+          {headwearFamily === 5 && (
             <>
               <mesh position={[0, -0.13, 0.02]} rotation={[0, 0, Math.PI / 2]}>
                 <torusGeometry
                   args={[0.39, 0.055 + style.headwear.signature * 0.025, 9, 24, Math.PI]}
                 />
-                <meshStandardMaterial color={profile.colors.accent} metalness={0.48} />
+                <meshStandardMaterial color={headwearColor} metalness={0.48} />
               </mesh>
               {[-1, 1].map((side) => (
                 <mesh
@@ -726,8 +974,142 @@ export function Avatar3D({
                   rotation={[0, 0, side * -0.22]}
                 >
                   <coneGeometry args={[0.13, 0.34 + style.headwear.wave * 0.16, 5]} />
-                  <meshStandardMaterial color={profile.colors.accent} metalness={0.55} />
+                  <meshStandardMaterial color={headwearColor} metalness={0.55} />
                 </mesh>
+              ))}
+            </>
+          )}
+          {headwearFamily === 6 && (
+            <>
+              <mesh position={[0, -0.12, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.4, 0.025 + style.headwear.wave * 0.015, 8, 26]} />
+                <meshStandardMaterial color={headwearColor} roughness={0.52} />
+              </mesh>
+              {Array.from({ length: 6 + Math.floor(style.headwear.sweep * 3) }, (_, index) => {
+                const angle = (index / (6 + Math.floor(style.headwear.sweep * 3))) * Math.PI * 2;
+                return (
+                  <mesh
+                    key={index}
+                    position={[
+                      Math.cos(angle) * 0.22,
+                      0.02 + Math.sin(angle) * 0.08,
+                      Math.sin(angle) * 0.16,
+                    ]}
+                    rotation={[0, 0, angle]}
+                    scale={[1.45, 0.64, 0.55]}
+                  >
+                    <sphereGeometry args={[0.09 + style.headwear.signature * 0.02, 10, 7]} />
+                    <meshStandardMaterial color={headwearColor} roughness={0.72} />
+                  </mesh>
+                );
+              })}
+              <mesh position={[0, 0.03, 0.18]}>
+                <sphereGeometry args={[0.1, 12, 9]} />
+                <meshStandardMaterial
+                  color={proceduralColor("#f1bb41", style.headwear)}
+                  metalness={0.25}
+                />
+              </mesh>
+            </>
+          )}
+          {headwearFamily === 7 && (
+            <>
+              <mesh position={[0, -0.23, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <torusGeometry
+                  args={[0.48, 0.035 + style.headwear.signature * 0.02, 9, 28, Math.PI]}
+                />
+                <meshStandardMaterial color={headwearColor} metalness={0.45} roughness={0.38} />
+              </mesh>
+              {[-1, 1].map((side) => (
+                <mesh key={side} position={[side * 0.5, -0.62, 0]} scale={[0.55, 1, 0.7]}>
+                  <capsuleGeometry args={[0.14 + style.headwear.wave * 0.025, 0.18, 7, 11]} />
+                  <meshStandardMaterial color={headwearColor} metalness={0.28} roughness={0.4} />
+                </mesh>
+              ))}
+            </>
+          )}
+          {headwearFamily === 8 && (
+            <>
+              <mesh position={[0, -0.15, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.4, 0.026, 8, 24]} />
+                <meshStandardMaterial color={headwearColor} metalness={0.62} />
+              </mesh>
+              {[-1, 0, 1].map((offset) => (
+                <mesh
+                  key={offset}
+                  position={[offset * 0.16, 0.22 + (1 - Math.abs(offset)) * 0.13, 0]}
+                  rotation={[0, 0, offset * -0.22]}
+                  scale={[
+                    0.5 + style.headwear.wave * 0.16,
+                    1.2 + style.headwear.signature * 0.35,
+                    0.38,
+                  ]}
+                >
+                  <coneGeometry args={[0.14, 0.55 + style.headwear.sweep * 0.25, 5]} />
+                  <meshStandardMaterial color={headwearColor} roughness={0.68} />
+                </mesh>
+              ))}
+            </>
+          )}
+          {headwearFamily === 9 && (
+            <>
+              <mesh position={[0, -0.12, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.42, 0.032, 8, 26]} />
+                <meshStandardMaterial color={headwearColor} metalness={0.72} />
+              </mesh>
+              <mesh position={[0, -0.43, 0.4]} rotation={[0.05, 0, 0]}>
+                <planeGeometry
+                  args={[0.76 + style.headwear.signature * 0.15, 0.68 + style.headwear.wave * 0.22]}
+                />
+                <meshStandardMaterial
+                  color={headwearColor}
+                  transparent
+                  opacity={0.25 + style.headwear.sweep * 0.25}
+                  side={2}
+                />
+              </mesh>
+            </>
+          )}
+          {headwearFamily === 10 && (
+            <>
+              {[-1, 1].map((side) => (
+                <mesh
+                  key={side}
+                  position={[side * 0.17, 0, 0]}
+                  rotation={[0, 0, side * 0.2]}
+                  scale={[1.25, 0.8, 0.7]}
+                >
+                  <torusGeometry args={[0.16 + style.headwear.wave * 0.025, 0.055, 8, 18]} />
+                  <meshStandardMaterial color={headwearColor} roughness={0.48} />
+                </mesh>
+              ))}
+              <mesh>
+                <octahedronGeometry args={[0.1 + style.headwear.signature * 0.025, 0]} />
+                <meshStandardMaterial color={headwearColor} metalness={0.32} />
+              </mesh>
+            </>
+          )}
+          {headwearFamily === 11 && (
+            <>
+              {[-1, 1].map((side) => (
+                <group
+                  key={side}
+                  position={[side * 0.22, -0.08, 0]}
+                  rotation={[0, 0, side * -0.28]}
+                >
+                  <mesh position={[0, 0.24, 0]}>
+                    <cylinderGeometry args={[0.018, 0.025, 0.48 + style.headwear.wave * 0.18, 8]} />
+                    <meshStandardMaterial color={headwearColor} metalness={0.75} />
+                  </mesh>
+                  <mesh position={[0, 0.51 + style.headwear.wave * 0.09, 0]}>
+                    <dodecahedronGeometry args={[0.11 + style.headwear.signature * 0.025, 0]} />
+                    <meshStandardMaterial
+                      color={headwearColor}
+                      emissive={headwearColor}
+                      emissiveIntensity={0.18}
+                    />
+                  </mesh>
+                </group>
               ))}
             </>
           )}
