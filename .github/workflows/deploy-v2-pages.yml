@@ -53,6 +53,59 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Wait for legacy branch-source Pages deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          const headers = {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${process.env.GH_TOKEN}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+          const api = `https://api.github.com/repos/${process.env.REPOSITORY}`;
+          const discoveryDeadline = Date.now() + 30_000;
+          const completionDeadline = Date.now() + 180_000;
+          let legacyDeployment;
+
+          while (Date.now() < completionDeadline) {
+            const deployments = await fetch(
+              `${api}/deployments?sha=${process.env.REVISION}&environment=github-pages&per_page=20`,
+              { headers },
+            ).then((response) => {
+              if (!response.ok) throw new Error(`deployments API returned ${response.status}`);
+              return response.json();
+            });
+            legacyDeployment = deployments.find(
+              (deployment) => deployment.performed_via_github_app?.slug === "github-pages",
+            );
+
+            if (!legacyDeployment) {
+              if (Date.now() >= discoveryDeadline) {
+                console.log("No branch-source deployment detected; continuing with Actions Pages.");
+                process.exit(0);
+              }
+            } else {
+              const statuses = await fetch(legacyDeployment.statuses_url, { headers }).then(
+                (response) => {
+                  if (!response.ok) throw new Error(`deployment status API returned ${response.status}`);
+                  return response.json();
+                },
+              );
+              const state = statuses[0]?.state;
+              console.log(`Branch-source deployment ${legacyDeployment.id}: ${state ?? "pending"}`);
+              if (["success", "inactive", "failure", "error"].includes(state)) process.exit(0);
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
+          }
+
+          throw new Error(
+            `Timed out waiting for branch-source deployment ${legacyDeployment?.id ?? "discovery"}.`,
+          );
+          NODE
       - name: Deploy v2 web
         id: deployment
         uses: actions/deploy-pages@v4
