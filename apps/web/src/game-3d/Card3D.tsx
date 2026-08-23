@@ -34,7 +34,16 @@ function CardProjectionProbe({ dataAttribute }: { dataAttribute: string }) {
   return <group ref={marker} />;
 }
 
-function cardTexture(card: CardView, back: boolean): CanvasTexture {
+type VisibleCardAppearance = Extract<CardView, { visibility: "face" }>;
+
+function cardTexture(
+  visibility: CardView["visibility"],
+  suit: VisibleCardAppearance["suit"],
+  rank: VisibleCardAppearance["rank"],
+  joker: VisibleCardAppearance["joker"],
+  blind: boolean,
+  back: boolean,
+): CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 384;
@@ -60,31 +69,31 @@ function cardTexture(card: CardView, back: boolean): CanvasTexture {
     ctx.textAlign = "center";
     ctx.fillStyle = "#d7b668";
     ctx.fillText("大富豪", 128, 205);
-  } else if (card.visibility === "face") {
-    const isRed = card.suit === "heart" || card.suit === "diamond" || card.joker === "crimson";
+  } else if (visibility === "face") {
+    const isRed = suit === "heart" || suit === "diamond" || joker === "crimson";
     ctx.fillStyle = isRed ? "#a52535" : "#111720";
     ctx.textAlign = "left";
     ctx.font = "700 54px ui-serif, serif";
-    if (card.joker) {
+    if (joker) {
       ctx.fillText("J", 22, 68);
       ctx.font = "800 46px ui-serif, serif";
       ctx.textAlign = "center";
-      ctx.fillText(card.joker === "crimson" ? "JOKER II" : "JOKER I", 128, 205);
+      ctx.fillText(joker === "crimson" ? "JOKER II" : "JOKER I", 128, 205);
       ctx.beginPath();
       ctx.arc(128, 260, 42, 0, Math.PI * 2);
       ctx.strokeStyle = "#d7b668";
       ctx.lineWidth = 7;
       ctx.stroke();
     } else {
-      const symbol = card.suit ? suitSymbol[card.suit] : "";
-      ctx.fillText(card.rank ?? "", 22, 68);
+      const symbol = suit ? suitSymbol[suit] : "";
+      ctx.fillText(rank ?? "", 22, 68);
       ctx.font = "46px serif";
       ctx.fillText(symbol, 24, 116);
       ctx.textAlign = "center";
       ctx.font = "116px serif";
       ctx.fillText(symbol, 128, 244);
     }
-    if (card.blind) {
+    if (blind) {
       ctx.fillStyle = "rgba(8,23,21,.88)";
       ctx.fillRect(38, 310, 180, 42);
       ctx.fillStyle = "#f5d984";
@@ -139,8 +148,19 @@ export function Card3D({
   const [dragPosition, setDragPosition] = useState<[number, number, number]>();
   const dragPlane = useMemo(() => new Plane(new Vector3(0, 1, 0), -dragPlaneY), [dragPlaneY]);
   const dragPoint = useMemo(() => new Vector3(), []);
-  const front = useMemo(() => cardTexture(card, card.visibility === "hidden"), [card]);
-  const back = useMemo(() => cardTexture(card, true), [card]);
+  const visibility = card.visibility;
+  const suit = card.visibility === "face" ? card.suit : undefined;
+  const rank = card.visibility === "face" ? card.rank : undefined;
+  const joker = card.visibility === "face" ? card.joker : undefined;
+  const blind = card.blind;
+  const front = useMemo(
+    () => cardTexture(visibility, suit, rank, joker, blind, visibility === "hidden"),
+    [blind, joker, rank, suit, visibility],
+  );
+  const back = useMemo(
+    () => cardTexture("hidden", undefined, undefined, undefined, false, true),
+    [],
+  );
   useEffect(
     () => () => {
       front.dispose();
