@@ -816,6 +816,7 @@ export class SparkP2PSession {
   }
 
   async sendCue(cue: CueEvent): Promise<void> {
+    if (this.stopped) throw new Error("offline: P2P接続は終了しています");
     this.cueListeners.forEach((listener) => listener(cue, this.uid));
     if (this.authority) await this.broadcastCue(cue, this.uid);
     else await this.sendWire(this.coordinatorUid, this.coordinatorPeerId, { type: "cue", cue });
@@ -825,6 +826,7 @@ export class SparkP2PSession {
     name: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    if (this.stopped) throw new Error("offline: P2P接続は終了しています");
     const requestId =
       typeof payload.clientActionId === "string" ? payload.clientActionId : crypto.randomUUID();
     const withAction = { ...payload, clientActionId: requestId };
@@ -946,7 +948,16 @@ export class SparkP2PSession {
     this.unsubscribes.splice(0).forEach((unsubscribe) => unsubscribe());
     this.intervals.splice(0).forEach((interval) => clearInterval(interval));
     if (markOffline) await this.writePresence(false);
+    this.viewListeners.clear();
+    this.cueListeners.clear();
+    this.evictionListeners.clear();
+    this.modeListeners.clear();
     this.peers.forEach((peer) => peer.connection.close());
+    this.peers.clear();
+    this.earlyCandidates.clear();
+    this.processedRequests.clear();
+    this.disconnectSince.clear();
+    this.presenceSeen.clear();
     this.pendingRequests.forEach((pending) => {
       clearTimeout(pending.timer);
       pending.reject(new Error("offline: P2P接続を終了しました"));

@@ -96,4 +96,27 @@ describe("Spark P2P startup cleanup", () => {
     expect(firestore.setDoc.mock.calls[0]?.[1]).toMatchObject({ online: true });
     expect(firestore.setDoc.mock.calls[1]?.[1]).toMatchObject({ online: false });
   });
+
+  test("rejects commands after the session has stopped", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+
+    await session.stop(false);
+
+    await expect(session.sendCommand("submitPass", {})).rejects.toThrow("P2P接続は終了しています");
+    await expect(
+      session.sendCue({
+        version: 1,
+        type: "emote",
+        eventId: "after-stop",
+        emote: "thinking",
+        atMs: 1,
+      }),
+    ).rejects.toThrow("P2P接続は終了しています");
+  });
 });
