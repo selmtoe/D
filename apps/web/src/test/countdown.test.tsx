@@ -10,7 +10,7 @@ describe("game countdown scheduling", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("does not keep rerendering when the room has no active deadline", () => {
-    const schedule = vi.spyOn(window, "setInterval");
+    const schedule = vi.spyOn(window, "setTimeout");
     const { rerender } = render(<Countdown />);
     expect(schedule).not.toHaveBeenCalled();
 

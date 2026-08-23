@@ -38,9 +38,18 @@ export function useCountdown(deadline?: number): number {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!deadline) return;
-    setNow(Date.now());
-    const id = window.setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
+    let timer: number | undefined;
+    const update = () => {
+      const current = Date.now();
+      setNow(current);
+      const remaining = deadline - current;
+      if (remaining <= 0) return;
+
+      const untilNextDisplayedSecond = remaining % 1000 || 1000;
+      timer = window.setTimeout(update, Math.min(1000, untilNextDisplayedSecond + 16));
+    };
+    update();
+    return () => window.clearTimeout(timer);
   }, [deadline]);
   return deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
 }
