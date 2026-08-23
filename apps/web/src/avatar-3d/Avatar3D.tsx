@@ -1,6 +1,6 @@
 import { avatarBodyMetrics, type AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { CanvasTexture, Color, SRGBColorSpace, type Group } from "three";
 import { createFacePaintCanvas } from "./facePaint";
 import { animationPose, proceduralPartStyle } from "./proceduralAvatar";
@@ -378,7 +378,7 @@ function FullOutfit({ profile }: { profile: AvatarProfileV1 }) {
   );
 }
 
-export function Avatar3D({
+function Avatar3DView({
   profile,
   lowPower = false,
   active = false,
@@ -1144,3 +1144,12 @@ export function Avatar3D({
     </group>
   );
 }
+
+export const Avatar3D = memo(
+  Avatar3DView,
+  (previous, next) =>
+    previous.lowPower === next.lowPower &&
+    previous.active === next.active &&
+    JSON.stringify(previous.profile) === JSON.stringify(next.profile),
+);
+Avatar3D.displayName = "Avatar3D";
