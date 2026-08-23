@@ -410,6 +410,13 @@ export class SparkP2PSession {
     return result;
   }
 
+  private handleSnapshotFailure(): void {
+    const peerConnected = [...this.peers.values()].some(
+      (peer) => peer.channel?.readyState === "open",
+    );
+    this.setMode(peerConnected ? "webrtc" : "offline");
+  }
+
   private listenForRelays(
     collectionName: "sparkSignals" | "sparkMailboxes",
     receive: (relay: RelayDocument) => void,
@@ -419,46 +426,54 @@ export class SparkP2PSession {
       where("targetUid", "==", this.uid),
     );
     this.unsubscribes.push(
-      onSnapshot(items, (snapshot) => {
-        for (const change of snapshot.docChanges()) {
-          if (change.type !== "added") continue;
-          const relay = change.doc.data() as RelayDocument;
-          if (relay.targetUid !== this.uid) continue;
-          if (relay.expiresAtMs < Date.now()) {
+      onSnapshot(
+        items,
+        (snapshot) => {
+          for (const change of snapshot.docChanges()) {
+            if (change.type !== "added") continue;
+            const relay = change.doc.data() as RelayDocument;
+            if (relay.targetUid !== this.uid) continue;
+            if (relay.expiresAtMs < Date.now()) {
+              void deleteDoc(change.doc.ref).catch(() => undefined);
+              continue;
+            }
+            if (relay.targetPeerId !== this.peerId) continue;
+            receive(relay);
             void deleteDoc(change.doc.ref).catch(() => undefined);
-            continue;
           }
-          if (relay.targetPeerId !== this.peerId) continue;
-          receive(relay);
-          void deleteDoc(change.doc.ref).catch(() => undefined);
-        }
-      }),
+        },
+        () => this.handleSnapshotFailure(),
+      ),
     );
   }
 
   private listenDirectory(): void {
     this.unsubscribes.push(
-      onSnapshot(doc(this.db, "sparkRoomDirectory", this.roomId), (snapshot) => {
-        if (!snapshot.exists()) {
-          this.setMode("offline");
-          void this.stop(false);
-          return;
-        }
-        const next = snapshot.data() as DirectoryDocument;
-        const previousCoordinatorPeerId = this.coordinatorPeerId;
-        const changed = next.coordinatorPeerId !== this.coordinatorPeerId;
-        this.directory = next;
-        this.coordinatorUid = next.coordinatorUid;
-        this.coordinatorPeerId = next.coordinatorPeerId;
-        if (next.coordinatorUid === this.uid && !this.authority) {
-          void this.promoteToCoordinator().catch(() =>
-            this.setMode(navigator.onLine ? "firebase" : "offline"),
-          );
-        } else if (changed && !this.authority) {
-          this.closePeer(previousCoordinatorPeerId);
-          void this.connectToCoordinator();
-        }
-      }),
+      onSnapshot(
+        doc(this.db, "sparkRoomDirectory", this.roomId),
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            this.setMode("offline");
+            void this.stop(false);
+            return;
+          }
+          const next = snapshot.data() as DirectoryDocument;
+          const previousCoordinatorPeerId = this.coordinatorPeerId;
+          const changed = next.coordinatorPeerId !== this.coordinatorPeerId;
+          this.directory = next;
+          this.coordinatorUid = next.coordinatorUid;
+          this.coordinatorPeerId = next.coordinatorPeerId;
+          if (next.coordinatorUid === this.uid && !this.authority) {
+            void this.promoteToCoordinator().catch(() =>
+              this.setMode(navigator.onLine ? "firebase" : "offline"),
+            );
+          } else if (changed && !this.authority) {
+            this.closePeer(previousCoordinatorPeerId);
+            void this.connectToCoordinator();
+          }
+        },
+        () => this.handleSnapshotFailure(),
+      ),
     );
   }
 
@@ -467,26 +482,30 @@ export class SparkP2PSession {
     this.presenceListening = true;
     const members = collection(this.db, "sparkPresence", this.roomId, "members");
     this.unsubscribes.push(
-      onSnapshot(members, (snapshot) => {
-        const now = Date.now();
-        for (const presence of snapshot.docs) {
-          const data = presence.data() as {
-            online?: boolean;
-            peerId?: string;
-            lastSeenMs?: number;
-          };
-          this.presenceSeen.set(presence.id, {
-            online: data.online === true,
-            peerId: String(data.peerId ?? ""),
-            atMs: Number(data.lastSeenMs ?? now),
-          });
-        }
-        if (this.authority) {
-          void this.enqueueCoordinator(() => this.reconcilePresence(now)).catch(() =>
-            this.setMode(navigator.onLine ? "firebase" : "offline"),
-          );
-        }
-      }),
+      onSnapshot(
+        members,
+        (snapshot) => {
+          const now = Date.now();
+          for (const presence of snapshot.docs) {
+            const data = presence.data() as {
+              online?: boolean;
+              peerId?: string;
+              lastSeenMs?: number;
+            };
+            this.presenceSeen.set(presence.id, {
+              online: data.online === true,
+              peerId: String(data.peerId ?? ""),
+              atMs: Number(data.lastSeenMs ?? now),
+            });
+          }
+          if (this.authority) {
+            void this.enqueueCoordinator(() => this.reconcilePresence(now)).catch(() =>
+              this.setMode(navigator.onLine ? "firebase" : "offline"),
+            );
+          }
+        },
+        () => this.handleSnapshotFailure(),
+      ),
     );
   }
 

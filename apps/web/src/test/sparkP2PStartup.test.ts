@@ -5,6 +5,7 @@ import { SparkAuthority } from "../network/sparkAuthority";
 const firestore = vi.hoisted(() => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(async () => ({ docs: [] })),
+  onSnapshot: vi.fn(() => vi.fn()),
   setDoc: vi.fn(),
 }));
 
@@ -16,7 +17,7 @@ vi.mock("firebase/firestore", () => ({
   getDoc: firestore.getDoc,
   getDocs: firestore.getDocs,
   limit: vi.fn((value: unknown) => value),
-  onSnapshot: vi.fn(() => vi.fn()),
+  onSnapshot: firestore.onSnapshot,
   query: vi.fn((...parts: unknown[]) => ({ parts })),
   runTransaction: vi.fn(),
   serverTimestamp: vi.fn(() => "server-time"),
@@ -39,6 +40,7 @@ type StartupInternals = {
   coordinatorUid: string;
   coordinatorPeerId: string;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
+  mode: "webrtc" | "firebase" | "offline";
 };
 
 type SparkSessionConstructor = new (options: {
@@ -247,5 +249,28 @@ describe("Spark P2P startup cleanup", () => {
     await Promise.resolve();
 
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  test("reports offline when a required Firestore subscription terminates", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+
+    await internals.startCommon();
+    const snapshotCalls = firestore.onSnapshot.mock.calls as unknown as Array<
+      [unknown, unknown, (() => void)?]
+    >;
+    const onError = snapshotCalls[0]?.[2];
+    expect(onError).toBeTypeOf("function");
+    onError?.();
+
+    expect(internals.mode).toBe("offline");
+    await session.stop(false);
   });
 });
