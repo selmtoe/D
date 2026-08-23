@@ -96,7 +96,10 @@ export default function App() {
 
   useEffect(() => {
     const online = () => {
-      dispatch({ type: "CONNECTION", connection: "reconnecting" });
+      dispatch({
+        type: "CONNECTION",
+        connection: activeRoomId ? "reconnecting" : "connected",
+      });
     };
     const offline = () =>
       dispatch({ type: "CONNECTION", connection: activeRoomId ? "grace" : "offline" });
@@ -106,7 +109,7 @@ export default function App() {
       removeEventListener("online", online);
       removeEventListener("offline", offline);
     };
-  }, [activeRoomId, app.room, dispatch]);
+  }, [activeRoomId, dispatch]);
 
   useEffect(() => {
     if (app.phase !== "DEALING") return;
