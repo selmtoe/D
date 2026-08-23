@@ -3,13 +3,15 @@ import { useEffect, useRef } from "react";
 export function RulesDialog({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDivElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     document.body.classList.add("modal-open");
     dialog.current?.focus();
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        closeRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
@@ -34,7 +36,7 @@ export function RulesDialog({ onClose }: { onClose: () => void }) {
       removeEventListener("keydown", handler);
       previousFocus.current?.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-backdrop">
       <div
