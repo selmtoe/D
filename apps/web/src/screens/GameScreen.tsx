@@ -613,6 +613,9 @@ export function GameScreen({
       clearSelection();
     }
   };
+  const pass = async () => {
+    if (await command("submitPass", payloadBase)) clearSelection();
+  };
   const resolveEffect = (effect: PendingEffectView, payload: Record<string, unknown>) => {
     if (effect.kind === "clearField") return Promise.resolve(false);
     return command(
@@ -905,7 +908,7 @@ export function GameScreen({
           <button
             type="button"
             disabled={!myTurn || busy || Boolean(activeEffect)}
-            onClick={() => void command("submitPass", payloadBase)}
+            onClick={() => void pass()}
           >
             パス
           </button>
