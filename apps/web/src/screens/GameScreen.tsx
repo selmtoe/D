@@ -4,7 +4,7 @@ import { useUiStore } from "../app/store";
 import { AccessibleHand } from "../accessibility/AccessibleHand";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
-import { SalonScene } from "../game-3d/SalonScene";
+import { playersAtTable, SalonScene } from "../game-3d/SalonScene";
 import { EffectPanel } from "./EffectPanel";
 import { feedback, primeFeedback } from "../components/feedback";
 import { emoteCue } from "../network/peerCues";
@@ -426,10 +426,11 @@ export function GameScreen({
   const previousRoom = useRef<RoomView | undefined>(undefined);
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
+  const presentPlayers = useMemo(() => playersAtTable(room.players), [room.players]);
   const peerCues = usePeerCues(
     room.roomId,
     room.viewerId,
-    room.players.map((player) => player.id),
+    presentPlayers.map((player) => player.id),
   );
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
@@ -795,7 +796,7 @@ export function GameScreen({
           </header>
           <p>キックされた対局者は失格となり、再接続できません。</p>
           <ul>
-            {room.players
+            {presentPlayers
               .filter((player) => player.id !== room.viewerId)
               .map((player) => (
                 <li key={player.id}>
