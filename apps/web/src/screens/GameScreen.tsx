@@ -25,6 +25,7 @@ const suitLabel = {
   diamond: "ダイヤ",
   club: "クラブ",
 } as const;
+const noPlayableCards = new Set<string>();
 
 function jokerCandidateKey(candidate: { cardId: string; suit: Suit; rank: Rank }[]): string {
   return [...candidate]
@@ -437,6 +438,7 @@ export function GameScreen({
           kind: "steal" | "give" | "discard" | "collect";
         })
       : undefined;
+  const playBlocked = Boolean(activeEffect || room.pendingJokerMimic);
   const effectCardEligibility = directEffect?.eligibleCardIds?.join("\0") ?? "";
   const effectPlayerEligibility = directEffect?.eligiblePlayerIds?.join("\0") ?? "";
   const directEffectKind = directEffect?.kind;
@@ -472,13 +474,10 @@ export function GameScreen({
     if (directEffect) clearSelection();
   }, [clearSelection, directEffect?.id]);
   useEffect(() => {
-    if (
-      playDialog &&
-      !canOpenPlayConfirmation(selection.complete, myTurn, readOnly, Boolean(activeEffect))
-    ) {
+    if (playDialog && !canOpenPlayConfirmation(selection.complete, myTurn, readOnly, playBlocked)) {
       setPlayDialog(false);
     }
-  }, [activeEffect?.id, myTurn, playDialog, readOnly, selection.complete]);
+  }, [myTurn, playBlocked, playDialog, readOnly, selection.complete]);
   useEffect(() => {
     if (!directEffectKind) return;
     setEffectCardIds((ids) => {
@@ -521,8 +520,7 @@ export function GameScreen({
     })();
   }, [busy, command, payloadBase, room.pendingJokerMimic, room.revision]);
   const openPlay = () => {
-    if (!canOpenPlayConfirmation(selection.complete, myTurn, readOnly, Boolean(activeEffect)))
-      return;
+    if (!canOpenPlayConfirmation(selection.complete, myTurn, readOnly, playBlocked)) return;
     setPlayDialog(true);
   };
   const selectCard = (card: CardView) => {
@@ -665,7 +663,9 @@ export function GameScreen({
         <SalonScene
           room={displayRoom}
           selectedIds={directEffect ? effectCardIds : selectedIds}
-          playableIds={directEffect ? effectSelectableIds : playableIds}
+          playableIds={
+            directEffect ? effectSelectableIds : playBlocked ? noPlayableCards : playableIds
+          }
           onToggleCard={
             readOnly ? undefined : directEffect ? (card) => toggleEffectCard(card) : selectCard
           }
@@ -894,12 +894,18 @@ export function GameScreen({
       {!readOnly && !dealing && !directEffect && (
         <div className="play-controls">
           <p id="play-reason" className="control-reason">
-            {!myTurn ? "あなたの手番ではありません" : selectionHint}
+            {!myTurn
+              ? "あなたの手番ではありません"
+              : room.pendingJokerMimic
+                ? "Jokerの擬態を先に確定してください"
+                : activeEffect
+                  ? "強制効果を先に確定してください"
+                  : selectionHint}
           </p>
           <button
             type="button"
             className="primary"
-            disabled={!myTurn || !selection.complete || busy || Boolean(activeEffect)}
+            disabled={!myTurn || !selection.complete || busy || playBlocked}
             aria-describedby="play-reason"
             onClick={openPlay}
           >
@@ -907,7 +913,7 @@ export function GameScreen({
           </button>
           <button
             type="button"
-            disabled={!myTurn || busy || Boolean(activeEffect)}
+            disabled={!myTurn || busy || playBlocked}
             onClick={() => void pass()}
           >
             パス
@@ -918,7 +924,7 @@ export function GameScreen({
         <AccessibleHand
           cards={sortedHand}
           selectedIds={selectedIds}
-          playableIds={playableIds}
+          playableIds={playBlocked ? noPlayableCards : playableIds}
           onToggle={readOnly ? () => undefined : selectCard}
           onSubmit={openPlay}
           readOnly={readOnly}
