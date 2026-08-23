@@ -243,7 +243,6 @@ test.describe("single-canvas visual gameplay inspection", () => {
         await spectator.page.mouse.move(
           bounds.x + bounds.width / 2 + 85,
           bounds.y + bounds.height / 2 - 20,
-          { steps: 8 },
         );
         await spectator.page.mouse.up();
       }
@@ -308,7 +307,6 @@ test.describe("single-canvas visual gameplay inspection", () => {
         await giver.page.mouse.move(
           bounds.x + bounds.width * 0.24,
           bounds.y + bounds.height * 0.36,
-          { steps: 16 },
         );
         await giver.page.mouse.up();
       }
