@@ -257,8 +257,22 @@ function FreeRoamAvatar({
       dragging.current = null;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     };
+    const resetInput = () => {
+      keys.current.clear();
+      jumpRequested.current = false;
+      const pointerId = dragging.current;
+      dragging.current = null;
+      if (pointerId !== null && canvas.hasPointerCapture(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    };
+    const visibilityChange = () => {
+      if (document.visibilityState === "hidden") resetInput();
+    };
     addEventListener("keydown", down);
     addEventListener("keyup", up);
+    addEventListener("blur", resetInput);
+    document.addEventListener("visibilitychange", visibilityChange);
     canvas.addEventListener("pointerdown", pointerDown);
     canvas.addEventListener("pointermove", pointerMove);
     canvas.addEventListener("pointerup", pointerUp);
@@ -266,6 +280,8 @@ function FreeRoamAvatar({
     return () => {
       removeEventListener("keydown", down);
       removeEventListener("keyup", up);
+      removeEventListener("blur", resetInput);
+      document.removeEventListener("visibilitychange", visibilityChange);
       canvas.removeEventListener("pointerdown", pointerDown);
       canvas.removeEventListener("pointermove", pointerMove);
       canvas.removeEventListener("pointerup", pointerUp);
@@ -273,7 +289,7 @@ function FreeRoamAvatar({
       canvas.removeAttribute("data-free-roam-pose");
       canvas.tabIndex = previousTabIndex;
       canvas.blur();
-      keys.current.clear();
+      resetInput();
     };
   }, [camera, gl, mobile, spawnX, spawnYaw, spawnZ]);
 
@@ -1007,9 +1023,26 @@ export function SalonScene({
     return destinations;
   }, [activeCardMotions]);
   useEffect(() => {
-    const change = () => setPageVisible(document.visibilityState !== "hidden");
+    const resetFreeRoamMotion = () => {
+      freeRoamPointers.current.clear();
+      setFreeRoamInput((current) => ({
+        ...current,
+        forward: 0,
+        strafe: 0,
+        turn: 0,
+      }));
+    };
+    const change = () => {
+      const visible = document.visibilityState !== "hidden";
+      setPageVisible(visible);
+      if (!visible) resetFreeRoamMotion();
+    };
     document.addEventListener("visibilitychange", change);
-    return () => document.removeEventListener("visibilitychange", change);
+    addEventListener("blur", resetFreeRoamMotion);
+    return () => {
+      document.removeEventListener("visibilitychange", change);
+      removeEventListener("blur", resetFreeRoamMotion);
+    };
   }, []);
   useEffect(() => {
     if (spectatorMode === "free") return;
