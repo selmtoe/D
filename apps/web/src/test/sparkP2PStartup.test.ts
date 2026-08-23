@@ -311,4 +311,44 @@ describe("Spark P2P startup cleanup", () => {
     expect(internals.coordinatorPeerId).toBe("successor-peer");
     await session.stop(false);
   });
+
+  test("uses coordinator receipt time instead of a peer's skewed wall clock", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.authority.setMemberOnline("host", false, undefined, 1_100);
+
+    await internals.startCommon();
+    const snapshotCalls = firestore.onSnapshot.mock.calls as unknown as Array<
+      [unknown, (snapshot: unknown) => void, (() => void)?]
+    >;
+    const presenceSnapshot = snapshotCalls.at(-1)?.[1];
+    presenceSnapshot?.({
+      docChanges: () => [
+        {
+          type: "added",
+          doc: {
+            id: "host",
+            data: () => ({ online: true, peerId: "host-peer", lastSeenMs: 1 }),
+          },
+        },
+      ],
+    });
+    await vi.waitFor(() => expect(internals.authority?.member("host")?.online).toBe(true));
+
+    await session.stop(false);
+  });
 });

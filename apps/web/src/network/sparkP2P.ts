@@ -498,16 +498,21 @@ export class SparkP2PSession {
         members,
         (snapshot) => {
           const now = Date.now();
-          for (const presence of snapshot.docs) {
-            const data = presence.data() as {
+          for (const change of snapshot.docChanges()) {
+            if (change.type === "removed") {
+              this.presenceSeen.delete(change.doc.id);
+              continue;
+            }
+            const data = change.doc.data() as {
               online?: boolean;
               peerId?: string;
-              lastSeenMs?: number;
             };
-            this.presenceSeen.set(presence.id, {
+            // Compare on the coordinator's clock. Client wall clocks can be
+            // minutes apart, while each Firestore change arrives locally now.
+            this.presenceSeen.set(change.doc.id, {
               online: data.online === true,
               peerId: String(data.peerId ?? ""),
-              atMs: Number(data.lastSeenMs ?? now),
+              atMs: now,
             });
           }
           if (this.authority) {
