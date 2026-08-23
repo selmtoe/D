@@ -836,6 +836,9 @@ export class SparkAuthority {
   }
 
   private removeMember(uid: string, now: number, logText: string): void {
+    if (this.snapshot.pendingMimic?.actorUid === uid) {
+      delete this.snapshot.pendingMimic;
+    }
     delete this.snapshot.members[uid];
     if (this.snapshot.hostUid === uid) {
       const remaining = Object.values(this.snapshot.members).sort(

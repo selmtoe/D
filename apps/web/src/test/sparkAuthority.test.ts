@@ -384,6 +384,41 @@ describe("Spark browser authority", () => {
     expect(snapshot.game?.discard.map((card) => card.id)).toContain("joker-1");
   });
 
+  it("unlocks the game when the player declaring a blind Joker leaves", () => {
+    const authority = pendingBlindJokerAuthority();
+    beginPendingMimic(authority, "blind-joker-before-leave");
+
+    authority.handleCommand(
+      "p1",
+      "leaveRoom",
+      {
+        clientActionId: "leave-during-blind-joker",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game!.id,
+      },
+      2_200,
+    );
+
+    const afterLeave = authority.exportSnapshot();
+    expect(afterLeave.pendingMimic).toBeUndefined();
+    expect(afterLeave.game?.turnPlayerId).toBe("p2");
+    expect(() =>
+      authority.handleCommand(
+        "p2",
+        "submitPlay",
+        {
+          clientActionId: "play-after-declarer-left",
+          expectedRevision: afterLeave.revision,
+          gameId: afterLeave.game!.id,
+          cardIds: ["heart-4"],
+          mimics: [],
+          blindConfirmed: false,
+        },
+        2_201,
+      ),
+    ).not.toThrow();
+  });
+
   it("hands coordinator ownership to the oldest online member on explicit leave", () => {
     const authority = waitingRoom();
     authority.handleCommand(
