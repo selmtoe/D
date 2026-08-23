@@ -4,6 +4,7 @@ import { useUiStore } from "./app/store";
 import type { LocalProfile, Role, RoomView } from "./app/model";
 import { loadAvatar, saveAvatar } from "./avatar-3d/avatarStorage";
 import {
+  clearRoomReconnect,
   createRoom,
   firebaseErrorMessage,
   firebaseMode,
@@ -59,6 +60,13 @@ export default function App() {
   useAuthentication();
   usePublicRoomSubscription(app.phase === "SALON_LOBBY");
   useRoomSubscription(activeRoomId);
+
+  useEffect(() => {
+    if (app.phase !== "SALON_LOBBY" || !activeRoomId || app.room) return;
+    clearRoomReconnect(activeRoomId);
+    setActiveRoomId(undefined);
+    history.replaceState(null, "", location.pathname);
+  }, [activeRoomId, app.phase, app.room]);
 
   useEffect(() => {
     if (!activeRoomId) return;
@@ -169,7 +177,7 @@ export default function App() {
     if (!app.room) return;
     void run(async () => {
       await sendCommand("leaveRoom", commandBase(app.room!));
-      sessionStorage.removeItem(`daifugo-reconnect-${app.room!.roomId}`);
+      clearRoomReconnect(app.room!.roomId);
       setActiveRoomId(undefined);
       history.replaceState(null, "", location.pathname);
       dispatch({ type: "LEAVE_ROOM" });

@@ -170,6 +170,11 @@ function reconnectKey(roomId: string): string {
   return `daifugo-spark-reconnect-${roomId}`;
 }
 
+export function clearRoomReconnect(roomId: string): void {
+  localStorage.removeItem(reconnectKey(roomId));
+  sessionStorage.removeItem(`daifugo-reconnect-${roomId}`);
+}
+
 function saveReconnect(record: ReconnectRecord): void {
   localStorage.setItem(reconnectKey(record.roomId), JSON.stringify(record));
 }
@@ -240,7 +245,7 @@ export async function sendCommand<
   if (name === "leaveRoom") {
     await activeSession.stop();
     activeSession = undefined;
-    localStorage.removeItem(reconnectKey(roomId));
+    clearRoomReconnect(roomId);
   }
   return result;
 }
