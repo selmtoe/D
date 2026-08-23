@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { nextSparkActivityMetadata } from "../network/sparkP2P";
+import { nextSparkActivityMetadata, parseSparkWire } from "../network/sparkP2P";
 
 describe("Spark directory activity metadata", () => {
   test("lease-only heartbeats do not advance last activity", () => {
@@ -26,5 +26,15 @@ describe("Spark directory activity metadata", () => {
       recordsActivity: true,
       lastActivityAtMs: 99_000,
     });
+  });
+});
+
+describe("Spark wire decoding", () => {
+  test("accepts only a valid kick eviction notification", () => {
+    expect(parseSparkWire(JSON.stringify({ type: "evicted", reason: "kick" }))).toEqual({
+      type: "evicted",
+      reason: "kick",
+    });
+    expect(parseSparkWire(JSON.stringify({ type: "evicted", reason: "leave" }))).toBeNull();
   });
 });

@@ -45,7 +45,7 @@ interface RelayDocument {
   expiresAtMs: number;
 }
 
-type WireMessage =
+export type WireMessage =
   | {
       type: "hello";
       requestId: string;
@@ -156,7 +156,7 @@ function plain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function parseWire(payload: string): WireMessage | null {
+export function parseSparkWire(payload: string): WireMessage | null {
   try {
     const value = JSON.parse(payload) as Record<string, unknown>;
     if (!value || typeof value.type !== "string") return null;
@@ -179,6 +179,9 @@ function parseWire(payload: string): WireMessage | null {
       return value as unknown as WireMessage;
     }
     if (value.type === "response" && typeof value.ok === "boolean") {
+      return value as unknown as WireMessage;
+    }
+    if (value.type === "evicted" && value.reason === "kick") {
       return value as unknown as WireMessage;
     }
     return null;
@@ -334,7 +337,7 @@ export class SparkP2PSession {
     await this.writePresence(true);
     this.listenForRelays("sparkSignals", (relay) => void this.handleSignal(relay));
     this.listenForRelays("sparkMailboxes", (relay) => {
-      const wire = parseWire(relay.payload);
+      const wire = parseSparkWire(relay.payload);
       if (wire) this.handleWire(wire, relay.senderUid, relay.senderPeerId);
     });
     this.listenDirectory();
@@ -678,7 +681,7 @@ export class SparkP2PSession {
     channel.onclose = () => this.setMode(navigator.onLine ? "firebase" : "offline");
     channel.onmessage = (event) => {
       if (typeof event.data !== "string") return;
-      const wire = parseWire(event.data);
+      const wire = parseSparkWire(event.data);
       if (wire) this.handleWire(wire, peer.uid, peer.peerId);
     };
   }
