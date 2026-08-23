@@ -163,6 +163,13 @@ function CameraRig({
 
 type FreeRoamInput = { forward: number; strafe: number; turn: number; jump: number };
 
+export function containFreeRoamCamera(target: { x: number; z: number }): void {
+  // Keep the near plane just inside the solid side and rear walls. The front of
+  // the salon is intentionally open, so positive Z does not need clamping.
+  target.x = MathUtils.clamp(target.x, -6.62, 6.62);
+  target.z = Math.max(target.z, -7.62);
+}
+
 function FreeRoamAvatar({
   mobileInput,
   playerCount,
@@ -382,6 +389,7 @@ function FreeRoamAvatar({
       nextY + (mobile ? 3.35 : 3.15),
       nextZ + Math.cos(yaw.current) * behind + Math.sin(yaw.current) * shoulder,
     );
+    containFreeRoamCamera(desiredCamera.current);
     camera.position.lerp(
       desiredCamera.current,
       reducedMotion ? 1 : 1 - Math.exp(-physicsDelta * 8),

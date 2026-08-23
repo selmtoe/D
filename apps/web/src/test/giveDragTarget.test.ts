@@ -1,7 +1,7 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../app/model";
-import { nearestGiveTarget } from "../game-3d/SalonScene";
+import { containFreeRoamCamera, nearestGiveTarget } from "../game-3d/SalonScene";
 
 const players: PlayerView[] = ["self", "right", "opposite", "left"].map((id) => ({
   id,
@@ -20,5 +20,18 @@ describe("7-give drag target", () => {
     expect(nearestGiveTarget(players, eligible, [0, 1.2, -5.3])).toBe("opposite");
     expect(nearestGiveTarget(players, eligible, [5.4, 1.2, 0])).toBeUndefined();
     expect(nearestGiveTarget(players, eligible, [0, 1.2, 0])).toBeUndefined();
+  });
+});
+
+describe("free-roam camera bounds", () => {
+  it("keeps the third-person camera in front of the solid salon walls", () => {
+    const behindLeftWall = { x: -12, z: 3 };
+    const behindRightAndRearWalls = { x: 11, z: -13 };
+
+    containFreeRoamCamera(behindLeftWall);
+    containFreeRoamCamera(behindRightAndRearWalls);
+
+    expect(behindLeftWall).toEqual({ x: -6.62, z: 3 });
+    expect(behindRightAndRearWalls).toEqual({ x: 6.62, z: -7.62 });
   });
 });
