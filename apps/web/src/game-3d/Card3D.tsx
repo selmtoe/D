@@ -47,7 +47,13 @@ function cardTexture(
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 384;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    const fallback = new CanvasTexture(canvas);
+    fallback.colorSpace = SRGBColorSpace;
+    fallback.anisotropy = 1;
+    return fallback;
+  }
   ctx.fillStyle = back ? "#123f32" : "#f7f1df";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (back) {
