@@ -52,11 +52,16 @@ export function transition(state: AppState, event: AppEvent): AppState {
         room: event.room,
         role: event.room.role,
         phase:
-          state.room?.phase === "waiting" &&
-          event.room.phase === "playing" &&
-          state.room.gameId !== event.room.gameId
+          state.phase === "DEALING" &&
+          state.room?.roomId === event.room.roomId &&
+          state.room.gameId === event.room.gameId &&
+          event.room.phase === "playing"
             ? "DEALING"
-            : phaseForRoom(event.room),
+            : state.room?.phase === "waiting" &&
+                event.room.phase === "playing" &&
+                state.room.gameId !== event.room.gameId
+              ? "DEALING"
+              : phaseForRoom(event.room),
         connection: "connected",
         error: undefined,
       };

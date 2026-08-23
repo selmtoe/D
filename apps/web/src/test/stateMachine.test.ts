@@ -90,6 +90,15 @@ describe("application state machine", () => {
     const started = { ...room("playing"), revision: 2, gameId: "game-1" };
     const dealing = transition(waitingState, { type: "ROOM_VIEW", room: started });
     expect(dealing.phase).toBe("DEALING");
+    const socialUpdate = transition(dealing, {
+      type: "ROOM_VIEW",
+      room: {
+        ...started,
+        revision: 3,
+        log: [{ id: "join", atMs: 1, text: "更新", kind: "system" }],
+      },
+    });
+    expect(socialUpdate.phase).toBe("DEALING");
     expect(transition(dealing, { type: "DEALING_DONE" }).phase).toBe("PLAYING_TURN");
   });
   it("returns a kicked participant to the salon with an explicit reason", () => {
