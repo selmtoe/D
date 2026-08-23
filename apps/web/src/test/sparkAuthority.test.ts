@@ -235,6 +235,19 @@ describe("Spark browser authority", () => {
     expect(authority.isEmpty).toBe(true);
   });
 
+  it("hands the waiting-room host role to a connected player", () => {
+    const authority = waitingRoom();
+    authority.setMemberOnline("p2", false, undefined, 1_100);
+    authority.handleCommand(
+      "p1",
+      "leaveRoom",
+      { clientActionId: "host-leaves-with-offline-successor" },
+      1_200,
+    );
+
+    expect(authority.exportSnapshot().hostUid).toBe("p3");
+  });
+
   it("returns the original start response for the same room action id", () => {
     const authority = waitingRoom();
     const payload = {

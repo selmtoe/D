@@ -796,11 +796,14 @@ export class SparkAuthority {
   private removeMember(uid: string, now: number, logText: string): void {
     delete this.snapshot.members[uid];
     if (this.snapshot.hostUid === uid) {
+      const remaining = Object.values(this.snapshot.members).sort(
+        (left, right) => left.joinedAtMs - right.joinedAtMs,
+      );
       this.snapshot.hostUid =
-        Object.values(this.snapshot.members)
-          .filter((candidate) => candidate.role === "player")
-          .sort((left, right) => left.joinedAtMs - right.joinedAtMs)[0]?.uid ??
-        Object.values(this.snapshot.members)[0]?.uid ??
+        remaining.find((candidate) => candidate.role === "player" && candidate.online)?.uid ??
+        remaining.find((candidate) => candidate.online)?.uid ??
+        remaining.find((candidate) => candidate.role === "player")?.uid ??
+        remaining[0]?.uid ??
         "";
     }
     if (this.snapshot.coordinatorUid === uid) {
