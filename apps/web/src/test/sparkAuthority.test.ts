@@ -191,6 +191,36 @@ describe("Spark browser authority", () => {
     );
   });
 
+  it("sanitizes avatar updates and rejects a missing profile", () => {
+    const authority = waitingRoom();
+    authority.handleCommand(
+      "p2",
+      "saveAvatarProfile",
+      {
+        clientActionId: "avatar-update",
+        avatar: {
+          ...structuredClone(defaultAvatar),
+          facePaint: {
+            version: 1,
+            strokes: [],
+            unsafeTextureUrl: "https://example.invalid/private.png",
+          },
+        },
+      },
+      2_000,
+    );
+
+    expect(authority.member("p2")?.avatar).not.toHaveProperty("facePaint");
+    expect(() =>
+      authority.handleCommand(
+        "p2",
+        "saveAvatarProfile",
+        { clientActionId: "avatar-missing" },
+        2_001,
+      ),
+    ).toThrow(/アバター情報が不正/);
+  });
+
   it("marks a one-person waiting room empty when its coordinator leaves", () => {
     const authority = SparkAuthority.create("ABCDE", "p1", "peer-1", profile("一郎"), 1_000);
     authority.handleCommand(

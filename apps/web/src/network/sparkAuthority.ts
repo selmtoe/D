@@ -497,10 +497,11 @@ export class SparkAuthority {
     let response: Record<string, unknown> = {};
     switch (name) {
       case "saveAvatarProfile":
-        if (payload.avatar && typeof payload.avatar === "object") {
-          member.avatar = clone(payload.avatar as AvatarProfileV1);
-          this.finishRoomCommand(actionId, now);
+        if (!payload.avatar || typeof payload.avatar !== "object") {
+          commandError("invalid-argument", "アバター情報が不正です");
         }
+        member.avatar = migrateAvatar(payload.avatar);
+        this.finishRoomCommand(actionId, now);
         return response;
       case "updateRoomSettings": {
         this.requireHost(uid);
