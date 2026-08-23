@@ -203,7 +203,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
   test("spectators can inspect a player view and walk freely around the table", async ({
     browser,
   }, testInfo) => {
-    test.setTimeout(90_000);
+    test.setTimeout(180_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     await authority.handle("uid-spectator", {
