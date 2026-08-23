@@ -60,4 +60,34 @@ describe("result rankings", () => {
       expect.stringContaining("3位二郎"),
     ]);
   });
+
+  it("does not offer the host-only rematch action to another player", () => {
+    const room: RoomView = {
+      roomId: "RESULT",
+      revision: 9,
+      generation: 0,
+      phase: "finished",
+      role: "player",
+      viewerId: "p2",
+      hostId: "p1",
+      players: [player("p1", "一郎"), player("p2", "二郎"), player("p3", "三郎")],
+      spectators: [],
+      settings: { mode: "normal", blindCount: 0 },
+      direction: 1,
+      revolution: false,
+      jackBack: false,
+      suitLock: [],
+      field: [],
+      discard: [],
+      hand: [],
+      pendingEffects: [],
+      rankings: [],
+      log: [],
+    };
+
+    render(<ResultScreen room={room} busy={false} leave={() => undefined} rematch={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "同じ部屋で次のゲーム" })).toBeNull();
+    expect(screen.getByText(/ホストが次のゲーム/)).toBeInTheDocument();
+  });
 });

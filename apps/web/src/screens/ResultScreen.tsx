@@ -46,9 +46,13 @@ export function ResultScreen({
           <button type="button" onClick={leave}>
             サロンロビーへ
           </button>
-          <button type="button" className="primary" disabled={busy} onClick={rematch}>
-            {busy ? "準備中…" : "同じ部屋で次のゲーム"}
-          </button>
+          {room.hostId === room.viewerId ? (
+            <button type="button" className="primary" disabled={busy} onClick={rematch}>
+              {busy ? "準備中…" : "同じ部屋で次のゲーム"}
+            </button>
+          ) : (
+            <p>ホストが次のゲームを準備するのを待っています</p>
+          )}
         </footer>
       </section>
     </main>
