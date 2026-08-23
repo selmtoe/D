@@ -73,9 +73,7 @@ export default function App() {
       joinedRoomId.current = undefined;
       return;
     }
-    if (
-      !shouldClearRoomAfterViewLoss(app.phase, activeRoomId, undefined, joinedRoomId.current)
-    )
+    if (!shouldClearRoomAfterViewLoss(app.phase, activeRoomId, undefined, joinedRoomId.current))
       return;
     clearRoomReconnect(activeRoomId);
     joinedRoomId.current = undefined;
