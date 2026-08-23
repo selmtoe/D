@@ -541,6 +541,18 @@ describe("Spark browser authority", () => {
       role: "spectator",
       text: "観戦しています",
     });
+    expect(() =>
+      authority.handleCommand(
+        "watcher",
+        "sendChat",
+        {
+          clientActionId: "watcher-chat-flood",
+          expectedRevision: authority.exportSnapshot().revision,
+          text: "連投",
+        },
+        2_500,
+      ),
+    ).toThrow(/1秒に1件/);
 
     authority.handleCommand(
       "p1",

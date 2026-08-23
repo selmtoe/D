@@ -32,6 +32,7 @@ export interface SparkMember {
   joinedAtMs: number;
   online: boolean;
   focusPlayerId?: string;
+  lastChatAtMs?: number;
 }
 
 export interface SparkPendingMimic {
@@ -396,6 +397,7 @@ export class SparkAuthority {
       joinedAtMs: existing?.joinedAtMs ?? now,
       online: true,
       ...(existing?.focusPlayerId ? { focusPlayerId: existing.focusPlayerId } : {}),
+      ...(existing?.lastChatAtMs ? { lastChatAtMs: existing.lastChatAtMs } : {}),
     };
     this.snapshot.socialLog.push({
       id: `join-${request.uid}-${now}`,
@@ -635,10 +637,14 @@ export class SparkAuthority {
         return response;
       }
       case "sendChat": {
+        if (member.lastChatAtMs && now - member.lastChatAtMs < 1_000) {
+          commandError("resource-exhausted", "チャットは1秒に1件までです");
+        }
         const text = String(payload.text ?? "")
           .trim()
           .slice(0, 120);
         if (!text) commandError("invalid-argument", "メッセージを入力してください");
+        member.lastChatAtMs = now;
         const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
         this.snapshot.chat.push({
           id: actionId,
