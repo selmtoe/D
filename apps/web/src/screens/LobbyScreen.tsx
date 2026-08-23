@@ -98,6 +98,10 @@ export function LobbyScreen({
       setLocalError("部屋IDを5文字で入力してください");
       return;
     }
+    if (!/^[A-HJ-NP-Z2-9]{5}$/.test(normalized)) {
+      setLocalError("部屋IDには I・O・0・1 は使えません");
+      return;
+    }
     setLocalError("");
     join(normalized, role);
   };
@@ -134,6 +138,7 @@ export function LobbyScreen({
               setLocalError("");
             }}
             maxLength={5}
+            pattern="[A-HJ-NP-Z2-9]{5}"
             aria-invalid={Boolean(localError)}
           />
           <button type="button" disabled={busy} onClick={() => submitJoin("player")}>

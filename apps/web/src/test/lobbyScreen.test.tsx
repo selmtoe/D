@@ -1,5 +1,5 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicRoom } from "../app/model";
 import { LobbyScreen } from "../screens/LobbyScreen";
@@ -11,6 +11,26 @@ vi.mock("../avatar-3d/AvatarPortrait", () => ({
 afterEach(cleanup);
 
 describe("public room actions", () => {
+  it("rejects ambiguous characters before trying to join a room", () => {
+    const join = vi.fn();
+    render(
+      <LobbyScreen
+        profile={{ name: "私", avatar: defaultAvatar }}
+        rooms={[]}
+        connection="connected"
+        busy={false}
+        create={() => undefined}
+        join={join}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("5文字の部屋ID"), { target: { value: "ABO01" } });
+    fireEvent.click(screen.getByRole("button", { name: "プレイヤー参加" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("I・O・0・1 は使えません");
+    expect(join).not.toHaveBeenCalled();
+  });
+
   it("disables player entry before submitting a full table", () => {
     const room: PublicRoom = {
       roomId: "ABCDE",
