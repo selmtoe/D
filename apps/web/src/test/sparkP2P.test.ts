@@ -56,4 +56,46 @@ describe("Spark wire decoding", () => {
       parseSparkWire(JSON.stringify({ type: "cue", cue: { ...validCue, turnPlayerId: "forged" } })),
     ).toBeNull();
   });
+
+  test("rejects malformed peer requests before authority dispatch", () => {
+    const avatar = { schemaVersion: 1 };
+    expect(
+      parseSparkWire(
+        JSON.stringify({
+          type: "hello",
+          requestId: "hello-1",
+          role: "player",
+          profile: { name: "guest", avatar },
+        }),
+      ),
+    ).toMatchObject({ type: "hello", role: "player" });
+    expect(
+      parseSparkWire(
+        JSON.stringify({
+          type: "hello",
+          requestId: "hello-2",
+          role: "administrator",
+          profile: { name: "guest", avatar },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseSparkWire(
+        JSON.stringify({ type: "command", requestId: "command-1", name: "submitPass" }),
+      ),
+    ).toBeNull();
+    expect(
+      parseSparkWire(JSON.stringify({ type: "response", requestId: "response-1", ok: true })),
+    ).toBeNull();
+    expect(
+      parseSparkWire(
+        JSON.stringify({
+          type: "command",
+          requestId: "",
+          name: "submitPass",
+          payload: {},
+        }),
+      ),
+    ).toBeNull();
+  });
 });

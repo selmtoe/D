@@ -156,13 +156,21 @@ function plain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function wireRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function validWireId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128;
+}
+
 export function parseSparkWire(payload: string): WireMessage | null {
   try {
-    const value = JSON.parse(payload) as Record<string, unknown>;
-    if (!value || typeof value.type !== "string") return null;
+    const value = JSON.parse(payload) as unknown;
+    if (!wireRecord(value) || typeof value.type !== "string") return null;
     if (
       (value.type === "hello" || value.type === "command" || value.type === "response") &&
-      typeof value.requestId !== "string"
+      !validWireId(value.requestId)
     ) {
       return null;
     }
@@ -180,13 +188,30 @@ export function parseSparkWire(payload: string): WireMessage | null {
         return null;
       return { type: "cue", cue, ...(senderUid ? { senderUid } : {}) };
     }
-    if (value.type === "hello" && value.profile && typeof value.profile === "object") {
+    if (
+      value.type === "hello" &&
+      (value.role === "player" || value.role === "spectator") &&
+      wireRecord(value.profile) &&
+      typeof value.profile.name === "string" &&
+      value.profile.name.length <= 128 &&
+      wireRecord(value.profile.avatar)
+    ) {
       return value as unknown as WireMessage;
     }
-    if (value.type === "command" && typeof value.name === "string") {
+    if (
+      value.type === "command" &&
+      typeof value.name === "string" &&
+      value.name.length > 0 &&
+      value.name.length <= 64 &&
+      wireRecord(value.payload)
+    ) {
       return value as unknown as WireMessage;
     }
-    if (value.type === "response" && typeof value.ok === "boolean") {
+    if (
+      value.type === "response" &&
+      ((value.ok === true && wireRecord(value.result)) ||
+        (value.ok === false && typeof value.error === "string" && value.error.length <= 1_000))
+    ) {
       return value as unknown as WireMessage;
     }
     if (value.type === "evicted" && value.reason === "kick") {
