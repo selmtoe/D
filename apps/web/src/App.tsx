@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useUiStore } from "./app/store";
 import type { LocalProfile, Role, RoomView } from "./app/model";
@@ -58,6 +58,7 @@ export default function App() {
     .slice(0, 5);
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const operationsInFlight = useRef(0);
   const handleRoomEvicted = useCallback((roomId: string) => {
     clearRoomReconnect(roomId);
     setActiveRoomId((current) => {
@@ -151,6 +152,7 @@ export default function App() {
   const run = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {
       primeFeedback(soundMuted);
+      operationsInFlight.current += 1;
       setBusy(true);
       dispatch({ type: "CLEAR_ERROR" });
       try {
@@ -162,7 +164,8 @@ export default function App() {
         dispatch({ type: "ERROR", message: firebaseErrorMessage(cause) });
         return undefined;
       } finally {
-        setBusy(false);
+        operationsInFlight.current = Math.max(0, operationsInFlight.current - 1);
+        if (operationsInFlight.current === 0) setBusy(false);
       }
     },
     [dispatch, soundMuted],
