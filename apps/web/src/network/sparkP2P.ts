@@ -394,6 +394,7 @@ export class SparkP2PSession {
           return;
         }
         const next = snapshot.data() as DirectoryDocument;
+        const previousCoordinatorPeerId = this.coordinatorPeerId;
         const changed = next.coordinatorPeerId !== this.coordinatorPeerId;
         this.directory = next;
         this.coordinatorUid = next.coordinatorUid;
@@ -401,6 +402,7 @@ export class SparkP2PSession {
         if (next.coordinatorUid === this.uid && !this.authority) {
           void this.promoteToCoordinator();
         } else if (changed && !this.authority) {
+          this.closePeer(previousCoordinatorPeerId);
           void this.connectToCoordinator();
         }
       }),
@@ -574,6 +576,9 @@ export class SparkP2PSession {
     if (snapshot.coordinatorUid !== this.uid) {
       const stillMember = snapshot.members[this.uid];
       delete this.authority;
+      this.peers.forEach((peer) => peer.connection.close());
+      this.peers.clear();
+      this.earlyCandidates.clear();
       if (stillMember) await this.connectToCoordinator();
     }
   }
@@ -643,7 +648,7 @@ export class SparkP2PSession {
       this.setMode("firebase");
       return;
     }
-    this.peers.get(this.coordinatorPeerId)?.connection.close();
+    this.closePeer(this.coordinatorPeerId);
     const peer = this.createPeer(this.coordinatorUid, this.coordinatorPeerId);
     const channel = peer.connection.createDataChannel("daifugo", { ordered: true });
     this.attachChannel(peer, channel);
@@ -683,6 +688,13 @@ export class SparkP2PSession {
     return peer;
   }
 
+  private closePeer(peerId: string): void {
+    if (!peerId) return;
+    this.peers.get(peerId)?.connection.close();
+    this.peers.delete(peerId);
+    this.earlyCandidates.delete(peerId);
+  }
+
   private attachChannel(peer: PeerState, channel: RTCDataChannel): void {
     peer.channel = channel;
     channel.onopen = () => this.setMode("webrtc");
@@ -703,7 +715,7 @@ export class SparkP2PSession {
     }
     if (typeof RTCPeerConnection === "undefined") return;
     if (relay.kind === "offer") {
-      this.peers.get(relay.senderPeerId)?.connection.close();
+      this.closePeer(relay.senderPeerId);
       const peer = this.createPeer(relay.senderUid, relay.senderPeerId);
       await peer.connection.setRemoteDescription({ type: "offer", sdp: String(payload.sdp) });
       for (const candidate of peer.pendingCandidates.splice(0)) {
