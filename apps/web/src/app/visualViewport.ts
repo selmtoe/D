@@ -12,6 +12,18 @@ export interface ViewportMetrics {
 
 type ViewportWindow = Pick<Window, "innerWidth" | "innerHeight" | "visualViewport">;
 
+function sameViewport(left: ViewportMetrics, right: ViewportMetrics): boolean {
+  return (
+    left.width === right.width &&
+    left.height === right.height &&
+    left.offsetTop === right.offsetTop &&
+    left.offsetLeft === right.offsetLeft &&
+    left.scale === right.scale &&
+    left.keyboardInset === right.keyboardInset &&
+    left.orientation === right.orientation
+  );
+}
+
 export function measureViewport(source: ViewportWindow = window): ViewportMetrics {
   const viewport = source.visualViewport;
   const width = viewport?.width ?? source.innerWidth;
@@ -49,7 +61,7 @@ export function useVisualViewport(): ViewportMetrics {
     const update = () => {
       const next = measureViewport();
       applyViewportCss(next);
-      setMetrics(next);
+      setMetrics((current) => (sameViewport(current, next) ? current : next));
     };
     update();
     window.addEventListener("resize", update);

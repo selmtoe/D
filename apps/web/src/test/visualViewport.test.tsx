@@ -100,4 +100,15 @@ describe("visual viewport", () => {
     expect(result.current.orientation).toBe("landscape");
     expect(document.documentElement.dataset.viewportOrientation).toBe("landscape");
   });
+
+  it("retains state identity for duplicate browser viewport notifications", () => {
+    const viewport = new FakeVisualViewport();
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const { result } = renderHook(() => useVisualViewport());
+    const measured = result.current;
+
+    act(() => viewport.dispatchEvent(new Event("resize")));
+
+    expect(result.current).toBe(measured);
+  });
 });
