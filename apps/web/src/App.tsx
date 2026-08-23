@@ -304,6 +304,7 @@ export default function App() {
       <ResultScreen
         room={app.room}
         busy={busy}
+        error={app.error}
         leave={leave}
         rematch={() => void command("startRematch", commandBase(app.room!))}
       />

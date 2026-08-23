@@ -4,11 +4,13 @@ import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 export function ResultScreen({
   room,
   busy,
+  error,
   leave,
   rematch,
 }: {
   room: RoomView;
   busy: boolean;
+  error?: string | undefined;
   leave: () => void;
   rematch: () => void;
 }) {
@@ -42,6 +44,11 @@ export function ResultScreen({
             </li>
           ))}
         </ol>
+        {error && (
+          <p className="inline-error" role="alert">
+            {error}
+          </p>
+        )}
         <footer>
           <button type="button" onClick={leave}>
             サロンロビーへ
