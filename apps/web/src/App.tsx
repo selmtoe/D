@@ -273,11 +273,6 @@ export default function App() {
 
   return (
     <>
-      {!firebaseMode.emulator && (
-        <p className="configuration-banner" role="status">
-          Spark無料プラン対応 · WebRTC P2P（Firestoreは接続補助のみ）
-        </p>
-      )}
       {firebaseMode.emulator && (
         <p className="emulator-banner" role="status">
           Firebase Emulatorへ接続中（本番データではありません）

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { parsePlay, type Card as RuleCard } from "@daifugo/rules";
 import type { CardView, PendingEffectView, Rank, RoomView, Suit } from "../app/model";
 import { useUiStore } from "../app/store";
 import { AccessibleHand } from "../accessibility/AccessibleHand";
@@ -11,7 +10,11 @@ import { feedback, primeFeedback } from "../components/feedback";
 import { emoteCue } from "../network/peerCues";
 import { usePeerCues } from "../network/usePeerCues";
 import { JokerDeclarationPanel } from "./JokerDeclarationPanel";
-import { potentiallyPlayableCardIds, sortHandWeakToStrong } from "../gameplay/cardPresentation";
+import {
+  analyzeCardSelection,
+  selectableCardIds,
+  sortHandWeakToStrong,
+} from "../gameplay/cardPresentation";
 import { CommentDanmaku } from "./CommentDanmaku";
 import { StealSequence, type StealVisualState } from "./StealSequence";
 import { deriveCardMotions, type CardMotionEvent } from "../game-3d/cardMotion";
@@ -32,24 +35,48 @@ function useCountdown(deadline?: number): number {
   return deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
 }
 
-function PlayDialog({
+export function PlayDialog({
   cards,
+  candidates,
   close,
   submit,
   busy,
 }: {
   cards: CardView[];
+  candidates: { cardId: string; suit: Suit; rank: Rank }[][];
   close: () => void;
   submit: (mimics: { cardId: string; suit: Suit; rank: Rank }[]) => void;
   busy: boolean;
 }) {
   const jokers = cards.filter((card) => card.visibility === "face" && Boolean(card.joker));
-  const [mimics, setMimics] = useState<Record<string, { suit: Suit; rank: Rank }>>({});
+  const [mimics, setMimics] = useState<
+    Record<string, { suit?: Suit | undefined; rank?: Rank | undefined }>
+  >({});
   const dialog = useRef<HTMLElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
-  const ranks: Rank[] = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
-  const needsDeclaration = cards.length > 1 && jokers.length > 0;
-  const ready = !needsDeclaration || jokers.every((card) => mimics[card.id]);
+  const needsDeclaration = candidates.some((candidate) => candidate.length > 0);
+  const candidateMatchesOtherChoices = (
+    candidate: { cardId: string; suit: Suit; rank: Rank }[],
+    ownCardId: string,
+    choices = mimics,
+  ) =>
+    candidate.every((declaration) => {
+      if (declaration.cardId === ownCardId) return true;
+      const chosen = choices[declaration.cardId];
+      return (
+        (!chosen?.suit || chosen.suit === declaration.suit) &&
+        (!chosen?.rank || chosen.rank === declaration.rank)
+      );
+    });
+  const chosenCandidate = needsDeclaration
+    ? candidates.find((candidate) =>
+        candidate.every((declaration) => {
+          const chosen = mimics[declaration.cardId];
+          return chosen?.suit === declaration.suit && chosen.rank === declaration.rank;
+        }),
+      )
+    : [];
+  const ready = !needsDeclaration || Boolean(chosenCandidate);
   useEffect(() => {
     document.body.classList.add("modal-open");
     dialog.current?.focus();
@@ -108,40 +135,68 @@ function PlayDialog({
                 <select
                   aria-label={`Joker ${index + 1}のスート`}
                   value={mimics[joker.id]?.suit ?? ""}
-                  onChange={(event) =>
-                    setMimics((current) => ({
-                      ...current,
-                      [joker.id]: {
-                        suit: event.target.value as Suit,
-                        rank: current[joker.id]?.rank ?? "3",
-                      },
-                    }))
-                  }
+                  onChange={(event) => {
+                    const suit = event.target.value as Suit;
+                    setMimics((current) => {
+                      const next = { ...current[joker.id], suit };
+                      const rankStillPossible = candidates.some((candidate) => {
+                        if (!candidateMatchesOtherChoices(candidate, joker.id, current))
+                          return false;
+                        const declaration = candidate.find((item) => item.cardId === joker.id);
+                        return (
+                          declaration?.suit === suit &&
+                          (!next.rank || declaration.rank === next.rank)
+                        );
+                      });
+                      if (!rankStillPossible) delete next.rank;
+                      return { ...current, [joker.id]: next };
+                    });
+                  }}
                 >
                   <option value="">スート</option>
-                  {Object.entries(suitLabel).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {label}
-                    </option>
-                  ))}
+                  {Object.entries(suitLabel)
+                    .filter(([value]) =>
+                      candidates.some((candidate) => {
+                        if (!candidateMatchesOtherChoices(candidate, joker.id)) return false;
+                        return candidate.some(
+                          (declaration) =>
+                            declaration.cardId === joker.id && declaration.suit === value,
+                        );
+                      }),
+                    )
+                    .map(([value, label]) => (
+                      <option value={value} key={value}>
+                        {label}
+                      </option>
+                    ))}
                 </select>
                 <select
                   aria-label={`Joker ${index + 1}のランク`}
                   value={mimics[joker.id]?.rank ?? ""}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const rank = event.target.value as Rank;
                     setMimics((current) => ({
                       ...current,
-                      [joker.id]: {
-                        suit: current[joker.id]?.suit ?? "spade",
-                        rank: event.target.value as Rank,
-                      },
-                    }))
-                  }
+                      [joker.id]: { ...current[joker.id], rank },
+                    }));
+                  }}
                 >
                   <option value="">ランク</option>
-                  {ranks.map((rank) => (
-                    <option key={rank}>{rank}</option>
-                  ))}
+                  {["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"]
+                    .filter((rank) =>
+                      candidates.some((candidate) => {
+                        if (!candidateMatchesOtherChoices(candidate, joker.id)) return false;
+                        const declaration = candidate.find((item) => item.cardId === joker.id);
+                        const selectedSuit = mimics[joker.id]?.suit;
+                        return (
+                          declaration?.rank === rank &&
+                          (!selectedSuit || declaration.suit === selectedSuit)
+                        );
+                      }),
+                    )
+                    .map((rank) => (
+                      <option key={rank}>{rank}</option>
+                    ))}
                 </select>
               </fieldset>
             ))}
@@ -155,9 +210,7 @@ function PlayDialog({
             type="button"
             className="primary"
             disabled={!ready || busy}
-            onClick={() =>
-              submit(Object.entries(mimics).map(([cardId, mimic]) => ({ cardId, ...mimic })))
-            }
+            onClick={() => submit(chosenCandidate ?? [])}
           >
             {busy ? "提出中…" : "この札を出す"}
           </button>
@@ -280,9 +333,10 @@ export function GameScreen({
     [room.hand, room.jackBack, room.revolution],
   );
   const selectedCards = sortedHand.filter((card) => selectedIds.includes(card.id));
+  const selection = useMemo(() => analyzeCardSelection(room, selectedIds), [room, selectedIds]);
   const playableIds = useMemo(
-    () => (myTurn && !readOnly ? potentiallyPlayableCardIds(room) : undefined),
-    [myTurn, readOnly, room],
+    () => (!readOnly ? selectableCardIds(room, selectedIds) : undefined),
+    [readOnly, room, selectedIds],
   );
   const displayRoom = useMemo(() => {
     if (room.role === "spectator") return { ...room, hand: sortedHand };
@@ -295,30 +349,18 @@ export function GameScreen({
   }, [room, sortedHand]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
+    if (!selection.completable) return "この組み合わせでは出せません。札を選び直してください";
+    if (!selection.complete)
+      return "成立する同ランク組または同一スートの階段になる札を続けて選んでください";
     if (selectedCards.some((card) => card.visibility === "hidden"))
       return "ブラインド札は部屋ホストが中身を検証します";
     if (
       selectedCards.some((card) => card.visibility === "face" && card.joker) &&
-      selectedCards.length > 1
+      selection.jokerCandidates.some((candidate) => candidate.length > 0)
     )
-      return "Jokerの擬態を選ぶと候補を確認できます";
-    try {
-      parsePlay(
-        selectedCards.map((card): RuleCard =>
-          card.visibility === "face" && card.joker
-            ? { id: card.id, suit: null, rank: "JOKER" }
-            : {
-                id: card.id,
-                suit: card.visibility === "face" ? (card.suit ?? null) : null,
-                rank: card.visibility === "face" ? (card.rank ?? "3") : "3",
-              },
-        ),
-      );
-      return "選択した組み合わせは出し方の候補です（最終判定は部屋ホスト）";
-    } catch {
-      return "同ランクの組、または同一スート3枚以上の階段を選んでください";
-    }
-  }, [selectedCards]);
+      return "確認画面で、場の条件に合うJokerのスートとランクを選べます";
+    return "この組み合わせで出せます";
+  }, [selectedCards, selection]);
   const activeEffect = room.pendingEffects.find(
     (effect) => effect.actorId === room.viewerId && effect.kind !== "clearField",
   );
@@ -328,7 +370,7 @@ export function GameScreen({
     [room.gameId, room.revision, room.roomId],
   );
   const openPlay = () => {
-    if (!selectedCards.length || !myTurn || readOnly) return;
+    if (!selection.complete || !myTurn || readOnly) return;
     setPlayDialog(true);
   };
   const selectCard = (card: CardView) => {
@@ -588,7 +630,7 @@ export function GameScreen({
           <button
             type="button"
             className="primary"
-            disabled={!myTurn || !selectedIds.length || busy || Boolean(activeEffect)}
+            disabled={!myTurn || !selection.complete || busy || Boolean(activeEffect)}
             aria-describedby="play-reason"
             onClick={openPlay}
           >
@@ -665,6 +707,7 @@ export function GameScreen({
       {playDialog && (
         <PlayDialog
           cards={selectedCards}
+          candidates={selection.jokerCandidates}
           close={() => setPlayDialog(false)}
           submit={submit}
           busy={busy}

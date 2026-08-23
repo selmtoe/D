@@ -49,6 +49,7 @@ type AuthorityRoom = {
   hostId: string;
   members: AuthorityMember[];
   currentPlayerId?: string;
+  fieldPlays: AuthorityCard[][];
   field: AuthorityCard[];
   discard: AuthorityCard[];
   pendingEffects: PendingEffectView[];
@@ -313,6 +314,8 @@ export class AuthoritativeE2EServer {
       revolution: false,
       jackBack: false,
       suitLock: [],
+      firstPlay: room.openingPlayPending,
+      fieldPlays: room.fieldPlays.map((play) => play.map(face)),
       field: room.field.map(face),
       discard: room.discard.map(face),
       hand,
@@ -358,6 +361,7 @@ export class AuthoritativeE2EServer {
           connection: "online",
         },
       ],
+      fieldPlays: [],
       field: [],
       discard: [],
       pendingEffects: [],
@@ -479,6 +483,7 @@ export class AuthoritativeE2EServer {
     }
     member.hand.splice(cardIndex, 1);
     room.field = [card];
+    room.fieldPlays.push([card]);
     room.openingPlayPending = false;
     room.revision += 1;
     if (card.blindOutcome === "disqualify") {

@@ -80,6 +80,7 @@ export function Card3D({
   onSelect,
   scale = 1,
   renderOrder = 0,
+  selectedLift = 0.18,
 }: {
   card: CardView;
   position?: [number, number, number];
@@ -90,6 +91,7 @@ export function Card3D({
   onSelect?: () => void;
   scale?: number;
   renderOrder?: number;
+  selectedLift?: number;
 }) {
   const front = useMemo(() => cardTexture(card, card.visibility === "hidden"), [card]);
   const back = useMemo(() => cardTexture(card, true), [card]);
@@ -106,7 +108,7 @@ export function Card3D({
     <group
       renderOrder={renderOrder}
       visible={!hidden}
-      position={[position[0], position[1] + (selected ? 0.18 : 0), position[2]]}
+      position={[position[0], position[1] + (selected ? selectedLift : 0), position[2]]}
       rotation={rotation}
       scale={scale}
       onPointerDown={(event) => {

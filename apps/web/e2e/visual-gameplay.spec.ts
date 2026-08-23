@@ -78,6 +78,25 @@ async function advanceToSteal(authority: AuthoritativeE2EServer): Promise<void> 
   }
 }
 
+async function advanceToThirdPlayer(authority: AuthoritativeE2EServer): Promise<void> {
+  for (const [uid, cardId, blindConfirmed] of [
+    ["uid-host", "c-a1", false],
+    ["uid-player-2", "c-b3", true],
+  ] as const) {
+    await authority.handle(uid, {
+      op: "command",
+      name: "submitPlay",
+      payload: {
+        ...(await roomBase(authority)),
+        clientActionId: `visual-stack-${cardId}`,
+        cardIds: [cardId],
+        mimics: [],
+        blindConfirmed,
+      },
+    });
+  }
+}
+
 async function reconnectPage(
   browser: Browser,
   authority: AuthoritativeE2EServer,
@@ -98,7 +117,8 @@ async function reconnectPage(
 }
 
 test.describe("single-canvas visual gameplay inspection", () => {
-  test.beforeEach(({}, testInfo) => {
+  test.beforeEach(({ browserName }, testInfo) => {
+    void browserName;
     test.skip(testInfo.project.name !== "desktop-chromium", "視覚証拠はdesktopで一度だけ撮影");
   });
 
@@ -122,6 +142,25 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await capture(actor.page, testInfo.outputPath("a-steal-actor-view.png"));
     } finally {
       await closeContext(actor.context);
+    }
+  });
+
+  test("selected cards lift while field plays and the flowed-card pile stay on the table", async ({
+    browser,
+  }, testInfo) => {
+    test.setTimeout(90_000);
+    const authority = new AuthoritativeE2EServer();
+    await seedStartedRoom(authority);
+    await advanceToThirdPlayer(authority);
+    const player = await reconnectPage(browser, authority, "uid-player-3");
+    try {
+      await expect(player.page.locator("canvas").first()).toBeVisible();
+      const king = player.page.getByRole("option", { name: /クラブK/ });
+      await king.click();
+      await expect(king).toHaveAttribute("aria-selected", "true");
+      await capture(player.page, testInfo.outputPath("selected-field-stack.png"));
+    } finally {
+      await closeContext(player.context);
     }
   });
 

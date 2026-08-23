@@ -70,6 +70,10 @@ export interface RoomView {
   revolution: boolean;
   jackBack: boolean;
   suitLock: Suit[];
+  firstPlay?: boolean;
+  /** Every play still lying on the table, oldest first. Cleared together when the trick flows. */
+  fieldPlays?: CardView[][];
+  /** The latest play only; used to judge which cards may be played next. */
   field: CardView[];
   discard: CardView[];
   hand: CardView[];

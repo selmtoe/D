@@ -24,7 +24,9 @@ interface UiState {
 }
 
 const mediaReduced =
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export const useUiStore = create<UiState>((set) => ({
   app: initialAppState,

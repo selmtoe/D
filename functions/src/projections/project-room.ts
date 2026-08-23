@@ -281,6 +281,12 @@ export function projectRoomForViewer(
   const focused = gamePlayers.find((player) => player.id === focusedPlayerId);
   const hand = Array.isArray(focused?.hand) ? focused.hand.map((card) => cardView(card)) : [];
   const pile = isObject(game?.pile) ? game.pile : undefined;
+  const trickHistory = Array.isArray(game?.trickHistory) ? game.trickHistory.filter(isObject) : [];
+  const fieldPlays = [...trickHistory, ...(pile ? [pile] : [])]
+    .map((play) =>
+      Array.isArray(play.cards) ? play.cards.map((card) => cardView(card, true)) : [],
+    )
+    .filter((cards) => cards.length > 0);
   const pending = isObject(game?.pendingEffect) ? game.pendingEffect : undefined;
   const pendingMimic =
     room.pendingMimic?.actorUid === viewerUid
@@ -426,6 +432,8 @@ export function projectRoomForViewer(
     revolution: game?.revolution === true,
     jackBack: game?.jackBack === true,
     suitLock: Array.isArray(game?.binding) ? game.binding : [],
+    firstPlay: game?.firstPlay === true,
+    fieldPlays,
     field: Array.isArray(pile?.cards) ? pile.cards.map((card) => cardView(card, true)) : [],
     discard: Array.isArray(game?.discard) ? game.discard.map((card) => cardView(card, true)) : [],
     hand:

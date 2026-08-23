@@ -122,6 +122,36 @@ describe("viewer-specific projection", () => {
     expect(view.rankings).toContainEqual({ playerId: "alice", place: 3, reason: "失格" });
   });
 
+  test("projects every play still on the table while keeping the latest play separate", () => {
+    const room = blindRoom();
+    const oldCard = room.game!.players[0]!.hand.shift()!.card;
+    const latestCard = room.game!.players[1]!.hand.shift()!.card;
+    const effective = (card: typeof oldCard) => ({
+      card,
+      suit: card.suit,
+      rank: card.rank,
+      mimic: null,
+    });
+    room.game!.trickHistory = [
+      { id: "old-play", playerId: "alice", kind: "group", cards: [effective(oldCard)] },
+    ];
+    room.game!.pile = {
+      id: "latest-play",
+      playerId: "bob",
+      kind: "group",
+      cards: [effective(latestCard)],
+    };
+    room.game!.firstPlay = true;
+
+    const view = projectRoomForViewer(room, "watcher");
+    expect(view.firstPlay).toBe(true);
+    expect(view.field).toEqual([expect.objectContaining({ id: room.cardTokens[latestCard.id] })]);
+    expect(view.fieldPlays).toEqual([
+      [expect.objectContaining({ id: room.cardTokens[oldCard.id] })],
+      [expect.objectContaining({ id: room.cardTokens[latestCard.id] })],
+    ]);
+  });
+
   test("the owner receives no face or physical card id for blind cards", () => {
     const room = blindRoom();
     const view = projectRoomForViewer(room, "alice");

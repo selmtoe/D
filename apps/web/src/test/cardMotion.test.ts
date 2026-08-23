@@ -72,6 +72,21 @@ describe("card motion projection diff", () => {
     );
   });
 
+  it("keeps earlier plays on the table when a new play is stacked on top", () => {
+    const oldPlay = card("old-play");
+    const newPlay = card("new-play");
+    const previous = view(2, [newPlay], [oldPlay]);
+    previous.fieldPlays = [[oldPlay]];
+    const next = view(3, [], [newPlay]);
+    next.fieldPlays = [[oldPlay], [newPlay]];
+
+    const motions = deriveCardMotions(previous, next);
+    expect(motions).toContainEqual(
+      expect.objectContaining({ kind: "play", card: newPlay, to: { kind: "field" } }),
+    );
+    expect(motions.some((motion) => motion.card.id === oldPlay.id)).toBe(false);
+  });
+
   it("moves a cleared field to discard and a stolen card from its seat to hand", () => {
     const field = card("field");
     const previous = view(3, [], [field]);

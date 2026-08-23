@@ -22,13 +22,19 @@ const cardsAtSeats = (room: RoomView) =>
     ),
   );
 
+/** Cards remain on the table until the whole trick is flushed to the discard stack. */
+export const cardsOnTable = (room: RoomView): CardView[] =>
+  (room.fieldPlays ?? (room.field.length > 0 ? [room.field] : [])).flat();
+
 export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotionEvent[] {
   if (previous.gameId !== next.gameId || previous.phase === "dealing") return [];
   const motions: CardMotionEvent[] = [];
   const previousHand = new Map(previous.hand.map((card) => [card.id, card]));
   const nextHand = new Map(next.hand.map((card) => [card.id, card]));
-  const previousField = new Map(previous.field.map((card) => [card.id, card]));
-  const nextField = new Map(next.field.map((card) => [card.id, card]));
+  const previousTable = cardsOnTable(previous);
+  const nextTable = cardsOnTable(next);
+  const previousField = new Map(previousTable.map((card) => [card.id, card]));
+  const nextField = new Map(nextTable.map((card) => [card.id, card]));
   const previousDiscard = new Map(previous.discard.map((card) => [card.id, card]));
   const nextDiscard = new Map(next.discard.map((card) => [card.id, card]));
   const previousSeats = cardsAtSeats(previous);
@@ -51,15 +57,12 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
   );
   const newDiscard = next.discard.filter((card) => !previousDiscard.has(card.id));
   const playedStraightToDiscard =
-    next.field.length === 0 && hasNewPlayEvent
+    nextTable.length === 0 && hasNewPlayEvent
       ? newDiscard.filter((card) => !previousField.has(card.id))
       : [];
   const immediateFlushIds = new Set(
     playedStraightToDiscard.length
-      ? [
-          ...previous.field.map((card) => card.id),
-          ...playedStraightToDiscard.map((card) => card.id),
-        ]
+      ? [...previousTable.map((card) => card.id), ...playedStraightToDiscard.map((card) => card.id)]
       : [],
   );
 
@@ -78,7 +81,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
         holdMs: 1000,
       });
     }
-    for (const card of [...previous.field, ...playedStraightToDiscard]) {
+    for (const card of [...previousTable, ...playedStraightToDiscard]) {
       push({
         card,
         from: { kind: "field" },
@@ -89,7 +92,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
     }
   }
 
-  for (const card of next.field) {
+  for (const card of nextTable) {
     if (previousField.has(card.id)) continue;
     const seated = previousSeats.get(card.id);
     push({
@@ -106,7 +109,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
     });
   }
 
-  for (const card of previous.field) {
+  for (const card of previousTable) {
     if (nextField.has(card.id)) continue;
     if (immediateFlushIds.has(card.id)) continue;
     push({ card, from: { kind: "field" }, to: { kind: "discard" }, kind: "flush" });

@@ -2,8 +2,10 @@ import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { CardView, RoomView, Suit, Rank } from "../app/model";
 import {
+  analyzeCardSelection,
   compactCardLabel,
   potentiallyPlayableCardIds,
+  selectableCardIds,
   sortHandWeakToStrong,
 } from "../gameplay/cardPresentation";
 
@@ -129,5 +131,108 @@ describe("card presentation", () => {
     const blind: CardView = { id: "secret", visibility: "hidden", blind: true };
     const view = room({ field: [face("f", "heart", "2")], hand: [blind] });
     expect(potentiallyPlayableCardIds(view).has("secret")).toBe(true);
+  });
+
+  it("allows only cards that can complete the current selection", () => {
+    const view = room({
+      hand: [
+        face("s5", "spade", "5"),
+        face("h5", "heart", "5"),
+        face("s6", "spade", "6"),
+        face("s7", "spade", "7"),
+        face("h9", "heart", "9"),
+      ],
+    });
+    expect([...selectableCardIds(view, ["s5"])].sort()).toEqual(["s5", "h5", "s6", "s7"].sort());
+    expect([...selectableCardIds(view, ["s5", "h5"])].sort()).toEqual(["s5", "h5"].sort());
+    expect(analyzeCardSelection(view, ["s5", "s6"])).toMatchObject({
+      complete: false,
+      completable: true,
+    });
+    expect(analyzeCardSelection(view, ["s5", "s6", "s7"])).toMatchObject({
+      complete: true,
+      completable: true,
+    });
+    expect(analyzeCardSelection(view, ["s5", "h9"])).toMatchObject({
+      complete: false,
+      completable: false,
+    });
+  });
+
+  it("stops a selected response pair from branching into another rank", () => {
+    const view = room({
+      field: [face("f1", "club", "7"), face("f2", "diamond", "7")],
+      hand: [
+        face("eight-s", "spade", "8"),
+        face("eight-h", "heart", "8"),
+        face("nine-c", "club", "9"),
+        face("nine-d", "diamond", "9"),
+        joker(),
+      ],
+    });
+    expect([...selectableCardIds(view, ["eight-s"])].sort()).toEqual(
+      ["eight-s", "eight-h", "joker"].sort(),
+    );
+  });
+
+  it("offers only exact Joker declarations that produce a legal play", () => {
+    const view = room({
+      hand: [face("h7", "heart", "7"), joker(), face("c3", "club", "3")],
+    });
+    const analysis = analyzeCardSelection(view, ["h7", "joker"]);
+    expect(analysis.complete).toBe(true);
+    expect(analysis.jokerCandidates).toEqual(
+      (["spade", "heart", "diamond", "club"] as Suit[]).map((suit) => [
+        { cardId: "joker", suit, rank: "7" },
+      ]),
+    );
+  });
+
+  it("limits a Joker declaration to the suit needed by the current binding", () => {
+    const view = room({
+      field: [face("field-spade", "spade", "6"), face("field-heart", "heart", "6")],
+      suitLock: ["spade", "heart"],
+      hand: [face("h7", "heart", "7"), joker(), face("c3", "club", "3")],
+    });
+    expect(analyzeCardSelection(view, ["h7", "joker"])).toMatchObject({
+      complete: true,
+      jokerCandidates: [[{ cardId: "joker", suit: "spade", rank: "7" }]],
+    });
+  });
+
+  it("does not treat a raw Joker pair as declared suits for binding", () => {
+    const view = room({
+      field: [face("field-spade", "spade", "6"), face("field-heart", "heart", "6")],
+      suitLock: ["spade", "heart"],
+      hand: [joker("joker-1"), joker("joker-2"), face("c8", "club", "8")],
+    });
+    expect([...selectableCardIds(view, [])]).toEqual([]);
+    expect(analyzeCardSelection(view, ["joker-1", "joker-2"])).toEqual({
+      complete: false,
+      completable: false,
+      jokerCandidates: [],
+    });
+  });
+
+  it("rejects a two-and-Joker forbidden finish before confirmation", () => {
+    const view = room({ hand: [face("s2", "spade", "2"), joker()] });
+    expect(analyzeCardSelection(view, ["s2", "joker"])).toEqual({
+      complete: false,
+      completable: false,
+      jokerCandidates: [],
+    });
+  });
+
+  it("filters the opening selection to combinations that can contain the physical diamond three", () => {
+    const view = room({
+      firstPlay: true,
+      hand: [face("d3", "diamond", "3"), face("h3", "heart", "3"), face("s4", "spade", "4")],
+    });
+    expect([...selectableCardIds(view, [])].sort()).toEqual(["d3", "h3"].sort());
+    expect(analyzeCardSelection(view, ["h3"])).toMatchObject({
+      complete: false,
+      completable: true,
+    });
+    expect(analyzeCardSelection(view, ["d3"])).toMatchObject({ complete: true });
   });
 });

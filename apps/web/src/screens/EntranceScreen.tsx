@@ -51,9 +51,7 @@ export function EntranceScreen({
         />
       </div>
       <section className="entrance-card">
-        <p className="eyebrow">PRIVATE CARD SALON</p>
         <h1>大富豪</h1>
-        <p className="tagline">夜更けの円卓で、一手に品格を。</p>
         <form onSubmit={submit} noValidate>
           <label>
             <span>プレイヤー名</span>

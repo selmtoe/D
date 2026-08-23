@@ -105,21 +105,9 @@ function CircularTable() {
         <cylinderGeometry args={[4.62, 4.62, 0.12, 96]} />
         <meshStandardMaterial color="#123f32" roughness={0.92} />
       </mesh>
-      <mesh position={[0, 0.035, 0]}>
-        <torusGeometry args={[4.67, 0.105, 14, 96]} />
-        <meshStandardMaterial color="#c29d53" metalness={0.8} roughness={0.23} />
-      </mesh>
-      <mesh position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.42, 1.48, 64]} />
-        <meshStandardMaterial color="#bf9b56" metalness={0.72} />
-      </mesh>
       <mesh position={[2.9, 0.08, -1.45]} receiveShadow>
         <boxGeometry args={[1.65, 0.09, 2.18]} />
         <meshStandardMaterial color="#182c27" roughness={0.76} metalness={0.08} />
-      </mesh>
-      <mesh position={[2.9, 0.135, -1.45]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.78, 0.84, 4]} />
-        <meshStandardMaterial color="#bf9b56" metalness={0.72} roughness={0.24} />
       </mesh>
       <mesh position={[0, -1.7, 0]}>
         <cylinderGeometry args={[1.4, 1.9, 2.6, 48]} />
@@ -240,7 +228,7 @@ function handCards(
   mobile: boolean,
   movingToHand: ReadonlySet<string>,
 ) {
-  const spacing = Math.min(mobile ? 0.37 : 0.53, (mobile ? 5.8 : 8) / Math.max(cards.length, 1));
+  const spacing = Math.min(mobile ? 0.44 : 0.62, (mobile ? 6.8 : 8.8) / Math.max(cards.length, 1));
   return cards.map((card, index) => {
     const centered = index - (cards.length - 1) / 2;
     return (
@@ -254,25 +242,51 @@ function handCards(
         position={[centered * spacing, 1.05 - Math.abs(centered) * 0.015, 4.08 + index * 0.035]}
         rotation={[-0.42, 0, -centered * 0.035]}
         scale={mobile ? 0.78 : 0.92}
-        renderOrder={100 + index}
+        renderOrder={selectedIds.includes(card.id) ? 1_000 + index : 100 + index}
+        selectedLift={mobile ? 0.48 : 0.56}
       />
     );
   });
 }
 
-function fieldCards(cards: CardView[], movingToField: ReadonlySet<string>) {
-  return cards
-    .slice(-6)
-    .map((card, index) => (
-      <Card3D
-        key={card.id}
-        card={card}
-        hidden={movingToField.has(card.id)}
-        position={[(index - (Math.min(cards.length, 6) - 1) / 2) * 0.48, 0.22 + index * 0.02, 0]}
-        rotation={[-Math.PI / 2, 0, (index - 2) * 0.04]}
-        scale={0.72}
-      />
-    ));
+function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {
+  return plays.flatMap((play, playIndex) => {
+    const stackX = ((playIndex % 3) - 1) * 0.1;
+    const stackZ = ((playIndex % 4) - 1.5) * 0.065;
+    const stackRotation = ((playIndex % 5) - 2) * 0.025;
+    return play.map((card, cardIndex) => {
+      const centered = cardIndex - (play.length - 1) / 2;
+      return (
+        <Card3D
+          key={card.id}
+          card={card}
+          hidden={movingToField.has(card.id)}
+          position={[
+            stackX + centered * 0.43,
+            0.16 + playIndex * 0.018 + cardIndex * 0.002,
+            stackZ + Math.abs(centered) * 0.018,
+          ]}
+          rotation={[-Math.PI / 2, 0, stackRotation + centered * 0.018]}
+          scale={0.72}
+          renderOrder={playIndex * 10 + cardIndex}
+        />
+      );
+    });
+  });
+}
+
+function discardStack(cards: CardView[], movingToDiscard: ReadonlySet<string>) {
+  const visibleStack = cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
+  return visibleStack.map((card, index) => (
+    <Card3D
+      key={card.id}
+      card={card}
+      position={[2.9, 0.15 + index * 0.012, -1.45]}
+      rotation={[-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]}
+      scale={0.62}
+      renderOrder={500 + index}
+    />
+  ));
 }
 
 const DEAL_CARD: CardView = { id: "deal-card", visibility: "hidden", blind: false };
@@ -395,6 +409,15 @@ export function SalonScene({
       ),
     [activeCardMotions],
   );
+  const movingToDiscard = useMemo(
+    () =>
+      new Set(
+        activeCardMotions
+          .filter((motion) => motion.to.kind === "discard")
+          .map((motion) => motion.card.id),
+      ),
+    [activeCardMotions],
+  );
   const movingToSeats = useMemo(() => {
     const destinations = new Map<string, Set<string>>();
     for (const motion of activeCardMotions) {
@@ -466,7 +489,9 @@ export function SalonScene({
                   <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
                 </group>
               )}
-          {!dealing && fieldCards(room?.field ?? [], movingToField)}
+          {!dealing &&
+            fieldCards(room?.fieldPlays ?? (room?.field.length ? [room.field] : []), movingToField)}
+          {!dealing && discardStack(room?.discard ?? [], movingToDiscard)}
           {room &&
             !dealing &&
             handCards(room.hand, selectedIds, playableIds, onToggleCard, mobile, movingToHand)}

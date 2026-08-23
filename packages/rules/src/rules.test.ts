@@ -480,6 +480,49 @@ describe("state transitions and rank effects", () => {
       ).toBe(true);
   });
 
+  it("K recovers only the discard stack, never cards still lying on the table", () => {
+    const state = rig(["p1", "p2", "p3"], {
+      p1: ["spade-K", "club-3"],
+      p2: ["spade-4"],
+      p3: ["club-5"],
+    });
+    state.trickHistory = [played("older", "p3", ["heart-J"])];
+    state.pile = played("old", "p2", ["heart-Q"]);
+    state.discard = [card("diamond-A")];
+    state.deck = state.deck.filter(
+      (entry) => !["heart-J", "heart-Q", "diamond-A"].includes(entry.id),
+    );
+
+    const submitted = play(state, "p1", ["spade-K"]);
+    if (!submitted.ok) throw new Error(submitted.error.message);
+    const effect = submitted.state.pendingEffect!;
+    const tableRecovery = applyGameCommand(submitted.state, {
+      type: "resolve-effect",
+      actionId: "table-card-k",
+      expectedVersion: submitted.state.version,
+      playerId: "p1",
+      effectId: effect.id,
+      selection: { type: "recover", cardIds: ["heart-Q"] },
+    });
+    expect(tableRecovery.ok).toBe(false);
+
+    const discardRecovery = applyGameCommand(submitted.state, {
+      type: "resolve-effect",
+      actionId: "discard-card-k",
+      expectedVersion: submitted.state.version,
+      playerId: "p1",
+      effectId: effect.id,
+      selection: { type: "recover", cardIds: ["diamond-A"] },
+    });
+    expect(discardRecovery.ok).toBe(true);
+    if (!discardRecovery.ok) return;
+    expect(
+      discardRecovery.state.trickHistory.flatMap((play) =>
+        play.cards.map((entry) => entry.card.id),
+      ),
+    ).toEqual(["heart-J", "heart-Q"]);
+  });
+
   it("runs K recovery before other straight state changes", () => {
     const state = rig(["p1", "p2", "p3"], {
       p1: ["heart-10", "heart-J", "heart-Q", "heart-K", "club-3"],

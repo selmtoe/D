@@ -1006,6 +1006,10 @@ export class SparkAuthority {
       revolution: game.revolution,
       jackBack: game.jackBack,
       suitLock: [...game.binding],
+      firstPlay: game.firstPlay,
+      fieldPlays: [...game.trickHistory, ...(game.pile ? [game.pile] : [])].map((play) =>
+        play.cards.map(gameCardView),
+      ),
       field: game.pile?.cards.map(gameCardView) ?? [],
       discard: game.discard.map(plainGameCardView),
       hand,
