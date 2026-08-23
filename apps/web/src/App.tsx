@@ -69,8 +69,11 @@ export default function App() {
       joinedRoomId.current = app.room.roomId;
       return;
     }
+    if (!activeRoomId) {
+      joinedRoomId.current = undefined;
+      return;
+    }
     if (
-      !activeRoomId ||
       !shouldClearRoomAfterViewLoss(app.phase, activeRoomId, undefined, joinedRoomId.current)
     )
       return;
