@@ -23,6 +23,14 @@ export function JokerDeclarationPanel({
   const chosen =
     pending.candidates.find((candidate) => candidateKey(candidate) === selectedKey) ??
     pending.candidates[0];
+  const jokerName = (cardId: string, jokerIndex: number) => {
+    const joker = pending.revealedCards?.find((card) => card.id === cardId);
+    return joker?.visibility === "face" && joker.joker === "crimson"
+      ? "JOKERⅡ"
+      : joker?.visibility === "face" && joker.joker === "monochrome"
+        ? "JOKERⅠ"
+        : `Joker ${jokerIndex + 1}`;
+  };
   return (
     <section className="effect-panel joker-declaration" aria-labelledby="joker-declaration-title">
       <p className="eyebrow">BLIND JOKER REVEALED</p>
@@ -43,7 +51,7 @@ export function JokerDeclarationPanel({
               {candidateSet
                 .map(
                   (candidate, jokerIndex) =>
-                    `Joker ${jokerIndex + 1}: ${suits[candidate.suit]} ${candidate.rank}`,
+                    `${jokerName(candidate.cardId, jokerIndex)}: ${suits[candidate.suit]} ${candidate.rank}`,
                 )
                 .join(" / ")}
             </span>

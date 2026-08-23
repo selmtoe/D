@@ -34,7 +34,7 @@ describe("play confirmation dialog", () => {
 
     const confirm = screen.getByRole("button", { name: "この札を出す" });
     expect(confirm).toBeEnabled();
-    const club = screen.getByRole("radio", { name: "クラブ 7" });
+    const club = screen.getByRole("radio", { name: "JOKERⅠ: クラブ 7" });
     fireEvent.click(club);
     club.focus();
     view.rerender(
@@ -46,8 +46,8 @@ describe("play confirmation dialog", () => {
         busy={false}
       />,
     );
-    expect(screen.getByRole("radio", { name: "クラブ 7" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "クラブ 7" })).toHaveFocus();
+    expect(screen.getByRole("radio", { name: "JOKERⅠ: クラブ 7" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "JOKERⅠ: クラブ 7" })).toHaveFocus();
     fireEvent.click(confirm);
     expect(submit).toHaveBeenCalledWith([{ cardId: "joker", suit: "club", rank: "7" }]);
   });

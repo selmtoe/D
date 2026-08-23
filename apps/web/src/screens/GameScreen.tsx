@@ -81,6 +81,14 @@ export function PlayDialog({
     ? (candidates.find((candidate) => jokerCandidateKey(candidate) === candidateKey) ??
       candidates[0])
     : [];
+  const jokerName = (cardId: string, jokerIndex: number) => {
+    const joker = jokers.find((card) => card.id === cardId);
+    return joker?.visibility === "face" && joker.joker === "crimson"
+      ? "JOKERⅡ"
+      : joker?.visibility === "face" && joker.joker === "monochrome"
+        ? "JOKERⅠ"
+        : `Joker ${jokerIndex + 1}`;
+  };
   const ready = !needsDeclaration || Boolean(chosenCandidate);
   useEffect(() => {
     document.body.classList.add("modal-open");
@@ -150,7 +158,7 @@ export function PlayDialog({
                     {candidate
                       .map(
                         (declaration, jokerIndex) =>
-                          `${jokers.length > 1 ? `Joker ${jokerIndex + 1}: ` : ""}${suitLabel[declaration.suit]} ${declaration.rank}`,
+                          `${jokerName(declaration.cardId, jokerIndex)}: ${suitLabel[declaration.suit]} ${declaration.rank}`,
                       )
                       .join(" / ")}
                   </span>
