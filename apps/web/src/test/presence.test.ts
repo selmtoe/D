@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clearRoomReconnect, presenceRecord } from "../network/firebaseClient";
+import {
+  clearRoomReconnect,
+  getStoredRoomReconnect,
+  presenceRecord,
+} from "../network/firebaseClient";
+import { defaultAvatar } from "@daifugo/avatar-schema";
 
 describe("presence payload helper", () => {
   it("keeps the connection marker independent from gameplay state", () =>
@@ -25,5 +30,24 @@ describe("presence payload helper", () => {
     expect(sessionStorage.getItem("daifugo-reconnect-ABCDE")).toBeNull();
     expect(localStorage.getItem("unrelated")).toBe("keep");
     localStorage.removeItem("unrelated");
+  });
+  it("loads a validated persistent reconnect record after a browser restart", () => {
+    localStorage.setItem(
+      "daifugo-spark-reconnect-ABCDE",
+      JSON.stringify({
+        roomId: "ABCDE",
+        token: "persistent-token",
+        role: "spectator",
+        profile: { name: "観戦者", avatar: defaultAvatar },
+      }),
+    );
+
+    expect(getStoredRoomReconnect("abcde")).toMatchObject({
+      roomId: "ABCDE",
+      token: "persistent-token",
+      role: "spectator",
+      profile: { name: "観戦者" },
+    });
+    localStorage.removeItem("daifugo-spark-reconnect-ABCDE");
   });
 });

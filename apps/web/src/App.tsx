@@ -8,6 +8,7 @@ import {
   createRoom,
   firebaseErrorMessage,
   firebaseMode,
+  getStoredRoomReconnect,
   joinRoom,
   reconnectWithToken,
   sendCommand,
@@ -133,17 +134,22 @@ export default function App() {
 
   useEffect(() => {
     if (app.phase !== "ENTRANCE" || !reconnectRoomId || activeRoomId) return;
-    const reconnectToken = sessionStorage.getItem(`daifugo-reconnect-${reconnectRoomId}`);
+    const storedReconnect = getStoredRoomReconnect(reconnectRoomId);
+    const reconnectToken =
+      sessionStorage.getItem(`daifugo-reconnect-${reconnectRoomId}`) ?? storedReconnect?.token;
     if (!reconnectToken) return;
     setBusy(true);
     reconnectWithToken(reconnectRoomId, reconnectToken)
       .then((result) => {
         sessionStorage.setItem(`daifugo-reconnect-${reconnectRoomId}`, result.reconnectToken);
+        if (!app.profile && storedReconnect) {
+          dispatch({ type: "ENTER_SALON", profile: storedReconnect.profile });
+        }
         setActiveRoomId(reconnectRoomId);
       })
       .catch((cause) => dispatch({ type: "ERROR", message: firebaseErrorMessage(cause) }))
       .finally(() => setBusy(false));
-  }, [activeRoomId, app.phase, dispatch, reconnectRoomId]);
+  }, [activeRoomId, app.phase, app.profile, dispatch, reconnectRoomId]);
 
   const run = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {

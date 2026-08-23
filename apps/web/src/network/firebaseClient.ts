@@ -183,11 +183,28 @@ function loadReconnect(roomId: string): ReconnectRecord | undefined {
   try {
     const raw = localStorage.getItem(reconnectKey(roomId));
     if (!raw) return undefined;
-    const value = JSON.parse(raw) as ReconnectRecord;
-    return value.roomId === roomId && typeof value.token === "string" ? value : undefined;
+    const value = JSON.parse(raw) as Partial<ReconnectRecord>;
+    if (
+      value.roomId !== roomId ||
+      typeof value.token !== "string" ||
+      !["player", "spectator"].includes(String(value.role)) ||
+      !value.profile ||
+      typeof value.profile.name !== "string"
+    )
+      return undefined;
+    return {
+      roomId,
+      token: value.token,
+      role: value.role as Role,
+      profile: { name: value.profile.name, avatar: migrateAvatar(value.profile.avatar) },
+    };
   } catch {
     return undefined;
   }
+}
+
+export function getStoredRoomReconnect(roomId: string): ReconnectRecord | undefined {
+  return loadReconnect(roomId.toUpperCase().slice(0, 5));
 }
 
 function freshToken(): string {
