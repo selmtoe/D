@@ -194,15 +194,29 @@ export function PlayDialog({
   );
 }
 
-function ChatPanel({ room, sendChat }: { room: RoomView; sendChat: (message: string) => void }) {
+export function ChatPanel({
+  room,
+  sendChat,
+}: {
+  room: RoomView;
+  sendChat: (message: string) => Promise<boolean>;
+}) {
   const [message, setMessage] = useState("");
   const [composing, setComposing] = useState(false);
+  const [sending, setSending] = useState(false);
   const [visiblePages, setVisiblePages] = useState(1);
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!message.trim()) return;
-    sendChat(message.trim().slice(0, 120));
-    setMessage("");
+    if (!message.trim() || sending) return;
+    const draft = message;
+    setSending(true);
+    try {
+      if (await sendChat(draft.trim().slice(0, 120))) {
+        setMessage((current) => (current === draft ? "" : current));
+      }
+    } finally {
+      setSending(false);
+    }
   };
   const allEntries = [
     ...room.log.map((item) => ({ ...item, label: "対局" })),
@@ -252,7 +266,9 @@ function ChatPanel({ room, sendChat }: { room: RoomView; sendChat: (message: str
           }}
           placeholder="メッセージ"
         />
-        <button type="submit">送信</button>
+        <button type="submit" disabled={sending || !message.trim()}>
+          {sending ? "送信中…" : "送信"}
+        </button>
       </form>
     </section>
   );
@@ -1042,7 +1058,7 @@ export function GameScreen({
       {logOpen && (
         <ChatPanel
           room={room}
-          sendChat={(message) => void command("sendChat", { ...payloadBase, text: message })}
+          sendChat={(message) => command("sendChat", { ...payloadBase, text: message })}
         />
       )}
       {error && (
