@@ -256,15 +256,18 @@ export async function sendCommand<
     return e2eCall<TResponse>({ op: "command", name, payload: commandPayload });
   }
   if (name === "saveAvatarProfile" && !activeSession) return {} as TResponse;
-  if (!activeSession) throw new Error("failed-precondition: P2P部屋へ接続していません");
-  const roomId = activeSession.roomId;
-  const result = (await activeSession.sendCommand(name, commandPayload)) as TResponse;
-  if (name === "leaveRoom") {
-    await activeSession.stop();
-    activeSession = undefined;
-    clearRoomReconnect(roomId);
+  const session = activeSession;
+  if (!session) throw new Error("failed-precondition: P2P部屋へ接続していません");
+  const roomId = session.roomId;
+  try {
+    return (await session.sendCommand(name, commandPayload)) as TResponse;
+  } finally {
+    if (name === "leaveRoom") {
+      await session.stop();
+      if (activeSession === session) activeSession = undefined;
+      clearRoomReconnect(roomId);
+    }
   }
-  return result;
 }
 
 export async function createRoom(profile: {

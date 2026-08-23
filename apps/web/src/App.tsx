@@ -190,13 +190,19 @@ export default function App() {
     });
   };
   const leave = () => {
-    if (!app.room) return;
+    const room = app.room;
+    if (!room) return;
     void run(async () => {
-      await sendCommand("leaveRoom", commandBase(app.room!));
-      clearRoomReconnect(app.room!.roomId);
-      setActiveRoomId(undefined);
-      history.replaceState(null, "", location.pathname);
-      dispatch({ type: "LEAVE_ROOM" });
+      try {
+        await sendCommand("leaveRoom", commandBase(room));
+      } finally {
+        // Leaving must remain possible when the coordinator or network is
+        // already gone. Server presence expires separately if delivery failed.
+        clearRoomReconnect(room.roomId);
+        setActiveRoomId(undefined);
+        history.replaceState(null, "", location.pathname);
+        dispatch({ type: "LEAVE_ROOM" });
+      }
     });
   };
   const command = async (name: string, payload: Record<string, unknown> = {}): Promise<boolean> =>
