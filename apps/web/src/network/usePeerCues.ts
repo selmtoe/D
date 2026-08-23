@@ -30,14 +30,22 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
   }, [peerKey, roomId, uid]);
   const send = useCallback(
     async (cue: CueEvent) => {
-      if (import.meta.env.DEV && isE2ECueTransport()) {
-        await e2eSendCue(roomId, cue);
+      try {
+        if (import.meta.env.DEV && isE2ECueTransport()) {
+          await e2eSendCue(roomId, cue);
+          return true;
+        }
+        const session = getActiveSparkSession();
+        if (!session || session.roomId !== roomId || session.uid !== uid) {
+          setMode("offline");
+          return false;
+        }
+        await session.sendCue(cue);
         return true;
+      } catch {
+        setMode("offline");
+        return false;
       }
-      const session = getActiveSparkSession();
-      if (!session || session.roomId !== roomId || session.uid !== uid) return false;
-      await session.sendCue(cue);
-      return true;
     },
     [roomId, uid],
   );
