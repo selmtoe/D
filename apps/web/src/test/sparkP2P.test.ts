@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { nextSparkActivityMetadata, parseSparkWire } from "../network/sparkP2P";
+import {
+  nextSparkActivityMetadata,
+  parseSparkWire,
+  sparkDirectoryHeartbeatMs,
+} from "../network/sparkP2P";
 
 describe("Spark directory activity metadata", () => {
   test("lease-only heartbeats do not advance last activity", () => {
@@ -26,6 +30,16 @@ describe("Spark directory activity metadata", () => {
       recordsActivity: true,
       lastActivityAtMs: 99_000,
     });
+  });
+
+  test("uses the Firestore server heartbeat instead of a skewed client clock", () => {
+    expect(
+      sparkDirectoryHeartbeatMs({
+        heartbeatAtMs: 999_999,
+        heartbeatAt: { toMillis: () => 5_000 },
+      }),
+    ).toBe(5_000);
+    expect(sparkDirectoryHeartbeatMs({ heartbeatAtMs: 7_000 })).toBe(7_000);
   });
 });
 

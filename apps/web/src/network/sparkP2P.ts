@@ -100,6 +100,30 @@ export function nextSparkActivityMetadata(
   };
 }
 
+export function sparkDirectoryHeartbeatMs(directory: {
+  heartbeatAtMs?: number;
+  heartbeatAt?: unknown;
+}): number {
+  const timestamp = directory.heartbeatAt;
+  if (timestamp && typeof timestamp === "object") {
+    const toMillis = (timestamp as { toMillis?: unknown }).toMillis;
+    if (typeof toMillis === "function") {
+      try {
+        const value = Number(toMillis.call(timestamp));
+        if (Number.isFinite(value)) return value;
+      } catch {
+        // Fall back to the rolling-deploy millisecond field below.
+      }
+    }
+  }
+  const fallback = Number(directory.heartbeatAtMs ?? 0);
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function normalizeDirectory(directory: DirectoryDocument): DirectoryDocument {
+  return { ...directory, heartbeatAtMs: sparkDirectoryHeartbeatMs(directory) };
+}
+
 /**
  * Best-effort Spark-plan garbage collection. Client time is used only to find
  * candidates; Firestore Rules compare the current directory heartbeat against
@@ -318,7 +342,7 @@ export class SparkP2PSession {
     await cleanupStaleSparkRooms(db);
     const directorySnapshot = await getDoc(doc(db, "sparkRoomDirectory", normalized));
     if (!directorySnapshot.exists()) throw new Error("not-found: 指定された部屋が見つかりません");
-    const directory = directorySnapshot.data() as DirectoryDocument;
+    const directory = normalizeDirectory(directorySnapshot.data() as DirectoryDocument);
     const session = new SparkP2PSession({ db, user, roomId: normalized });
     session.directory = directory;
     session.coordinatorUid = directory.coordinatorUid;
@@ -457,7 +481,7 @@ export class SparkP2PSession {
             void this.stop(false);
             return;
           }
-          const next = snapshot.data() as DirectoryDocument;
+          const next = normalizeDirectory(snapshot.data() as DirectoryDocument);
           const previousCoordinatorPeerId = this.coordinatorPeerId;
           const changed = next.coordinatorPeerId !== this.coordinatorPeerId;
           this.directory = next;
@@ -589,7 +613,7 @@ export class SparkP2PSession {
       const current = await transaction.get(directoryRef);
       if (!current.exists()) return false;
       const data = current.data() as DirectoryDocument;
-      if (now - data.heartbeatAtMs <= COORDINATOR_STALE_MS) return false;
+      if (now - sparkDirectoryHeartbeatMs(data) <= COORDINATOR_STALE_MS) return false;
       transaction.update(directoryRef, {
         coordinatorUid: this.uid,
         coordinatorPeerId: this.peerId,
