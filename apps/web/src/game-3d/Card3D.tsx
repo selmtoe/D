@@ -41,6 +41,8 @@ function cardTexture(
   suit: VisibleCardAppearance["suit"],
   rank: VisibleCardAppearance["rank"],
   joker: VisibleCardAppearance["joker"],
+  mimicSuit: NonNullable<VisibleCardAppearance["mimic"]>["suit"] | undefined,
+  mimicRank: NonNullable<VisibleCardAppearance["mimic"]>["rank"] | undefined,
   blind: boolean,
   back: boolean,
 ): CanvasTexture {
@@ -90,6 +92,12 @@ function cardTexture(
       ctx.strokeStyle = "#d7b668";
       ctx.lineWidth = 7;
       ctx.stroke();
+      if (mimicSuit && mimicRank) {
+        ctx.font = "800 30px ui-serif, serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = mimicSuit === "heart" || mimicSuit === "diamond" ? "#a52535" : "#111720";
+        ctx.fillText(`${suitSymbol[mimicSuit]}${mimicRank}`, 128, blind ? 304 : 344);
+      }
     } else {
       const symbol = suit ? suitSymbol[suit] : "";
       ctx.fillText(rank ?? "", 22, 68);
@@ -158,13 +166,25 @@ export function Card3D({
   const suit = card.visibility === "face" ? card.suit : undefined;
   const rank = card.visibility === "face" ? card.rank : undefined;
   const joker = card.visibility === "face" ? card.joker : undefined;
+  const mimicSuit = card.visibility === "face" ? card.mimic?.suit : undefined;
+  const mimicRank = card.visibility === "face" ? card.mimic?.rank : undefined;
   const blind = card.blind;
   const front = useMemo(
-    () => cardTexture(visibility, suit, rank, joker, blind, visibility === "hidden"),
-    [blind, joker, rank, suit, visibility],
+    () =>
+      cardTexture(
+        visibility,
+        suit,
+        rank,
+        joker,
+        mimicSuit,
+        mimicRank,
+        blind,
+        visibility === "hidden",
+      ),
+    [blind, joker, mimicRank, mimicSuit, rank, suit, visibility],
   );
   const back = useMemo(
-    () => cardTexture("hidden", undefined, undefined, undefined, false, true),
+    () => cardTexture("hidden", undefined, undefined, undefined, undefined, undefined, false, true),
     [],
   );
   useEffect(
