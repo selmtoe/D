@@ -1,4 +1,4 @@
-import { projectGame } from "@daifugo/rules";
+import { projectGame, type GameState } from "@daifugo/rules";
 import type { Timestamp } from "firebase-admin/firestore";
 import type { RoomDocument, RoomMember } from "../model.js";
 import { MAX_ACTIVE_SPECTATORS } from "../room/member-lifecycle.js";
@@ -66,6 +66,27 @@ function visibleMembers(room: RoomDocument): RoomMember[] {
   return Object.values(room.members)
     .filter((member) => member.connectionStatus !== "left")
     .sort((left, right) => left.joinedOrder - right.joinedOrder);
+}
+
+function projectedJokerStyles(
+  game: GameState,
+  cardTokens: Record<string, string>,
+): ReadonlyMap<string, "monochrome" | "crimson"> {
+  const ids = new Set<string>();
+  const add = (card: { id: string; rank: string }) => {
+    if (card.rank === "JOKER") ids.add(card.id);
+  };
+  game.players.forEach((player) => player.hand.forEach((entry) => add(entry.card)));
+  game.deck.forEach(add);
+  game.discard.forEach(add);
+  game.pile?.cards.forEach((entry) => add(entry.card));
+  game.trickHistory.forEach((play) => play.cards.forEach((entry) => add(entry.card)));
+  return new Map(
+    [...ids].sort().flatMap((id, index) => {
+      const token = cardTokens[id];
+      return token ? ([[token, index === 1 ? "crimson" : "monochrome"]] as const) : [];
+    }),
+  );
 }
 
 export function projectPendingEffect(
@@ -205,6 +226,9 @@ export function projectRoomForViewer(
       )
     : null;
   const game = tokenizeCardIdentifiers(rawGame, room.cardTokens) as JsonObject | null;
+  const jokerStyles = room.game
+    ? projectedJokerStyles(room.game, room.cardTokens)
+    : new Map<string, "monochrome" | "crimson">();
   const gamePlayers = Array.isArray(game?.players) ? game.players.filter(isObject) : [];
   const viewerGamePlayer = gamePlayers.find((player) => player.id === viewerUid);
   const effectiveRole =
@@ -235,7 +259,9 @@ export function projectRoomForViewer(
     return {
       id,
       visibility: "face",
-      ...(rank === "JOKER" ? { joker: "monochrome" } : { suit: String(suit), rank: String(rank) }),
+      ...(rank === "JOKER"
+        ? { joker: jokerStyles.get(id) ?? "monochrome" }
+        : { suit: String(suit), rank: String(rank) }),
       blind,
       ...(isObject(card.mimic) ? { mimic: card.mimic } : {}),
     };

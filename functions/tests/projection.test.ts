@@ -248,6 +248,12 @@ describe("viewer-specific projection", () => {
     const cards = players.flatMap((player) => player.cards as Array<Record<string, unknown>>);
     expect(cards.length).toBe(54);
     expect(cards.every((card) => card.visibility === "face")).toBe(true);
+    expect(
+      cards
+        .filter((card) => card.joker)
+        .map((card) => card.joker)
+        .sort(),
+    ).toEqual(["crimson", "monochrome"]);
     expect(view).not.toHaveProperty("cardTokens");
   });
 
