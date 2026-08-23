@@ -579,22 +579,13 @@ export class SparkAuthority {
         this.requireHost(uid);
         if (this.snapshot.status !== "waiting") commandError("failed-precondition", "開始済みです");
         const players = Object.values(this.snapshot.members)
-          .filter(
-            (candidate) =>
-              candidate.role === "player" && (candidate.online || candidate.uid === uid),
-          )
+          .filter((candidate) => candidate.role === "player")
           .sort((left, right) => left.joinedAtMs - right.joinedAtMs);
         if (players.length < 3 || players.length > 6) {
-          commandError("failed-precondition", "接続中プレイヤー3〜6人で開始してください");
+          commandError("failed-precondition", "プレイヤー3〜6人で開始してください");
         }
-        const participatingIds = new Set(players.map((player) => player.uid));
-        for (const candidate of Object.values(this.snapshot.members)) {
-          if (candidate.role === "player" && !participatingIds.has(candidate.uid)) {
-            // A disconnected waiting-room member can reconnect as a spectator,
-            // but must not become a player with no seat in the running game.
-            candidate.role = "spectator";
-            delete candidate.focusPlayerId;
-          }
+        if (players.filter((candidate) => candidate.online || candidate.uid === uid).length < 3) {
+          commandError("failed-precondition", "接続中プレイヤーが3人必要です");
         }
         const gameId = `p2p-${this.snapshot.generation}-${crypto.randomUUID()}`;
         this.snapshot.game = createInitialGameState(

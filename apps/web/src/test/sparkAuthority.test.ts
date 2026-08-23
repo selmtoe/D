@@ -563,7 +563,7 @@ describe("Spark browser authority", () => {
     );
   });
 
-  it("moves disconnected waiting players to spectator mode when a game starts", () => {
+  it("preserves a disconnected waiting player's seat when three others can start", () => {
     const authority = waitingRoom();
     authority.setMemberOnline("p3", false, undefined, 1_500);
     authority.join(
@@ -578,17 +578,9 @@ describe("Spark browser authority", () => {
         .exportSnapshot()
         .game?.players.map((player) => player.id)
         .sort(),
-    ).toEqual(["p1", "p2", "p4"]);
-    expect(authority.member("p3")?.role).toBe("spectator");
-    expect(authority.project("p3").role).toBe("spectator");
-    expect(() =>
-      authority.handleCommand(
-        "p3",
-        "changeSpectatorFocus",
-        { clientActionId: "offline-player-focus", focusPlayerId: "p2" },
-        2_001,
-      ),
-    ).not.toThrow();
+    ).toEqual(["p1", "p2", "p3", "p4"]);
+    expect(authority.member("p3")?.role).toBe("player");
+    expect(authority.project("p3")).toMatchObject({ role: "player", viewerId: "p3" });
   });
 
   it("runs hundreds of automatic legal turns and effects for 3 to 6 players without corruption", () => {

@@ -221,6 +221,12 @@ export const startGame = onCall(callableOptions, async (request) => {
       if (players.length < 3 || players.length > 6) {
         throw new CommandError("failed-precondition", "A game requires 3-6 players.");
       }
+      if (players.filter((player) => player.connectionStatus === "connected").length < 3) {
+        throw new CommandError(
+          "failed-precondition",
+          "A game requires at least three connected players.",
+        );
+      }
 
       const room = cloneRoom(original);
       room.gameId = createGameId(room.rematchGeneration);
