@@ -2,7 +2,7 @@
 
 3〜6人で遊ぶ完全3Dのオンライン大富豪です。通常大富豪に加え、所有者だけが札の表面を見られないブラインド大富豪、途中観戦、上がり後観戦に対応します。
 
-現在の実行構成はFirebase **Spark無料プラン対応**です。Cloud Functions、Cloud Run、Realtime Database、Firebase Hostingを使いません。ホストのブラウザが純粋TypeScriptルールエンジンを実行し、参加者とはWebRTC DataChannelで通信します。Firestoreは公開部屋一覧、WebRTC signaling、presence、ホスト障害時snapshot、DataChannel不成立時のmailboxだけに使います。
+現在の実行構成はFirebaseの無料枠内で動作します。Cloud Functions、Cloud Run、Realtime Database、Firebase Hostingを使いません。ホストのブラウザが純粋TypeScriptルールエンジンを実行し、参加者とはWebRTC DataChannelで通信します。Firestoreは公開部屋一覧、WebRTC signaling、presence、ホスト障害時snapshot、DataChannel不成立時のmailboxだけに使います。
 
 > このfriends-only構成では、Firestoreの退避snapshotを認証済み利用者が読めます。UIでは手札を通常どおり隠しますが、改造クライアントへのanti-cheat境界ではありません。身内利用を前提にした、課金を避けるための明示的な設計変更です。
 
@@ -20,7 +20,7 @@ cp .env.example apps/web/.env.local
 pnpm dev
 ```
 
-Emulatorを使う場合は `.env.local` の `VITE_USE_FIREBASE_EMULATORS=true` にして、別ターミナルで `pnpm emulators` を実行します。本番接続時は画面上部に `Spark無料プラン対応 · WebRTC P2P` と表示されます。
+Emulatorを使う場合は `.env.local` の `VITE_USE_FIREBASE_EMULATORS=true` にして、別ターミナルで `pnpm emulators` を実行します。本番接続でも同じP2P構成を使用します。
 
 ## 品質確認
 
