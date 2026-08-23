@@ -247,6 +247,37 @@ describe("Spark browser authority", () => {
     expect(authority.exportSnapshot().generation).toBe(0);
   });
 
+  it("does not let the host reset a game before it finishes", () => {
+    const authority = waitingRoom();
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "startRematch",
+        { clientActionId: "early-rematch-waiting" },
+        1_500,
+      ),
+    ).toThrow(/対局終了後/);
+    authority.handleCommand(
+      "p1",
+      "startGame",
+      {
+        clientActionId: "start-before-early-rematch",
+        expectedRevision: authority.exportSnapshot().revision,
+      },
+      2_000,
+    );
+
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "startRematch",
+        { clientActionId: "early-rematch-playing" },
+        2_001,
+      ),
+    ).toThrow(/対局終了後/);
+    expect(authority.exportSnapshot().status).toBe("playing");
+  });
+
   it("blocks a different play during blind Joker declaration and accepts the declaration", () => {
     const authority = pendingBlindJokerAuthority();
     expect(beginPendingMimic(authority, "blind-joker-invalid")).toMatchObject({

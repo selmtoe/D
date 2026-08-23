@@ -575,6 +575,9 @@ export class SparkAuthority {
       }
       case "startRematch":
         this.requireHost(uid);
+        if (this.snapshot.status !== "finished") {
+          commandError("failed-precondition", "対局終了後に再戦してください");
+        }
         this.snapshot.status = "waiting";
         delete this.snapshot.game;
         delete this.snapshot.pendingMimic;
