@@ -924,7 +924,12 @@ export class SparkP2PSession {
 
   onView(listener: (view: RoomView) => void): () => void {
     this.viewListeners.add(listener);
-    if (this.lastView) queueMicrotask(() => listener(plain(this.lastView!)));
+    if (this.lastView) {
+      const view = plain(this.lastView);
+      queueMicrotask(() => {
+        if (this.viewListeners.has(listener)) listener(view);
+      });
+    }
     return () => this.viewListeners.delete(listener);
   }
 
@@ -940,7 +945,10 @@ export class SparkP2PSession {
 
   onMode(listener: (mode: "webrtc" | "firebase" | "offline") => void): () => void {
     this.modeListeners.add(listener);
-    queueMicrotask(() => listener(this.mode));
+    const mode = this.mode;
+    queueMicrotask(() => {
+      if (this.modeListeners.has(listener)) listener(mode);
+    });
     return () => this.modeListeners.delete(listener);
   }
 

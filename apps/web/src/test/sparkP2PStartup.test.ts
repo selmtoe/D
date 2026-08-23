@@ -153,4 +153,20 @@ describe("Spark P2P startup cleanup", () => {
     internals.handleWire(wire, "host", "host-peer");
     expect(cueListener).toHaveBeenCalledWith(wire.cue, "actor");
   });
+
+  test("does not deliver a queued mode update after unsubscribe", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const listener = vi.fn();
+
+    session.onMode(listener)();
+    await Promise.resolve();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });
