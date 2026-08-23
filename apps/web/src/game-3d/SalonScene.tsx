@@ -28,6 +28,10 @@ export interface TableEffectInteraction {
   giveCards: readonly CardView[];
 }
 
+export function playersAtTable(players: readonly PlayerView[]): PlayerView[] {
+  return players.filter((player) => player.present !== false);
+}
+
 function FrameScheduler({ fps }: { fps: number }) {
   const invalidate = useThree((state) => state.invalidate);
   useEffect(() => {
@@ -961,6 +965,10 @@ export function SalonScene({
   const keyboardOpen = viewport.keyboardInset > 80;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
+  const sceneRoom = useMemo(
+    () => (room ? { ...room, players: playersAtTable(room.players) } : undefined),
+    [room],
+  );
   const [freeRoamInput, setFreeRoamInput] = useState<FreeRoamInput>({
     forward: 0,
     strafe: 0,
@@ -1107,20 +1115,20 @@ export function SalonScene({
         <Suspense fallback={null}>
           <SalonRoom lowPower={lowPower} />
           <CircularTable />
-          {room && <TableDeck />}
-          {room
+          {sceneRoom && <TableDeck />}
+          {sceneRoom
             ? seats(
-                room.players,
-                room.role === "spectator" && spectatorMode === "follow"
-                  ? (room.focusedPlayerId ?? room.players[0]?.id)
-                  : room.viewerId,
-                room.currentPlayerId,
+                sceneRoom.players,
+                sceneRoom.role === "spectator" && spectatorMode === "follow"
+                  ? (sceneRoom.focusedPlayerId ?? sceneRoom.players[0]?.id)
+                  : sceneRoom.viewerId,
+                sceneRoom.currentPlayerId,
                 lowPower,
                 mobile,
                 e2eProjectionProbe,
                 movingToSeats,
                 stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
-                room.role !== "spectator" || spectatorMode === "follow",
+                sceneRoom.role !== "spectator" || spectatorMode === "follow",
                 effectInteraction,
                 onEffectCardSelect,
                 onEffectPlayerSelect,
@@ -1131,20 +1139,23 @@ export function SalonScene({
                 </group>
               )}
           {!dealing &&
-            fieldCards(room?.fieldPlays ?? (room?.field.length ? [room.field] : []), movingToField)}
+            fieldCards(
+              sceneRoom?.fieldPlays ?? (sceneRoom?.field.length ? [sceneRoom.field] : []),
+              movingToField,
+            )}
           {!dealing &&
             discardStack(
-              room?.discard ?? [],
+              sceneRoom?.discard ?? [],
               movingToDiscard,
               effectInteraction,
               (card) => onEffectCardSelect(card),
               mobile,
             )}
-          {room &&
+          {sceneRoom &&
             !dealing &&
-            !(room.role === "spectator" && spectatorMode === "free") &&
+            !(sceneRoom.role === "spectator" && spectatorMode === "free") &&
             handCards(
-              room.hand,
+              sceneRoom.hand,
               selectedIds,
               playableIds,
               onToggleCard,
@@ -1152,18 +1163,18 @@ export function SalonScene({
               movingToHand,
               effectInteraction,
               onGiveCardDrop,
-              room.players,
+              sceneRoom.players,
             )}
-          {room && dealing && <DealingSequence playerCount={room.players.length} />}
-          {room && (
+          {sceneRoom && dealing && <DealingSequence playerCount={sceneRoom.players.length} />}
+          {sceneRoom && (
             <CardMotionLayer
               motions={activeCardMotions}
-              room={room}
+              room={sceneRoom}
               mobile={mobile}
               onDone={onCardMotionDone}
             />
           )}
-          {room && <StealVisualLayer state={stealVisual} room={room} mobile={mobile} />}
+          {sceneRoom && <StealVisualLayer state={stealVisual} room={sceneRoom} mobile={mobile} />}
           {!lowPower && (
             <ContactShadows position={[0, 0.08, 0]} opacity={0.5} scale={13} blur={2.8} far={6} />
           )}
@@ -1180,10 +1191,10 @@ export function SalonScene({
             </Environment>
           )}
         </Suspense>
-        {room?.role === "spectator" && spectatorMode === "free" && freeRoamAvatar ? (
+        {sceneRoom?.role === "spectator" && spectatorMode === "free" && freeRoamAvatar ? (
           <FreeRoamAvatar
             mobileInput={freeRoamInput}
-            playerCount={room.players.length}
+            playerCount={sceneRoom.players.length}
             mobile={mobile}
             profile={freeRoamAvatar}
             lowPower={lowPower}
@@ -1192,16 +1203,17 @@ export function SalonScene({
           />
         ) : (
           <CameraRig
-            spectator={room?.role === "spectator"}
+            spectator={sceneRoom?.role === "spectator"}
             mobile={mobile}
             reducedMotion={reducedMotion}
             focusIndex={Math.max(
               0,
-              room?.players.findIndex(
-                (player) => player.id === (stealVisual?.targetPlayerId ?? room.focusedPlayerId),
+              sceneRoom?.players.findIndex(
+                (player) =>
+                  player.id === (stealVisual?.targetPlayerId ?? sceneRoom.focusedPlayerId),
               ) ?? 0,
             )}
-            playerCount={room?.players.length ?? 0}
+            playerCount={sceneRoom?.players.length ?? 0}
             keyboardOpen={keyboardOpen}
             effectPerspective={stealVisual?.perspective}
             effectOverview={Boolean(
@@ -1209,13 +1221,13 @@ export function SalonScene({
             )}
             actorIndex={Math.max(
               0,
-              room?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
+              sceneRoom?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
             )}
           />
         )}
-        {room && e2eProjectionProbe && (
+        {sceneRoom && e2eProjectionProbe && (
           <EffectProjectionProbe
-            room={room}
+            room={sceneRoom}
             effectInteraction={effectInteraction}
             mobile={mobile}
           />

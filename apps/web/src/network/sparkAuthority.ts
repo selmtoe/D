@@ -1015,6 +1015,7 @@ export class SparkAuthority {
         cards: projectedPlayer.hand.map((card) => cardView(card, projectedJokerStyles)),
         connection: roomMember?.online ? ("online" as const) : ("offline" as const),
         status: player.status,
+        present: Boolean(roomMember),
         ...(player.rank ? { rank: player.rank } : {}),
         host: player.id === this.snapshot.hostUid,
       };

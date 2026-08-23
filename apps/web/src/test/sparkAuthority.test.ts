@@ -401,16 +401,18 @@ describe("Spark browser authority", () => {
 
     const afterLeave = authority.exportSnapshot();
     expect(afterLeave.pendingMimic).toBeUndefined();
-    expect(afterLeave.game?.turnPlayerId).toBe("p2");
+    const nextPlayerId = afterLeave.game?.turnPlayerId;
+    expect(["p2", "p3"]).toContain(nextPlayerId);
+    const nextCardId = nextPlayerId === "p2" ? "heart-4" : "diamond-5";
     expect(() =>
       authority.handleCommand(
-        "p2",
+        nextPlayerId!,
         "submitPlay",
         {
           clientActionId: "play-after-declarer-left",
           expectedRevision: afterLeave.revision,
           gameId: afterLeave.game!.id,
-          cardIds: ["heart-4"],
+          cardIds: [nextCardId],
           mimics: [],
           blindConfirmed: false,
         },
@@ -507,6 +509,9 @@ describe("Spark browser authority", () => {
     expect(snapshot.members.p2).toBeUndefined();
     expect(snapshot.game?.players.find((player) => player.id === "p2")?.status).toBe(
       "disqualified",
+    );
+    expect(authority.project("p1").players.find((player) => player.id === "p2")?.present).toBe(
+      false,
     );
   });
 

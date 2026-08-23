@@ -37,6 +37,7 @@ export interface PlayerView {
   cards?: CardView[];
   connection: "online" | "grace" | "offline";
   status: "active" | "finished" | "disqualified";
+  present?: boolean;
   rank?: number;
   host: boolean;
 }
