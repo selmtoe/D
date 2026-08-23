@@ -515,7 +515,10 @@ export class SparkP2PSession {
   private async promoteToCoordinator(): Promise<void> {
     if (this.authority || this.stopped) return;
     const snapshotDocument = await getDoc(doc(this.db, "sparkRoomSnapshots", this.roomId));
-    if (!snapshotDocument.exists()) return;
+    if (this.authority || this.stopped || !snapshotDocument.exists()) return;
+    this.peers.forEach((peer) => peer.connection.close());
+    this.peers.clear();
+    this.earlyCandidates.clear();
     this.authority = SparkAuthority.restore(snapshotDocument.data() as SparkRoomSnapshot);
     this.authority.setCoordinator(this.uid, this.peerId);
     this.coordinatorUid = this.uid;
