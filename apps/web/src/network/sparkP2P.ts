@@ -467,6 +467,18 @@ export class SparkP2PSession {
             void this.promoteToCoordinator().catch(() =>
               this.setMode(navigator.onLine ? "firebase" : "offline"),
             );
+          } else if (next.coordinatorUid !== this.uid && this.authority) {
+            // A stale coordinator can come back after another peer won the
+            // election. Demote only after any in-flight authority write so an
+            // explicit host transfer can finish its snapshot/directory pair.
+            void this.enqueueCoordinator(async () => {
+              if (!this.authority || this.coordinatorUid === this.uid) return;
+              delete this.authority;
+              this.peers.forEach((peer) => peer.connection.close());
+              this.peers.clear();
+              this.earlyCandidates.clear();
+              await this.connectToCoordinator();
+            }).catch(() => this.setMode(navigator.onLine ? "firebase" : "offline"));
           } else if (changed && !this.authority) {
             this.closePeer(previousCoordinatorPeerId);
             void this.connectToCoordinator();

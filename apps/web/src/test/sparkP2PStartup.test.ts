@@ -273,4 +273,42 @@ describe("Spark P2P startup cleanup", () => {
     expect(internals.mode).toBe("offline");
     await session.stop(false);
   });
+
+  test("demotes an old coordinator after another peer wins the directory lease", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+
+    await internals.startCommon();
+    const snapshotCalls = firestore.onSnapshot.mock.calls as unknown as Array<
+      [unknown, (snapshot: unknown) => void, (() => void)?]
+    >;
+    const directorySnapshot = snapshotCalls.at(-2)?.[1];
+    directorySnapshot?.({
+      exists: () => true,
+      data: () => ({
+        coordinatorUid: "successor",
+        coordinatorPeerId: "successor-peer",
+        heartbeatAtMs: Date.now(),
+      }),
+    });
+    await vi.waitFor(() => expect(internals.authority).toBeUndefined());
+
+    expect(internals.coordinatorUid).toBe("successor");
+    expect(internals.coordinatorPeerId).toBe("successor-peer");
+    await session.stop(false);
+  });
 });
