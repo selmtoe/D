@@ -37,6 +37,8 @@ export function transition(state: AppState, event: AppEvent): AppState {
       return state.phase === "ENTRANCE"
         ? { ...state, phase: "SALON_LOBBY", profile: event.profile, error: undefined }
         : state;
+    case "RESTORE_PROFILE":
+      return { ...state, profile: event.profile };
     case "ROOM_VIEW":
       if (
         state.room?.roomId === event.room.roomId &&

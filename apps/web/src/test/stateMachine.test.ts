@@ -102,4 +102,13 @@ describe("application state machine", () => {
       error: "ホストによりキックされました",
     });
   });
+  it("restores a reconnect profile without changing the current phase", () => {
+    const entrance = { ...initialAppState, phase: "ENTRANCE" as const };
+    expect(
+      transition(entrance, {
+        type: "RESTORE_PROFILE",
+        profile: { name: "復帰者", avatar: defaultAvatar },
+      }),
+    ).toMatchObject({ phase: "ENTRANCE", profile: { name: "復帰者" } });
+  });
 });

@@ -121,6 +121,7 @@ export type AppEvent =
   | { type: "AUTH_OK" }
   | { type: "AUTH_FAILED"; message: string }
   | { type: "ENTER_SALON"; profile: LocalProfile }
+  | { type: "RESTORE_PROFILE"; profile: LocalProfile }
   | { type: "ROOM_VIEW"; room: RoomView }
   | { type: "DEALING_DONE" }
   | { type: "LEAVE_ROOM" }
