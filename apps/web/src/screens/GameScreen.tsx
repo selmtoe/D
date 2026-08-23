@@ -260,9 +260,20 @@ export function DirectEffectControls({
     bomber: "Qボンバー",
     clearField: "場流し",
   }[effect.kind];
-  const assigned = selectedIds.every((cardId) => Boolean(targets[cardId]));
+  const targetPlayers = room.players.filter(
+    (player) =>
+      player.id !== room.viewerId &&
+      player.status === "active" &&
+      (!effect.eligiblePlayerIds || effect.eligiblePlayerIds.includes(player.id)),
+  );
+  const targetPlayerIds = new Set(targetPlayers.map((player) => player.id));
+  const assigned = selectedIds.every((cardId) => targetPlayerIds.has(targets[cardId] ?? ""));
+  const cardsStillEligible = selectedIds.every(
+    (cardId) => !effect.eligibleCardIds || effect.eligibleCardIds.includes(cardId),
+  );
   const ready =
     selectedIds.length === effect.requiredCount &&
+    cardsStillEligible &&
     (!effect.kind.match(/^(steal|give)$/) || assigned);
   const guidance =
     effect.kind === "steal"
@@ -274,12 +285,6 @@ export function DirectEffectControls({
           : pendingGiveCardId
             ? "選んだカードを相手のキャラクターまでドラッグ"
             : "渡すカードを相手のキャラクターまでドラッグ";
-  const targetPlayers = room.players.filter(
-    (player) =>
-      player.id !== room.viewerId &&
-      player.status === "active" &&
-      (!effect.eligiblePlayerIds || effect.eligiblePlayerIds.includes(player.id)),
-  );
   return (
     <section className="direct-effect-controls" aria-labelledby="direct-effect-title">
       <div>
@@ -423,13 +428,17 @@ export function GameScreen({
           kind: "steal" | "give" | "discard" | "collect";
         })
       : undefined;
+  const effectCardEligibility = directEffect?.eligibleCardIds?.join("\0") ?? "";
+  const effectPlayerEligibility = directEffect?.eligiblePlayerIds?.join("\0") ?? "";
+  const directEffectKind = directEffect?.kind;
+  const directEffectRequiredCount = directEffect?.requiredCount ?? 0;
   const effectSelectableIds = useMemo(
-    () => new Set(directEffect?.eligibleCardIds ?? []),
-    [directEffect?.eligibleCardIds],
+    () => new Set(effectCardEligibility ? effectCardEligibility.split("\0") : []),
+    [effectCardEligibility],
   );
   const effectTargetPlayerIds = useMemo(
-    () => new Set(directEffect?.eligiblePlayerIds ?? []),
-    [directEffect?.eligiblePlayerIds],
+    () => new Set(effectPlayerEligibility ? effectPlayerEligibility.split("\0") : []),
+    [effectPlayerEligibility],
   );
   const effectEligibleCards = useMemo(() => {
     if (!directEffect) return [];
@@ -453,6 +462,30 @@ export function GameScreen({
     setPendingGiveCardId(undefined);
     if (directEffect) clearSelection();
   }, [clearSelection, directEffect?.id]);
+  useEffect(() => {
+    if (!directEffectKind) return;
+    setEffectCardIds((ids) => {
+      const next = ids
+        .filter((id) => effectSelectableIds.has(id))
+        .slice(0, directEffectRequiredCount);
+      return next.length === ids.length && next.every((id, index) => id === ids[index])
+        ? ids
+        : next;
+    });
+    setEffectTargets((targets) => {
+      const next = Object.fromEntries(
+        Object.entries(targets).filter(
+          ([cardId, playerId]) =>
+            effectSelectableIds.has(cardId) &&
+            (!directEffectKind.match(/^(steal|give)$/) || effectTargetPlayerIds.has(playerId)),
+        ),
+      );
+      return Object.keys(next).length === Object.keys(targets).length ? targets : next;
+    });
+    setPendingGiveCardId((cardId) =>
+      cardId && effectSelectableIds.has(cardId) ? cardId : undefined,
+    );
+  }, [directEffectKind, directEffectRequiredCount, effectSelectableIds, effectTargetPlayerIds]);
   useEffect(() => {
     const pending = room.pendingJokerMimic;
     if (!pending || pending.candidates.length !== 1 || busy) return;
@@ -578,7 +611,14 @@ export function GameScreen({
     );
   };
   const confirmDirectEffect = () => {
-    if (!directEffect || effectCardIds.length !== directEffect.requiredCount) return;
+    if (
+      !directEffect ||
+      effectCardIds.length !== directEffect.requiredCount ||
+      effectCardIds.some((cardId) => !effectSelectableIds.has(cardId)) ||
+      (["steal", "give"].includes(directEffect.kind) &&
+        effectCardIds.some((cardId) => !effectTargetPlayerIds.has(effectTargets[cardId] ?? "")))
+    )
+      return;
     const payload =
       directEffect.kind === "steal"
         ? {

@@ -82,7 +82,7 @@ describe("direct table effect controls", () => {
     const chooseTarget = vi.fn();
     render(
       <DirectEffectControls
-        effect={{ ...steal, id: "give", kind: "give" }}
+        effect={{ ...steal, id: "give", kind: "give", eligibleCardIds: ["own-card"] }}
         room={room}
         selectedIds={["own-card"]}
         targets={{}}
@@ -102,7 +102,7 @@ describe("direct table effect controls", () => {
   it("shows the card-to-player relationship after a 7 has been dropped", () => {
     render(
       <DirectEffectControls
-        effect={{ ...steal, id: "give", kind: "give" }}
+        effect={{ ...steal, id: "give", kind: "give", eligibleCardIds: ["own-card"] }}
         room={room}
         selectedIds={["own-card"]}
         targets={{ "own-card": "target" }}
@@ -114,5 +114,53 @@ describe("direct table effect controls", () => {
     );
     expect(screen.getByLabelText("7渡しの割り当て")).toHaveTextContent("♥7 → 相手");
     expect(screen.getByRole("button", { name: "7渡しを確定" })).toBeEnabled();
+  });
+
+  it("rejects selections whose card or target is no longer eligible", () => {
+    const confirm = vi.fn();
+    const { rerender } = render(
+      <DirectEffectControls
+        effect={steal}
+        room={room}
+        selectedIds={["back"]}
+        targets={{ back: "target" }}
+        busy={false}
+        chooseTarget={() => undefined}
+        clear={() => undefined}
+        confirm={confirm}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "A奪いを確定" });
+    expect(button).toBeEnabled();
+
+    rerender(
+      <DirectEffectControls
+        effect={{ ...steal, eligibleCardIds: [] }}
+        room={room}
+        selectedIds={["back"]}
+        targets={{ back: "target" }}
+        busy={false}
+        chooseTarget={() => undefined}
+        clear={() => undefined}
+        confirm={confirm}
+      />,
+    );
+    expect(button).toBeDisabled();
+
+    rerender(
+      <DirectEffectControls
+        effect={{ ...steal, eligiblePlayerIds: [] }}
+        room={room}
+        selectedIds={["back"]}
+        targets={{ back: "target" }}
+        busy={false}
+        chooseTarget={() => undefined}
+        clear={() => undefined}
+        confirm={confirm}
+      />,
+    );
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
