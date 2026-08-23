@@ -30,6 +30,9 @@ type StartupInternals = {
   connectToCoordinator(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
+  coordinatorUid: string;
+  coordinatorPeerId: string;
+  handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
 };
 
 type SparkSessionConstructor = new (options: {
@@ -118,5 +121,36 @@ describe("Spark P2P startup cleanup", () => {
         atMs: 1,
       }),
     ).rejects.toThrow("P2P接続は終了しています");
+  });
+
+  test("trusts forwarded cue attribution only from the current coordinator", () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "spectator" },
+      roomId: "ABCDE",
+      peerId: "spectator-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.coordinatorUid = "host";
+    internals.coordinatorPeerId = "host-peer";
+    const cueListener = vi.fn();
+    session.onCue(cueListener);
+    const wire = {
+      type: "cue",
+      senderUid: "actor",
+      cue: {
+        version: 1,
+        type: "emote",
+        eventId: "forwarded",
+        emote: "applause",
+        atMs: 1,
+      },
+    };
+
+    internals.handleWire(wire, "attacker", "attacker-peer");
+    expect(cueListener).not.toHaveBeenCalled();
+    internals.handleWire(wire, "host", "host-peer");
+    expect(cueListener).toHaveBeenCalledWith(wire.cue, "actor");
   });
 });

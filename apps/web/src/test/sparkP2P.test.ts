@@ -50,6 +50,9 @@ describe("Spark wire decoding", () => {
       cue: validCue,
     });
     expect(
+      parseSparkWire(JSON.stringify({ type: "cue", cue: validCue, senderUid: "actor" })),
+    ).toEqual({ type: "cue", cue: validCue, senderUid: "actor" });
+    expect(
       parseSparkWire(JSON.stringify({ type: "cue", cue: { ...validCue, turnPlayerId: "forged" } })),
     ).toBeNull();
   });

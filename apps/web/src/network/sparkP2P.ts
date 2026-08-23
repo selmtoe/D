@@ -61,7 +61,7 @@ export type WireMessage =
   | { type: "response"; requestId: string; ok: true; result: Record<string, unknown> }
   | { type: "response"; requestId: string; ok: false; error: string }
   | { type: "view"; view: RoomView }
-  | { type: "cue"; cue: CueEvent }
+  | { type: "cue"; cue: CueEvent; senderUid?: string }
   | { type: "evicted"; reason: "kick" };
 
 interface PeerState {
@@ -171,7 +171,14 @@ export function parseSparkWire(payload: string): WireMessage | null {
     }
     if (value.type === "cue") {
       const cue = parseCue(value.cue);
-      return cue ? { type: "cue", cue } : null;
+      const senderUid = value.senderUid;
+      if (
+        !cue ||
+        (senderUid !== undefined &&
+          (typeof senderUid !== "string" || senderUid.length === 0 || senderUid.length > 128))
+      )
+        return null;
+      return { type: "cue", cue, ...(senderUid ? { senderUid } : {}) };
     }
     if (value.type === "hello" && value.profile && typeof value.profile === "object") {
       return value as unknown as WireMessage;
@@ -732,6 +739,13 @@ export class SparkP2PSession {
   }
 
   private handleWire(wire: WireMessage, senderUid: string, senderPeerId: string): void {
+    if (
+      !this.authority &&
+      ["response", "view", "cue", "evicted"].includes(wire.type) &&
+      (senderUid !== this.coordinatorUid || senderPeerId !== this.coordinatorPeerId)
+    ) {
+      return;
+    }
     if (wire.type === "response") {
       const pending = this.pendingRequests.get(wire.requestId);
       if (!pending) return;
@@ -746,7 +760,8 @@ export class SparkP2PSession {
       return;
     }
     if (wire.type === "cue") {
-      this.cueListeners.forEach((listener) => listener(wire.cue, senderUid));
+      const cueSenderUid = this.authority ? senderUid : (wire.senderUid ?? senderUid);
+      this.cueListeners.forEach((listener) => listener(wire.cue, cueSenderUid));
       if (this.authority) void this.broadcastCue(wire.cue, senderUid);
       return;
     }
@@ -811,7 +826,7 @@ export class SparkP2PSession {
     const snapshot = this.authority.exportSnapshot();
     for (const member of Object.values(snapshot.members)) {
       if (member.uid !== senderUid && member.online) {
-        await this.sendWire(member.uid, member.peerId, { type: "cue", cue });
+        await this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid });
       }
     }
   }
