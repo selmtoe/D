@@ -287,13 +287,8 @@ export function DirectEffectControls({
     bomber: "Qボンバー",
     clearField: "場流し",
   }[effect.kind];
-  const targetPlayers = room.players.filter(
-    (player) =>
-      player.id !== room.viewerId &&
-      player.status === "active" &&
-      (!effect.eligiblePlayerIds || effect.eligiblePlayerIds.includes(player.id)),
-  );
-  const targetPlayerIds = new Set(targetPlayers.map((player) => player.id));
+  const targetPlayerIds = eligibleEffectTargetPlayerIds(room, effect.eligiblePlayerIds);
+  const targetPlayers = room.players.filter((player) => targetPlayerIds.has(player.id));
   const assigned = selectedIds.every((cardId) => targetPlayerIds.has(targets[cardId] ?? ""));
   const cardsStillEligible = selectedIds.every(
     (cardId) => !effect.eligibleCardIds || effect.eligibleCardIds.includes(cardId),
@@ -354,6 +349,23 @@ export function DirectEffectControls({
         </button>
       </footer>
     </section>
+  );
+}
+
+export function eligibleEffectTargetPlayerIds(
+  room: RoomView,
+  eligiblePlayerIds?: readonly string[],
+): Set<string> {
+  const explicitlyEligible = eligiblePlayerIds ? new Set(eligiblePlayerIds) : undefined;
+  return new Set(
+    room.players
+      .filter(
+        (player) =>
+          player.id !== room.viewerId &&
+          player.status === "active" &&
+          (!explicitlyEligible || explicitlyEligible.has(player.id)),
+      )
+      .map((player) => player.id),
   );
 }
 
@@ -458,6 +470,7 @@ export function GameScreen({
   const playBlocked = Boolean(activeEffect || room.pendingJokerMimic);
   const effectCardEligibility = directEffect?.eligibleCardIds?.join("\0") ?? "";
   const effectPlayerEligibility = directEffect?.eligiblePlayerIds?.join("\0") ?? "";
+  const effectHasPlayerEligibility = directEffect?.eligiblePlayerIds !== undefined;
   const directEffectKind = directEffect?.kind;
   const directEffectRequiredCount = directEffect?.requiredCount ?? 0;
   const effectSelectableIds = useMemo(
@@ -465,8 +478,16 @@ export function GameScreen({
     [effectCardEligibility],
   );
   const effectTargetPlayerIds = useMemo(
-    () => new Set(effectPlayerEligibility ? effectPlayerEligibility.split("\0") : []),
-    [effectPlayerEligibility],
+    () =>
+      eligibleEffectTargetPlayerIds(
+        room,
+        effectHasPlayerEligibility
+          ? effectPlayerEligibility
+            ? effectPlayerEligibility.split("\0")
+            : []
+          : undefined,
+      ),
+    [effectHasPlayerEligibility, effectPlayerEligibility, room.players, room.viewerId],
   );
   const effectEligibleCards = useMemo(() => {
     if (!directEffect) return [];

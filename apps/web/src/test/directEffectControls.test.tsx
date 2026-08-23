@@ -2,7 +2,7 @@ import { defaultAvatar } from "@daifugo/avatar-schema";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingEffectView, RoomView } from "../app/model";
-import { DirectEffectControls } from "../screens/GameScreen";
+import { DirectEffectControls, eligibleEffectTargetPlayerIds } from "../screens/GameScreen";
 
 afterEach(cleanup);
 
@@ -59,6 +59,11 @@ const steal: PendingEffectView = {
 };
 
 describe("direct table effect controls", () => {
+  it("allows every active opponent when A-steal omits an explicit player list", () => {
+    expect([...eligibleEffectTargetPlayerIds(room)]).toEqual(["target"]);
+    expect([...eligibleEffectTargetPlayerIds(room, [])]).toEqual([]);
+  });
+
   it("confirms A-steal after an actual opponent card has been selected", () => {
     const confirm = vi.fn();
     render(
