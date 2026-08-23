@@ -31,17 +31,27 @@ export function WaitingRoomScreen({
   const isHost = room.hostId === room.viewerId;
   const connectedCount = room.players.filter((player) => player.connection === "online").length;
   const inviteUrl = `${location.origin}${location.pathname}?room=${room.roomId}`;
-  const copy = () => navigator.clipboard.writeText(room.roomId).catch(() => undefined);
-  const share = () =>
-    navigator.share
-      ? navigator
-          .share({
-            title: "大富豪への招待",
-            text: `部屋 ${room.roomId} で待っています`,
-            url: inviteUrl,
-          })
-          .catch(() => undefined)
-      : navigator.clipboard.writeText(inviteUrl).catch(() => undefined);
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+    } catch {
+      // Clipboard access is optional and can be denied by browser policy.
+    }
+  };
+  const copy = () => void copyText(room.roomId);
+  const share = () => {
+    if (!navigator.share) {
+      void copyText(inviteUrl);
+      return;
+    }
+    void navigator
+      .share({
+        title: "大富豪への招待",
+        text: `部屋 ${room.roomId} で待っています`,
+        url: inviteUrl,
+      })
+      .catch(() => undefined);
+  };
   return (
     <main id="main" className="waiting-screen">
       <header className="topbar">
