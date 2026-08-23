@@ -33,12 +33,14 @@ function jokerCandidateKey(candidate: { cardId: string; suit: Suit; rank: Rank }
     .join("|");
 }
 
-function useCountdown(deadline?: number): number {
+export function useCountdown(deadline?: number): number {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    if (!deadline) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, []);
+  }, [deadline]);
   return deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
 }
 
