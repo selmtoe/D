@@ -135,6 +135,24 @@ describe("Spark browser authority", () => {
     expect(observerCard?.visibility).toBe("face");
   });
 
+  it("projects the two physical Jokers with distinct faces", () => {
+    const authority = waitingRoom();
+    authority.join({
+      uid: "watcher",
+      peerId: "watcher-peer",
+      profile: profile("観戦者"),
+      role: "spectator",
+    });
+    authority.handleCommand("p1", "startGame", { clientActionId: "start-for-joker-faces" }, 2_000);
+
+    const jokerFaces = authority
+      .project("watcher")
+      .players.flatMap((player) => player.cards ?? [])
+      .flatMap((card) => (card.visibility === "face" && card.joker ? [card.joker] : []))
+      .sort();
+    expect(jokerFaces).toEqual(["crimson", "monochrome"]);
+  });
+
   it("enforces the documented six-player room cap", () => {
     const authority = waitingRoom();
     for (let index = 4; index <= 6; index += 1) {

@@ -99,10 +99,33 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function cardView(card: ProjectedHandCard): CardView {
+function jokerStyles(game: GameState): ReadonlyMap<string, "monochrome" | "crimson"> {
+  const ids = new Set<string>();
+  const add = (card: { id: string; rank: string }) => {
+    if (card.rank === "JOKER") ids.add(card.id);
+  };
+  game.players.forEach((player) => player.hand.forEach((entry) => add(entry.card)));
+  game.deck.forEach(add);
+  game.discard.forEach(add);
+  game.pile?.cards.forEach((entry) => add(entry.card));
+  game.trickHistory.forEach((play) => play.cards.forEach((entry) => add(entry.card)));
+  return new Map(
+    [...ids].sort().map((id, index) => [id, index === 1 ? "crimson" : "monochrome"] as const),
+  );
+}
+
+function cardView(
+  card: ProjectedHandCard,
+  styles: ReadonlyMap<string, "monochrome" | "crimson">,
+): CardView {
   if (!card.face) return { id: card.id, visibility: "hidden", blind: card.blind };
   if (card.face.rank === "JOKER") {
-    return { id: card.id, visibility: "face", joker: "monochrome", blind: card.blind };
+    return {
+      id: card.id,
+      visibility: "face",
+      joker: styles.get(card.id) ?? "monochrome",
+      blind: card.blind,
+    };
   }
   return {
     id: card.id,
@@ -113,15 +136,18 @@ function cardView(card: ProjectedHandCard): CardView {
   };
 }
 
-function gameCardView(card: {
-  card: { id: string; suit: string | null; rank: string };
-  mimic?: { suit: string; rank: string } | null;
-}): CardView {
+function gameCardView(
+  card: {
+    card: { id: string; suit: string | null; rank: string };
+    mimic?: { suit: string; rank: string } | null;
+  },
+  styles: ReadonlyMap<string, "monochrome" | "crimson">,
+): CardView {
   if (card.card.rank === "JOKER") {
     return {
       id: card.card.id,
       visibility: "face",
-      joker: "monochrome",
+      joker: styles.get(card.card.id) ?? "monochrome",
       blind: false,
       ...(card.mimic
         ? { mimic: { suit: card.mimic.suit as Suit, rank: card.mimic.rank as Rank } }
@@ -137,8 +163,11 @@ function gameCardView(card: {
   };
 }
 
-function plainGameCardView(card: { id: string; suit: string | null; rank: string }): CardView {
-  return gameCardView({ card });
+function plainGameCardView(
+  card: { id: string; suit: string | null; rank: string },
+  styles: ReadonlyMap<string, "monochrome" | "crimson">,
+): CardView {
+  return gameCardView({ card }, styles);
 }
 
 function requiredEffectCount(game: GameState, effect: PendingEffect): number {
@@ -955,8 +984,12 @@ export class SparkAuthority {
       ...(effectiveRole === "player" ? { playerId: uid } : {}),
       spectator: effectiveRole === "spectator",
     });
+    const projectedJokerStyles = jokerStyles(game);
     const projectedById = new Map(projected.players.map((player) => [player.id, player]));
-    const hand = projectedById.get(focusPlayerId ?? "")?.hand.map(cardView) ?? [];
+    const hand =
+      projectedById
+        .get(focusPlayerId ?? "")
+        ?.hand.map((card) => cardView(card, projectedJokerStyles)) ?? [];
     const players = game.players.map((player) => {
       const roomMember = this.snapshot.members[player.id];
       const projectedPlayer = projectedById.get(player.id)!;
@@ -965,7 +998,7 @@ export class SparkAuthority {
         name: roomMember?.name ?? "退出者",
         avatar: clone(roomMember?.avatar ?? member.avatar),
         cardCount: projectedPlayer.hand.length,
-        cards: projectedPlayer.hand.map(cardView),
+        cards: projectedPlayer.hand.map((card) => cardView(card, projectedJokerStyles)),
         connection: roomMember?.online ? ("online" as const) : ("offline" as const),
         status: player.status,
         ...(player.rank ? { rank: player.rank } : {}),
@@ -988,7 +1021,9 @@ export class SparkAuthority {
             ],
             revealedCards: this.snapshot.pendingMimic.cardIds.flatMap((cardId) => {
               const entry = gamePlayer?.hand.find((candidate) => candidate.card.id === cardId);
-              return entry?.card.rank === "JOKER" ? [plainGameCardView(entry.card)] : [];
+              return entry?.card.rank === "JOKER"
+                ? [plainGameCardView(entry.card, projectedJokerStyles)]
+                : [];
             }),
           }
         : undefined;
@@ -1020,10 +1055,10 @@ export class SparkAuthority {
       suitLock: [...game.binding],
       firstPlay: game.firstPlay,
       fieldPlays: [...game.trickHistory, ...(game.pile ? [game.pile] : [])].map((play) =>
-        play.cards.map(gameCardView),
+        play.cards.map((card) => gameCardView(card, projectedJokerStyles)),
       ),
-      field: game.pile?.cards.map(gameCardView) ?? [],
-      discard: game.discard.map(plainGameCardView),
+      field: game.pile?.cards.map((card) => gameCardView(card, projectedJokerStyles)) ?? [],
+      discard: game.discard.map((card) => plainGameCardView(card, projectedJokerStyles)),
       hand,
       pendingEffects: projectEffect(game),
       ...(pendingMimic ? { pendingJokerMimic: pendingMimic } : {}),
