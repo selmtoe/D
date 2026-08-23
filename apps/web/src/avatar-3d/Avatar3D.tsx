@@ -420,13 +420,15 @@ export function Avatar3D({
     }),
     [profile],
   );
+  const facePaintJson = JSON.stringify(profile.facePaint ?? null);
   const facePaintTexture = useMemo(() => {
-    if (!profile.facePaint?.strokes.length || typeof document === "undefined") return null;
-    const texture = new CanvasTexture(createFacePaintCanvas(profile.facePaint));
+    const facePaint = JSON.parse(facePaintJson) as AvatarProfileV1["facePaint"];
+    if (!facePaint?.strokes.length || typeof document === "undefined") return null;
+    const texture = new CanvasTexture(createFacePaintCanvas(facePaint));
     texture.colorSpace = SRGBColorSpace;
     texture.needsUpdate = true;
     return texture;
-  }, [profile.facePaint]);
+  }, [facePaintJson]);
   useEffect(() => () => facePaintTexture?.dispose(), [facePaintTexture]);
   const body = avatarBodyMetrics(profile);
   const headY = 1.75 + (body.torsoLength - 1) * 0.24 + (body.legLength - 1) * 0.08;
