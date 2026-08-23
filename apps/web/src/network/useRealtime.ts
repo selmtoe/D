@@ -45,7 +45,10 @@ export function usePublicRoomSubscription(enabled: boolean): void {
   }, [dispatch, enabled, setPublicRooms]);
 }
 
-export function useRoomSubscription(roomId?: string): void {
+export function useRoomSubscription(
+  roomId?: string,
+  onEvicted?: ((roomId: string) => void) | undefined,
+): void {
   const dispatch = useUiStore((state) => state.dispatch);
   useEffect(() => {
     if (!roomId) return;
@@ -60,10 +63,12 @@ export function useRoomSubscription(roomId?: string): void {
           (error) => {
             if (!alive) return;
             const message = firebaseErrorMessage(error);
+            const evicted = error.message.includes("evicted");
             dispatch({
-              type: error.message.includes("evicted") ? "EVICTED" : "ERROR",
+              type: evicted ? "EVICTED" : "ERROR",
               message,
             });
+            if (evicted) onEvicted?.(roomId);
           },
         ),
       )
@@ -79,5 +84,5 @@ export function useRoomSubscription(roomId?: string): void {
       alive = false;
       unsubscribe?.();
     };
-  }, [dispatch, roomId]);
+  }, [dispatch, onEvicted, roomId]);
 }

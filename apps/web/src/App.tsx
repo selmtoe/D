@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useUiStore } from "./app/store";
 import type { LocalProfile, Role, RoomView } from "./app/model";
@@ -27,7 +27,6 @@ import { ResultScreen } from "./screens/ResultScreen";
 import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
 import { useVisualViewport } from "./app/visualViewport";
-import { shouldClearRoomAfterViewLoss } from "./app/roomLifecycle";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -58,28 +57,18 @@ export default function App() {
     .slice(0, 5);
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const joinedRoomId = useRef<string | undefined>(undefined);
+  const handleRoomEvicted = useCallback((roomId: string) => {
+    clearRoomReconnect(roomId);
+    setActiveRoomId((current) => {
+      if (current !== roomId) return current;
+      history.replaceState(null, "", location.pathname);
+      return undefined;
+    });
+  }, []);
 
   useAuthentication();
   usePublicRoomSubscription(app.phase === "SALON_LOBBY");
-  useRoomSubscription(activeRoomId);
-
-  useEffect(() => {
-    if (app.room) {
-      joinedRoomId.current = app.room.roomId;
-      return;
-    }
-    if (!activeRoomId) {
-      joinedRoomId.current = undefined;
-      return;
-    }
-    if (!shouldClearRoomAfterViewLoss(app.phase, activeRoomId, undefined, joinedRoomId.current))
-      return;
-    clearRoomReconnect(activeRoomId);
-    joinedRoomId.current = undefined;
-    setActiveRoomId(undefined);
-    history.replaceState(null, "", location.pathname);
-  }, [activeRoomId, app.phase, app.room]);
+  useRoomSubscription(activeRoomId, handleRoomEvicted);
 
   useEffect(() => {
     if (!activeRoomId) return;
