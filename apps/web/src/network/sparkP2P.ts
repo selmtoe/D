@@ -343,7 +343,12 @@ export class SparkP2PSession {
 
   private async startCommon(): Promise<void> {
     await this.writePresence(true);
-    this.listenForRelays("sparkSignals", (relay) => void this.handleSignal(relay));
+    this.listenForRelays("sparkSignals", (relay) => {
+      void this.handleSignal(relay).catch(() => {
+        this.closePeer(relay.senderPeerId);
+        if (!this.authority) this.setMode(navigator.onLine ? "firebase" : "offline");
+      });
+    });
     this.listenForRelays("sparkMailboxes", (relay) => {
       const wire = parseSparkWire(relay.payload);
       if (wire) this.handleWire(wire, relay.senderUid, relay.senderPeerId);
@@ -352,7 +357,10 @@ export class SparkP2PSession {
     if (this.authority) this.listenPresence();
     this.intervals.push(
       setInterval(() => void this.writePresence(true), HEARTBEAT_MS),
-      setInterval(() => void this.tick(), 2_000),
+      setInterval(
+        () => void this.tick().catch(() => this.setMode(navigator.onLine ? "firebase" : "offline")),
+        2_000,
+      ),
     );
     const pageHide = () => void this.writePresence(false);
     addEventListener("pagehide", pageHide);
@@ -400,7 +408,9 @@ export class SparkP2PSession {
         this.coordinatorUid = next.coordinatorUid;
         this.coordinatorPeerId = next.coordinatorPeerId;
         if (next.coordinatorUid === this.uid && !this.authority) {
-          void this.promoteToCoordinator();
+          void this.promoteToCoordinator().catch(() =>
+            this.setMode(navigator.onLine ? "firebase" : "offline"),
+          );
         } else if (changed && !this.authority) {
           this.closePeer(previousCoordinatorPeerId);
           void this.connectToCoordinator();
@@ -428,7 +438,11 @@ export class SparkP2PSession {
             atMs: Number(data.lastSeenMs ?? now),
           });
         }
-        if (this.authority) void this.reconcilePresence(now);
+        if (this.authority) {
+          void this.reconcilePresence(now).catch(() =>
+            this.setMode(navigator.onLine ? "firebase" : "offline"),
+          );
+        }
       }),
     );
   }
@@ -652,14 +666,23 @@ export class SparkP2PSession {
       return;
     }
     this.closePeer(this.coordinatorPeerId);
-    const peer = this.createPeer(this.coordinatorUid, this.coordinatorPeerId);
-    const channel = peer.connection.createDataChannel("daifugo", { ordered: true });
-    this.attachChannel(peer, channel);
-    const offer = await peer.connection.createOffer();
-    await peer.connection.setLocalDescription(offer);
-    await this.sendRelay("sparkSignals", this.coordinatorUid, this.coordinatorPeerId, "offer", {
-      sdp: offer.sdp,
-    });
+    try {
+      const peer = this.createPeer(this.coordinatorUid, this.coordinatorPeerId);
+      const channel = peer.connection.createDataChannel("daifugo", { ordered: true });
+      this.attachChannel(peer, channel);
+      const offer = await peer.connection.createOffer();
+      if (this.stopped) {
+        this.closePeer(this.coordinatorPeerId);
+        return;
+      }
+      await peer.connection.setLocalDescription(offer);
+      await this.sendRelay("sparkSignals", this.coordinatorUid, this.coordinatorPeerId, "offer", {
+        sdp: offer.sdp,
+      });
+    } catch {
+      this.closePeer(this.coordinatorPeerId);
+      this.setMode(navigator.onLine ? "firebase" : "offline");
+    }
   }
 
   private createPeer(uid: string, peerId: string): PeerState {
@@ -777,7 +800,7 @@ export class SparkP2PSession {
     if (wire.type === "cue") {
       const cueSenderUid = this.authority ? senderUid : (wire.senderUid ?? senderUid);
       this.cueListeners.forEach((listener) => listener(wire.cue, cueSenderUid));
-      if (this.authority) void this.broadcastCue(wire.cue, senderUid);
+      if (this.authority) void this.broadcastCue(wire.cue, senderUid).catch(() => undefined);
       return;
     }
     if (wire.type === "evicted") {
@@ -786,48 +809,50 @@ export class SparkP2PSession {
       return;
     }
     if (!this.authority) return;
-    this.coordinatorQueue = this.coordinatorQueue.then(async () => {
-      const cached = this.processedRequests.get(wire.requestId);
-      if (cached) {
-        await this.sendWire(senderUid, senderPeerId, cached);
-        return;
-      }
-      try {
-        let result: Record<string, unknown> = {};
-        if (wire.type === "hello") {
-          this.authority!.join({
-            uid: senderUid,
-            peerId: senderPeerId,
-            profile: wire.profile,
-            role: wire.role,
-          });
-        } else {
-          result = this.authority!.handleCommand(senderUid, wire.name, wire.payload);
+    this.coordinatorQueue = this.coordinatorQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const cached = this.processedRequests.get(wire.requestId);
+        if (cached) {
+          await this.sendWire(senderUid, senderPeerId, cached);
+          return;
         }
-        const response: WireMessage = {
-          type: "response",
-          requestId: wire.requestId,
-          ok: true,
-          result,
-        };
-        this.processedRequests.set(wire.requestId, response);
-        await this.sendWire(senderUid, senderPeerId, response);
-        await this.persistAndBroadcast();
-      } catch (cause) {
-        const response: WireMessage = {
-          type: "response",
-          requestId: wire.requestId,
-          ok: false,
-          error: cause instanceof Error ? cause.message : "unknown: P2P command failed",
-        };
-        this.processedRequests.set(wire.requestId, response);
-        await this.sendWire(senderUid, senderPeerId, response);
-      }
-      if (this.processedRequests.size > 300) {
-        const first = this.processedRequests.keys().next().value as string | undefined;
-        if (first) this.processedRequests.delete(first);
-      }
-    });
+        try {
+          let result: Record<string, unknown> = {};
+          if (wire.type === "hello") {
+            this.authority!.join({
+              uid: senderUid,
+              peerId: senderPeerId,
+              profile: wire.profile,
+              role: wire.role,
+            });
+          } else {
+            result = this.authority!.handleCommand(senderUid, wire.name, wire.payload);
+          }
+          const response: WireMessage = {
+            type: "response",
+            requestId: wire.requestId,
+            ok: true,
+            result,
+          };
+          this.processedRequests.set(wire.requestId, response);
+          await this.sendWire(senderUid, senderPeerId, response);
+          await this.persistAndBroadcast();
+        } catch (cause) {
+          const response: WireMessage = {
+            type: "response",
+            requestId: wire.requestId,
+            ok: false,
+            error: cause instanceof Error ? cause.message : "unknown: P2P command failed",
+          };
+          this.processedRequests.set(wire.requestId, response);
+          await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
+        }
+        if (this.processedRequests.size > 300) {
+          const first = this.processedRequests.keys().next().value as string | undefined;
+          if (first) this.processedRequests.delete(first);
+        }
+      });
   }
 
   private acceptView(view: RoomView): void {
