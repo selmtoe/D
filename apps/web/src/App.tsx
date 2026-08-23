@@ -78,7 +78,14 @@ export default function App() {
     let stop: (() => void) | undefined;
     startRoomPresence(
       activeRoomId,
-      (error) => alive && dispatch({ type: "ERROR", message: error.message }),
+      (error) => {
+        if (!alive) return;
+        dispatch({ type: "ERROR", message: error.message });
+        dispatch({
+          type: "CONNECTION",
+          connection: navigator.onLine ? "reconnecting" : "offline",
+        });
+      },
       () => {
         if (!alive) return;
         dispatch({ type: "CONNECTION", connection: "connected" });
