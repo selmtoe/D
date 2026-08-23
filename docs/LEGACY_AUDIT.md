@@ -4,7 +4,7 @@
 
 ## 維持する意図
 
-- ブランド名「大富豪」とPrivate Card Salonの静かな高級感
+- ブランド名「大富豪」の静かな高級感
 - 深い夜色、ウォールナット、真鍮、濃緑フェルトの方向性
 - Three.jsのACES tone mapping、円形Cylinder table、厚みのあるBox card
 - 5文字room ID、12文字player名、公開room一覧

@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
         registerType: "autoUpdate",
         includeAssets: ["icon-192.svg", "icon-512.svg"],
         manifest: {
-          name: "大富豪 — Private Card Salon",
+          name: "大富豪",
           short_name: "大富豪",
           description: "3〜6人で遊ぶ3Dオンライン大富豪",
           theme_color: "#081715",
