@@ -609,7 +609,9 @@ export class SparkP2PSession {
       const view = this.authority.project(member.uid);
       if (member.uid === this.uid) this.acceptView(view);
       else if (member.online) {
-        await this.sendWire(member.uid, member.peerId, { type: "view", view });
+        await this.sendWire(member.uid, member.peerId, { type: "view", view }).catch(
+          () => undefined,
+        );
       }
     }
     if (snapshot.coordinatorUid !== this.uid) {
@@ -857,9 +859,9 @@ export class SparkP2PSession {
           ok: true,
           result,
         };
-        this.processedRequests.set(wire.requestId, response);
-        await this.sendWire(senderUid, senderPeerId, response);
         await this.persistAndBroadcast();
+        this.processedRequests.set(wire.requestId, response);
+        await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
       } catch (cause) {
         const response: WireMessage = {
           type: "response",
@@ -888,7 +890,9 @@ export class SparkP2PSession {
     const snapshot = this.authority.exportSnapshot();
     for (const member of Object.values(snapshot.members)) {
       if (member.uid !== senderUid && member.online) {
-        await this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid });
+        await this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid }).catch(
+          () => undefined,
+        );
       }
     }
   }

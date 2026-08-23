@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { defaultAvatar } from "@daifugo/avatar-schema";
+import { SparkAuthority } from "../network/sparkAuthority";
 
 const firestore = vi.hoisted(() => ({
   getDoc: vi.fn(),
@@ -31,6 +33,9 @@ type StartupInternals = {
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
   enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
+  persistAndBroadcast(): Promise<void>;
+  sendWire(targetUid: string, targetPeerId: string, wire: unknown): Promise<void>;
+  authority?: SparkAuthority;
   coordinatorUid: string;
   coordinatorPeerId: string;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
@@ -132,6 +137,46 @@ describe("Spark P2P startup cleanup", () => {
     await Promise.all([first, second]);
 
     expect(order).toEqual(["first-start", "first-end", "second"]);
+  });
+
+  test("continues broadcasting views after one peer delivery fails", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.authority.join({
+      uid: "guest-1",
+      peerId: "guest-peer-1",
+      profile: { name: "guest-1", avatar: structuredClone(defaultAvatar) },
+      role: "player",
+    });
+    internals.authority.join({
+      uid: "guest-2",
+      peerId: "guest-peer-2",
+      profile: { name: "guest-2", avatar: structuredClone(defaultAvatar) },
+      role: "spectator",
+    });
+    const sendWire = vi
+      .spyOn(internals, "sendWire")
+      .mockRejectedValueOnce(new Error("peer unavailable"))
+      .mockResolvedValue(undefined);
+
+    await expect(internals.persistAndBroadcast()).resolves.toBeUndefined();
+
+    expect(sendWire).toHaveBeenCalledTimes(2);
+    expect(sendWire.mock.calls.map(([uid]) => uid)).toEqual(["guest-1", "guest-2"]);
   });
 
   test("rejects commands after the session has stopped", async () => {
