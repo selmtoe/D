@@ -307,20 +307,26 @@ export class SparkP2PSession {
       session.coordinatorPeerId = session.peerId;
     }
     await session.startCommon();
-
-    if (session.authority) {
-      await session.persistAndBroadcast();
-    } else {
-      await session.connectToCoordinator();
-      await session.request({
-        type: "hello",
-        requestId: crypto.randomUUID(),
-        role: resolvedRole,
-        profile: plain(resolvedProfile),
-      });
-      await session.waitForInitialView();
+    try {
+      if (session.authority) {
+        await session.persistAndBroadcast();
+      } else {
+        await session.connectToCoordinator();
+        await session.request({
+          type: "hello",
+          requestId: crypto.randomUUID(),
+          role: resolvedRole,
+          profile: plain(resolvedProfile),
+        });
+        await session.waitForInitialView();
+      }
+      return session;
+    } catch (cause) {
+      // startCommon installs Firestore listeners and recurring heartbeats. A
+      // failed handshake must not leave that unreturned session running.
+      await session.stop(false);
+      throw cause;
     }
-    return session;
   }
 
   private async startCommon(): Promise<void> {
