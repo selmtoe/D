@@ -11,7 +11,9 @@ export function JokerDeclarationPanel({
   busy: boolean;
   confirm: (mimics: { cardId: string; suit: Suit; rank: Rank }[]) => void;
 }) {
-  const [candidateIndex, setCandidateIndex] = useState<number>();
+  // The legal list is authoritative, so make the first valid declaration ready
+  // immediately instead of forcing an otherwise meaningless extra click.
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const chosen = candidateIndex === undefined ? undefined : pending.candidates[candidateIndex];
   return (
     <section className="effect-panel joker-declaration" aria-labelledby="joker-declaration-title">

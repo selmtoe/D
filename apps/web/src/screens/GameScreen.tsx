@@ -16,7 +16,6 @@ import {
   sortHandWeakToStrong,
 } from "../gameplay/cardPresentation";
 import { CommentDanmaku } from "./CommentDanmaku";
-import { StealSequence, type StealVisualState } from "./StealSequence";
 import { deriveCardMotions, type CardMotionEvent } from "../game-3d/cardMotion";
 
 const suitLabel = {
@@ -51,10 +50,26 @@ export function PlayDialog({
   const jokers = cards.filter((card) => card.visibility === "face" && Boolean(card.joker));
   const [mimics, setMimics] = useState<
     Record<string, { suit?: Suit | undefined; rank?: Rank | undefined }>
-  >({});
+  >(() => {
+    const prepared: Record<string, { suit?: Suit; rank?: Rank }> = {};
+    for (const joker of jokers) {
+      const declarations = candidates.flatMap((candidate) =>
+        candidate.filter((item) => item.cardId === joker.id),
+      );
+      if (!declarations.length) continue;
+      const suits = new Set(declarations.map((item) => item.suit));
+      const ranks = new Set(declarations.map((item) => item.rank));
+      prepared[joker.id] = {
+        ...(suits.size === 1 ? { suit: declarations[0]!.suit } : {}),
+        ...(ranks.size === 1 ? { rank: declarations[0]!.rank } : {}),
+      };
+    }
+    return prepared;
+  });
   const dialog = useRef<HTMLElement>(null);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const needsDeclaration = candidates.some((candidate) => candidate.length > 0);
+  const needsDeclarationChoice = needsDeclaration && candidates.length > 1;
   const candidateMatchesOtherChoices = (
     candidate: { cardId: string; suit: Suit; rank: Rank }[],
     ownCardId: string,
@@ -69,12 +84,14 @@ export function PlayDialog({
       );
     });
   const chosenCandidate = needsDeclaration
-    ? candidates.find((candidate) =>
-        candidate.every((declaration) => {
-          const chosen = mimics[declaration.cardId];
-          return chosen?.suit === declaration.suit && chosen.rank === declaration.rank;
-        }),
-      )
+    ? candidates.length === 1
+      ? candidates[0]
+      : candidates.find((candidate) =>
+          candidate.every((declaration) => {
+            const chosen = mimics[declaration.cardId];
+            return chosen?.suit === declaration.suit && chosen.rank === declaration.rank;
+          }),
+        )
     : [];
   const ready = !needsDeclaration || Boolean(chosenCandidate);
   useEffect(() => {
@@ -127,7 +144,7 @@ export function PlayDialog({
         {cards.some((card) => card.visibility === "hidden") && (
           <p className="danger-note">中身が場に対して不正なら即失格になります。</p>
         )}
-        {needsDeclaration && (
+        {needsDeclarationChoice && (
           <div>
             {jokers.map((joker, index) => (
               <fieldset key={joker.id}>
@@ -284,6 +301,85 @@ function ChatPanel({ room, sendChat }: { room: RoomView; sendChat: (message: str
   );
 }
 
+export function DirectEffectControls({
+  effect,
+  room,
+  selectedIds,
+  targets,
+  pendingGiveCardId,
+  busy,
+  chooseTarget,
+  clear,
+  confirm,
+}: {
+  effect: PendingEffectView;
+  room: RoomView;
+  selectedIds: string[];
+  targets: Record<string, string>;
+  pendingGiveCardId?: string | undefined;
+  busy: boolean;
+  chooseTarget: (playerId: string) => void;
+  clear: () => void;
+  confirm: () => void;
+}) {
+  const title = {
+    steal: "A奪い",
+    give: "7渡し",
+    discard: "10捨て",
+    collect: "K回収",
+    bomber: "Qボンバー",
+    clearField: "場流し",
+  }[effect.kind];
+  const assigned = selectedIds.every((cardId) => Boolean(targets[cardId]));
+  const ready =
+    selectedIds.length === effect.requiredCount &&
+    (!effect.kind.match(/^(steal|give)$/) || assigned);
+  const guidance =
+    effect.kind === "steal"
+      ? "相手の席にある裏向きのカードを直接タップ"
+      : effect.kind === "collect"
+        ? "手前に広げた回収札を直接タップ"
+        : effect.kind === "discard"
+          ? "捨てる手札を直接タップ"
+          : pendingGiveCardId
+            ? "渡す相手のキャラクターを直接タップ"
+            : "渡す手札をタップしてから、相手のキャラクターをタップ";
+  const targetPlayers = room.players.filter(
+    (player) =>
+      player.id !== room.viewerId &&
+      player.status === "active" &&
+      (!effect.eligiblePlayerIds || effect.eligiblePlayerIds.includes(player.id)),
+  );
+  return (
+    <section className="direct-effect-controls" aria-labelledby="direct-effect-title">
+      <div>
+        <strong id="direct-effect-title">{title}</strong>
+        <span>{guidance}</span>
+        <output>
+          {selectedIds.length}/{effect.requiredCount}枚
+        </output>
+      </div>
+      {effect.kind === "give" && pendingGiveCardId && (
+        <div className="direct-effect-targets" aria-label="渡す相手">
+          {targetPlayers.map((player) => (
+            <button type="button" key={player.id} onClick={() => chooseTarget(player.id)}>
+              {player.name}へ
+            </button>
+          ))}
+        </div>
+      )}
+      <footer>
+        <button type="button" disabled={!selectedIds.length || busy} onClick={clear}>
+          選び直す
+        </button>
+        <button type="button" className="primary" disabled={!ready || busy} onClick={confirm}>
+          {busy ? "確定中…" : `${title}を確定`}
+        </button>
+      </footer>
+    </section>
+  );
+}
+
 export function GameScreen({
   room,
   connection,
@@ -315,8 +411,12 @@ export function GameScreen({
   const muted = useUiStore((state) => state.soundMuted);
   const [playDialog, setPlayDialog] = useState(false);
   const [moderationOpen, setModerationOpen] = useState(false);
-  const [stealVisual, setStealVisual] = useState<StealVisualState>();
   const [cardMotions, setCardMotions] = useState<CardMotionEvent[]>([]);
+  const [effectCardIds, setEffectCardIds] = useState<string[]>([]);
+  const [effectTargets, setEffectTargets] = useState<Record<string, string>>({});
+  const [pendingGiveCardId, setPendingGiveCardId] = useState<string>();
+  const [spectatorMode, setSpectatorMode] = useState<"follow" | "free">("follow");
+  const autoJokerDeclaration = useRef<string | undefined>(undefined);
   const previousRoom = useRef<RoomView | undefined>(undefined);
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
@@ -328,10 +428,7 @@ export function GameScreen({
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
   const readOnly = room.role === "spectator" || me?.status !== "active";
-  const sortedHand = useMemo(
-    () => sortHandWeakToStrong(room.hand, room.revolution !== room.jackBack),
-    [room.hand, room.jackBack, room.revolution],
-  );
+  const sortedHand = useMemo(() => sortHandWeakToStrong(room.hand), [room.hand]);
   const selectedCards = sortedHand.filter((card) => selectedIds.includes(card.id));
   const selection = useMemo(() => analyzeCardSelection(room, selectedIds), [room, selectedIds]);
   const playableIds = useMemo(
@@ -339,8 +436,9 @@ export function GameScreen({
     [readOnly, room, selectedIds],
   );
   const displayRoom = useMemo(() => {
-    if (room.role === "spectator") return { ...room, hand: sortedHand };
-    const viewerIndex = room.players.findIndex((player) => player.id === room.viewerId);
+    const viewpointId =
+      room.role === "spectator" ? (room.focusedPlayerId ?? room.players[0]?.id) : room.viewerId;
+    const viewerIndex = room.players.findIndex((player) => player.id === viewpointId);
     const players =
       viewerIndex > 0
         ? [...room.players.slice(viewerIndex), ...room.players.slice(0, viewerIndex)]
@@ -356,7 +454,7 @@ export function GameScreen({
       return "ブラインド札は部屋ホストが中身を検証します";
     if (
       selectedCards.some((card) => card.visibility === "face" && card.joker) &&
-      selection.jokerCandidates.some((candidate) => candidate.length > 0)
+      selection.jokerCandidates.length > 1
     )
       return "確認画面で、場の条件に合うJokerのスートとランクを選べます";
     return "この組み合わせで出せます";
@@ -364,11 +462,54 @@ export function GameScreen({
   const activeEffect = room.pendingEffects.find(
     (effect) => effect.actorId === room.viewerId && effect.kind !== "clearField",
   );
-  const stealEffect = room.pendingEffects.find((effect) => effect.kind === "steal");
+  const directEffect =
+    activeEffect && ["steal", "give", "discard", "collect"].includes(activeEffect.kind)
+      ? (activeEffect as PendingEffectView & {
+          kind: "steal" | "give" | "discard" | "collect";
+        })
+      : undefined;
+  const effectSelectableIds = useMemo(
+    () => new Set(directEffect?.eligibleCardIds ?? []),
+    [directEffect?.eligibleCardIds],
+  );
+  const effectTargetPlayerIds = useMemo(
+    () => new Set(directEffect?.eligiblePlayerIds ?? []),
+    [directEffect?.eligiblePlayerIds],
+  );
+  const effectEligibleCards = useMemo(() => {
+    if (!directEffect) return [];
+    const source =
+      directEffect.kind === "collect"
+        ? room.discard
+        : directEffect.kind === "steal"
+          ? room.players
+              .filter((player) => player.id !== room.viewerId)
+              .flatMap((player) => player.cards ?? [])
+          : room.hand;
+    return source.filter((card) => effectSelectableIds.has(card.id));
+  }, [directEffect, effectSelectableIds, room.discard, room.hand, room.players, room.viewerId]);
   const payloadBase = useMemo(
     () => ({ roomId: room.roomId, gameId: room.gameId, expectedRevision: room.revision }),
     [room.gameId, room.revision, room.roomId],
   );
+  useEffect(() => {
+    setEffectCardIds([]);
+    setEffectTargets({});
+    setPendingGiveCardId(undefined);
+    if (directEffect) clearSelection();
+  }, [clearSelection, directEffect?.id]);
+  useEffect(() => {
+    const pending = room.pendingJokerMimic;
+    if (!pending || pending.candidates.length !== 1 || busy) return;
+    const key = `${room.revision}:${pending.cardIds.join(",")}`;
+    if (autoJokerDeclaration.current === key) return;
+    autoJokerDeclaration.current = key;
+    void command("declareJokerMimic", {
+      ...payloadBase,
+      mimics: pending.candidates[0],
+      blindConfirmed: true,
+    });
+  }, [busy, command, payloadBase, room.pendingJokerMimic, room.revision]);
   const openPlay = () => {
     if (!selection.complete || !myTurn || readOnly) return;
     setPlayDialog(true);
@@ -376,6 +517,33 @@ export function GameScreen({
   const selectCard = (card: CardView) => {
     primeFeedback(muted);
     toggleCard(card);
+    feedback("select", muted);
+  };
+  const toggleEffectCard = (card: CardView, ownerId?: string) => {
+    if (!directEffect || !effectSelectableIds.has(card.id)) return;
+    primeFeedback(muted);
+    if (effectCardIds.includes(card.id)) {
+      setEffectCardIds((ids) => ids.filter((id) => id !== card.id));
+      setEffectTargets((targets) => {
+        const next = { ...targets };
+        delete next[card.id];
+        return next;
+      });
+      if (pendingGiveCardId === card.id) setPendingGiveCardId(undefined);
+    } else if (effectCardIds.length < directEffect.requiredCount) {
+      setEffectCardIds((ids) => [...ids, card.id]);
+      if (directEffect.kind === "steal" && ownerId) {
+        setEffectTargets((targets) => ({ ...targets, [card.id]: ownerId }));
+      }
+      if (directEffect.kind === "give") setPendingGiveCardId(card.id);
+    }
+    feedback("select", muted);
+  };
+  const chooseEffectTarget = (playerId: string) => {
+    if (directEffect?.kind !== "give" || !pendingGiveCardId || !effectTargetPlayerIds.has(playerId))
+      return;
+    setEffectTargets((targets) => ({ ...targets, [pendingGiveCardId]: playerId }));
+    setPendingGiveCardId(undefined);
     feedback("select", muted);
   };
   const previousTurn = useRef(room.currentPlayerId);
@@ -436,14 +604,36 @@ export function GameScreen({
       { ...payloadBase, ...payload },
     );
   };
+  const confirmDirectEffect = () => {
+    if (!directEffect || effectCardIds.length !== directEffect.requiredCount) return;
+    const payload =
+      directEffect.kind === "steal"
+        ? {
+            selections: effectCardIds.map((cardId) => ({
+              targetUid: effectTargets[cardId],
+              cardId,
+            })),
+          }
+        : directEffect.kind === "give"
+          ? {
+              transfers: effectCardIds.map((cardId) => ({
+                targetUid: effectTargets[cardId],
+                cardId,
+              })),
+            }
+          : { cardIds: effectCardIds };
+    void resolveEffect(directEffect, payload);
+  };
   return (
     <main id="main" className={`game-screen ${room.role}`}>
       <div className="game-world">
         <SalonScene
           room={displayRoom}
-          selectedIds={selectedIds}
-          playableIds={playableIds}
-          onToggleCard={readOnly ? undefined : selectCard}
+          selectedIds={directEffect ? effectCardIds : selectedIds}
+          playableIds={directEffect ? effectSelectableIds : playableIds}
+          onToggleCard={
+            readOnly ? undefined : directEffect ? (card) => toggleEffectCard(card) : selectCard
+          }
           lowPower={lowPower}
           reducedMotion={reducedMotion}
           dealing={dealing}
@@ -451,7 +641,20 @@ export function GameScreen({
           onCardMotionDone={(id) =>
             setCardMotions((motions) => motions.filter((motion) => motion.id !== id))
           }
-          stealVisual={stealVisual}
+          spectatorMode={spectatorMode}
+          effectInteraction={
+            directEffect
+              ? {
+                  kind: directEffect.kind,
+                  selectedIds: new Set(effectCardIds),
+                  selectableIds: effectSelectableIds,
+                  targetPlayerIds: effectTargetPlayerIds,
+                  pendingGiveCardId,
+                }
+              : undefined
+          }
+          onEffectCardSelect={toggleEffectCard}
+          onEffectPlayerSelect={chooseEffectTarget}
         />
       </div>
       <header className="game-topbar">
@@ -558,8 +761,24 @@ export function GameScreen({
       </aside>
       {room.role === "spectator" && (
         <section className="spectator-controls" aria-label="観戦するプレイヤー">
-          <strong>観戦中</strong>
-          <div>
+          <strong>{spectatorMode === "follow" ? "プレイヤー視点" : "自由観戦"}</strong>
+          <div className="spectator-modes">
+            <button
+              type="button"
+              aria-pressed={spectatorMode === "follow"}
+              onClick={() => setSpectatorMode("follow")}
+            >
+              憑依
+            </button>
+            <button
+              type="button"
+              aria-pressed={spectatorMode === "free"}
+              onClick={() => setSpectatorMode("free")}
+            >
+              自由移動
+            </button>
+          </div>
+          <div className={spectatorMode === "free" ? "spectator-focus hidden" : "spectator-focus"}>
             {room.players.map((player) => (
               <button
                 type="button"
@@ -622,7 +841,7 @@ export function GameScreen({
           </button>
         </section>
       )}
-      {!readOnly && !dealing && (
+      {!readOnly && !dealing && !directEffect && (
         <div className="play-controls">
           <p id="play-reason" className="control-reason">
             {!myTurn ? "あなたの手番ではありません" : selectionHint}
@@ -645,32 +864,65 @@ export function GameScreen({
           </button>
         </div>
       )}
-      {!dealing && (
+      {!dealing && !directEffect && !(room.role === "spectator" && spectatorMode === "free") && (
         <AccessibleHand
           cards={sortedHand}
           selectedIds={selectedIds}
           playableIds={playableIds}
           onToggle={readOnly ? () => undefined : selectCard}
           onSubmit={openPlay}
+          readOnly={readOnly}
+          label={
+            room.role === "spectator"
+              ? `${room.players.find((player) => player.id === room.focusedPlayerId)?.name ?? room.players[0]?.name ?? "プレイヤー"}を観戦中の手札 ${sortedHand.length}枚`
+              : undefined
+          }
         />
       )}
-      {activeEffect && activeEffect.kind !== "steal" && (
+      {!dealing && directEffect && (
+        <AccessibleHand
+          cards={effectEligibleCards}
+          selectedIds={effectCardIds}
+          playableIds={effectSelectableIds}
+          onToggle={(card) => {
+            const owner =
+              directEffect.kind === "steal"
+                ? room.players.find((player) => player.cards?.some((item) => item.id === card.id))
+                    ?.id
+                : undefined;
+            toggleEffectCard(card, owner);
+          }}
+          onSubmit={confirmDirectEffect}
+        />
+      )}
+      {directEffect && (
+        <DirectEffectControls
+          effect={directEffect}
+          room={room}
+          selectedIds={effectCardIds}
+          targets={effectTargets}
+          pendingGiveCardId={pendingGiveCardId}
+          busy={busy}
+          chooseTarget={chooseEffectTarget}
+          clear={() => {
+            setEffectCardIds([]);
+            setEffectTargets({});
+            setPendingGiveCardId(undefined);
+          }}
+          confirm={confirmDirectEffect}
+        />
+      )}
+      {activeEffect?.kind === "bomber" && (
         <EffectPanel effect={activeEffect} room={room} busy={busy} resolve={resolveEffect} />
       )}
-      {stealEffect && (
-        <StealSequence
-          effect={stealEffect}
-          room={room}
-          busy={busy}
-          lowPower={lowPower}
-          reducedMotion={reducedMotion}
-          lastCue={peerCues.lastCue}
-          sendCue={peerCues.send}
-          resolve={(payload) => resolveEffect(stealEffect, payload)}
-          onVisual={setStealVisual}
-        />
+      {room.pendingEffects[0] && room.pendingEffects[0].actorId !== room.viewerId && (
+        <p className="effect-observer-status" role="status">
+          {room.players.find((player) => player.id === room.pendingEffects[0]?.actorId)?.name ??
+            "プレイヤー"}
+          が効果を処理しています
+        </p>
       )}
-      {room.pendingJokerMimic && (
+      {room.pendingJokerMimic && room.pendingJokerMimic.candidates.length > 1 && (
         <JokerDeclarationPanel
           pending={room.pendingJokerMimic}
           busy={busy}

@@ -26,12 +26,16 @@ export function AccessibleHand({
   onToggle,
   onSubmit,
   playableIds,
+  label,
+  readOnly = false,
 }: {
   cards: CardView[];
   selectedIds: string[];
   onToggle: (card: CardView) => void;
   onSubmit: () => void;
   playableIds?: ReadonlySet<string> | undefined;
+  label?: string | undefined;
+  readOnly?: boolean | undefined;
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => {
@@ -42,7 +46,12 @@ export function AccessibleHand({
       <h2 id="hand-title" className="sr-only">
         手札
       </h2>
-      <div role="listbox" aria-multiselectable="true" aria-label={`手札 ${cards.length}枚`}>
+      <div
+        role="listbox"
+        aria-multiselectable={!readOnly}
+        aria-readonly={readOnly}
+        aria-label={label ?? `手札 ${cards.length}枚`}
+      >
         {cards.map((card, index) => {
           const selected = selectedIds.includes(card.id);
           const playable = selected || !playableIds || playableIds.has(card.id);
@@ -52,13 +61,13 @@ export function AccessibleHand({
               type="button"
               role="option"
               aria-selected={selected}
-              aria-disabled={!playable}
+              aria-disabled={readOnly || !playable}
               data-playable={playable}
               aria-label={cardLabel(card, index, selected, playable)}
               ref={(node) => {
                 refs.current[index] = node;
               }}
-              onClick={() => playable && onToggle(card)}
+              onClick={() => !readOnly && playable && onToggle(card)}
               onKeyDown={(event) => {
                 if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
                   event.preventDefault();
@@ -67,11 +76,11 @@ export function AccessibleHand({
                 }
                 if (event.key === " ") {
                   event.preventDefault();
-                  if (playable) onToggle(card);
+                  if (!readOnly && playable) onToggle(card);
                 }
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  onSubmit();
+                  if (!readOnly) onSubmit();
                 }
               }}
             >

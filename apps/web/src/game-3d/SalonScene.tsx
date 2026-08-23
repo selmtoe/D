@@ -17,6 +17,14 @@ import type { CardMotionEvent } from "./cardMotion";
 import { StealVisualLayer } from "./StealVisualLayer";
 import type { StealVisualState } from "../screens/StealSequence";
 
+export interface TableEffectInteraction {
+  kind: "steal" | "give" | "discard" | "collect";
+  selectedIds: ReadonlySet<string>;
+  selectableIds: ReadonlySet<string>;
+  targetPlayerIds: ReadonlySet<string>;
+  pendingGiveCardId?: string | undefined;
+}
+
 function FrameScheduler({ fps }: { fps: number }) {
   const invalidate = useThree((state) => state.invalidate);
   useEffect(() => {
@@ -72,7 +80,7 @@ function CameraRig({
     }
     const angle = spectator && playerCount > 0 ? targetAngle : Math.PI / 2;
     return {
-      y: spectator ? 8.2 : mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
+      y: mobile ? (keyboardOpen ? 8.1 : 7.3) : 6.4,
       x: Math.cos(angle) * radius,
       z: Math.sin(angle) * radius,
       lookX: 0,
@@ -81,7 +89,7 @@ function CameraRig({
     };
   }, [actorIndex, effectPerspective, focusIndex, keyboardOpen, mobile, playerCount, spectator]);
   useEffect(() => {
-    camera.fov = mobile ? (keyboardOpen ? 58 : 51) : spectator ? 47 : 45;
+    camera.fov = mobile ? (keyboardOpen ? 58 : 51) : 45;
     camera.updateProjectionMatrix();
   }, [camera, keyboardOpen, mobile, spectator]);
   useFrame((_, delta) => {
@@ -90,6 +98,148 @@ function CameraRig({
     camera.position.x = MathUtils.lerp(camera.position.x, target.x, factor);
     camera.position.z = MathUtils.lerp(camera.position.z, target.z, factor);
     camera.lookAt(target.lookX, target.lookY, target.lookZ);
+  });
+  return null;
+}
+
+type FreeRoamInput = { forward: number; strafe: number; turn: number };
+
+function FreeRoamCamera({
+  mobileInput,
+  playerCount,
+  mobile,
+}: {
+  mobileInput: FreeRoamInput;
+  playerCount: number;
+  mobile: boolean;
+}) {
+  const camera = useThree((state) => state.camera) as PerspectiveCamera;
+  const gl = useThree((state) => state.gl);
+  const keys = useRef(new Set<string>());
+  const yaw = useRef(0);
+  const pitch = useRef(-0.08);
+  const dragging = useRef(false);
+  const pointer = useRef({ x: 0, y: 0 });
+  const cameraHeight = mobile ? 2.85 : 2.45;
+
+  useEffect(() => {
+    camera.position.set(0, cameraHeight, mobile ? 8.85 : 8.05);
+    camera.fov = 68;
+    camera.updateProjectionMatrix();
+    const down = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, button") || target?.isContentEditable) return;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
+        event.preventDefault();
+      }
+      keys.current.add(event.code);
+    };
+    const up = (event: KeyboardEvent) => keys.current.delete(event.code);
+    const canvas = gl.domElement;
+    const pointerDown = (event: PointerEvent) => {
+      dragging.current = true;
+      pointer.current = { x: event.clientX, y: event.clientY };
+      canvas.setPointerCapture(event.pointerId);
+    };
+    const pointerMove = (event: PointerEvent) => {
+      if (!dragging.current) return;
+      yaw.current -= (event.clientX - pointer.current.x) * 0.004;
+      pitch.current = MathUtils.clamp(
+        pitch.current - (event.clientY - pointer.current.y) * 0.003,
+        -0.9,
+        0.72,
+      );
+      pointer.current = { x: event.clientX, y: event.clientY };
+    };
+    const pointerUp = (event: PointerEvent) => {
+      dragging.current = false;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    };
+    addEventListener("keydown", down);
+    addEventListener("keyup", up);
+    canvas.addEventListener("pointerdown", pointerDown);
+    canvas.addEventListener("pointermove", pointerMove);
+    canvas.addEventListener("pointerup", pointerUp);
+    canvas.addEventListener("pointercancel", pointerUp);
+    return () => {
+      removeEventListener("keydown", down);
+      removeEventListener("keyup", up);
+      canvas.removeEventListener("pointerdown", pointerDown);
+      canvas.removeEventListener("pointermove", pointerMove);
+      canvas.removeEventListener("pointerup", pointerUp);
+      canvas.removeEventListener("pointercancel", pointerUp);
+      keys.current.clear();
+    };
+  }, [camera, cameraHeight, gl, mobile]);
+
+  useFrame((_, delta) => {
+    const forward =
+      (keys.current.has("KeyW") || keys.current.has("ArrowUp") ? 1 : 0) -
+      (keys.current.has("KeyS") || keys.current.has("ArrowDown") ? 1 : 0) +
+      mobileInput.forward;
+    const strafe =
+      (keys.current.has("KeyD") || keys.current.has("ArrowRight") ? 1 : 0) -
+      (keys.current.has("KeyA") || keys.current.has("ArrowLeft") ? 1 : 0) +
+      mobileInput.strafe;
+    yaw.current += mobileInput.turn * delta * 1.65;
+    const speed = (keys.current.has("ShiftLeft") ? 5.2 : 2.8) * Math.min(delta, 0.05);
+    let nextX =
+      camera.position.x +
+      (Math.sin(yaw.current) * forward + Math.cos(yaw.current) * strafe) * speed;
+    let nextZ =
+      camera.position.z +
+      (-Math.cos(yaw.current) * forward + Math.sin(yaw.current) * strafe) * speed;
+    const xLimit = 6.55;
+    const zMinimum = -7.35;
+    const zMaximum = mobile ? 9.5 : 8.6;
+    nextX = MathUtils.clamp(nextX, -xLimit, xLimit);
+    nextZ = MathUtils.clamp(nextZ, zMinimum, zMaximum);
+    const radius = Math.hypot(nextX, nextZ);
+    if (radius < 5.28) {
+      const angle = radius > 0.01 ? Math.atan2(nextZ, nextX) : Math.PI / 2;
+      nextX = Math.cos(angle) * 5.28;
+      nextZ = Math.sin(angle) * 5.28;
+    }
+    for (let index = 0; index < playerCount; index += 1) {
+      const angle = (index / playerCount) * Math.PI * 2 + Math.PI / 2;
+      const seatX = Math.cos(angle) * 5.45;
+      const seatZ = Math.sin(angle) * 5.45;
+      const dx = nextX - seatX;
+      const dz = nextZ - seatZ;
+      const distance = Math.hypot(dx, dz);
+      const clearance = mobile ? 3.4 : 2.65;
+      if (distance >= clearance) continue;
+      const pushAngle = distance > 0.01 ? Math.atan2(dz, dx) : angle;
+      const candidates = [pushAngle, angle + Math.PI / 2, angle - Math.PI / 2]
+        .map((candidateAngle) => ({
+          x: seatX + Math.cos(candidateAngle) * clearance,
+          z: seatZ + Math.sin(candidateAngle) * clearance,
+        }))
+        .filter(
+          (candidate) =>
+            Math.abs(candidate.x) <= xLimit &&
+            candidate.z >= zMinimum &&
+            candidate.z <= zMaximum &&
+            Math.hypot(candidate.x, candidate.z) >= 5.28,
+        )
+        .sort(
+          (left, right) =>
+            Math.hypot(left.x - nextX, left.z - nextZ) -
+            Math.hypot(right.x - nextX, right.z - nextZ),
+        );
+      const resolved = candidates[0];
+      if (resolved) {
+        nextX = resolved.x;
+        nextZ = resolved.z;
+      }
+    }
+    camera.position.set(nextX, cameraHeight, nextZ);
+    const horizontal = Math.cos(pitch.current);
+    camera.lookAt(
+      nextX + Math.sin(yaw.current) * horizontal,
+      cameraHeight + Math.sin(pitch.current),
+      nextZ - Math.cos(yaw.current) * horizontal,
+    );
   });
   return null;
 }
@@ -174,30 +324,40 @@ function seats(
   movingToSeats = new Map<string, ReadonlySet<string>>(),
   hiddenCardPlayerId?: string,
   hideViewerAvatar = true,
+  effectInteraction?: TableEffectInteraction,
+  onEffectCardSelect: (card: CardView, ownerId: string) => void = () => undefined,
+  onEffectPlayerSelect: (playerId: string) => void = () => undefined,
 ) {
   return players.map((player, index) => {
     const angle = (index / players.length) * Math.PI * 2 + Math.PI / 2;
     const radius = 5.45;
+    const giveTarget =
+      effectInteraction?.kind === "give" &&
+      Boolean(effectInteraction.pendingGiveCardId) &&
+      effectInteraction.targetPlayerIds.has(player.id);
     return (
       <group
         key={player.id}
         position={[Math.cos(angle) * radius, 0.05, Math.sin(angle) * radius]}
         rotation={[0, -angle - Math.PI / 2, 0]}
+        onPointerDown={(event) => {
+          if (
+            effectInteraction?.kind === "give" &&
+            effectInteraction.pendingGiveCardId &&
+            effectInteraction.targetPlayerIds.has(player.id)
+          ) {
+            event.stopPropagation();
+            onEffectPlayerSelect(player.id);
+          }
+        }}
       >
         {(!hideViewerAvatar || player.id !== viewerId) && (
           <Avatar3D
             profile={player.avatar}
-            active={player.id === currentPlayerId}
+            active={player.id === currentPlayerId || giveTarget}
             lowPower={lowPower}
           />
         )}
-        <mesh position={[0, -0.12, 0]}>
-          <cylinderGeometry args={[0.75, 0.75, 0.09, 48]} />
-          <meshStandardMaterial
-            color={player.id === currentPlayerId ? "#d7b668" : "#24302e"}
-            metalness={0.45}
-          />
-        </mesh>
         {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
           <group position={[0, 0.28, 0.95]}>
             {(player.cards ?? []).map((card, cardIndex) => {
@@ -207,9 +367,23 @@ function seats(
                 <Card3D
                   key={card.id}
                   card={card}
+                  selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
+                  dimmed={
+                    effectInteraction?.kind === "steal" &&
+                    !effectInteraction.selectableIds.has(card.id)
+                  }
                   hidden={movingToSeats.get(player.id)?.has(card.id) ?? false}
-                  position={[centered * spacing, Math.abs(centered) * 0.002, 0]}
-                  scale={0.22}
+                  {...(effectInteraction?.kind === "steal" &&
+                  effectInteraction.selectableIds.has(card.id)
+                    ? { onSelect: () => onEffectCardSelect(card, player.id) }
+                    : {})}
+                  position={[
+                    centered * (effectInteraction?.kind === "steal" ? 0.31 : spacing),
+                    Math.abs(centered) * 0.002,
+                    0,
+                  ]}
+                  scale={effectInteraction?.kind === "steal" ? 0.38 : 0.22}
+                  selectedLift={0.42}
                 />
               );
             })}
@@ -275,16 +449,39 @@ function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {
   });
 }
 
-function discardStack(cards: CardView[], movingToDiscard: ReadonlySet<string>) {
-  const visibleStack = cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
+function discardStack(
+  cards: CardView[],
+  movingToDiscard: ReadonlySet<string>,
+  effectInteraction?: TableEffectInteraction,
+  onEffectCardSelect: (card: CardView) => void = () => undefined,
+) {
+  const collecting = effectInteraction?.kind === "collect";
+  const visibleStack = collecting
+    ? cards.filter((card) => !movingToDiscard.has(card.id))
+    : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
+  const spacing = Math.min(0.54, 7.2 / Math.max(visibleStack.length, 1));
   return visibleStack.map((card, index) => (
     <Card3D
       key={card.id}
       card={card}
-      position={[2.9, 0.15 + index * 0.012, -1.45]}
-      rotation={[-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]}
-      scale={0.62}
-      renderOrder={500 + index}
+      selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
+      dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
+      {...(collecting && effectInteraction.selectableIds.has(card.id)
+        ? { onSelect: () => onEffectCardSelect(card) }
+        : {})}
+      position={
+        collecting
+          ? [(index - (visibleStack.length - 1) / 2) * spacing, 0.34 + index * 0.004, 2.15]
+          : [2.9, 0.15 + index * 0.012, -1.45]
+      }
+      rotation={
+        collecting
+          ? [-Math.PI / 2, 0, (index - (visibleStack.length - 1) / 2) * 0.014]
+          : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
+      }
+      scale={collecting ? 0.68 : 0.62}
+      renderOrder={(collecting ? 700 : 500) + index}
+      selectedLift={0.5}
     />
   ));
 }
@@ -372,6 +569,10 @@ export function SalonScene({
   cardMotions = [],
   onCardMotionDone = () => undefined,
   stealVisual,
+  effectInteraction,
+  onEffectCardSelect = () => undefined,
+  onEffectPlayerSelect = () => undefined,
+  spectatorMode = "follow",
 }: {
   room?: RoomView;
   previewAvatar?: PlayerView["avatar"];
@@ -384,12 +585,21 @@ export function SalonScene({
   cardMotions?: CardMotionEvent[];
   onCardMotionDone?: (id: string) => void;
   stealVisual?: StealVisualState | undefined;
+  effectInteraction?: TableEffectInteraction | undefined;
+  onEffectCardSelect?: ((card: CardView, ownerId?: string) => void) | undefined;
+  onEffectPlayerSelect?: ((playerId: string) => void) | undefined;
+  spectatorMode?: "follow" | "free" | undefined;
 }) {
   const viewport = useVisualViewport();
   const mobile = viewport.width < 600;
   const keyboardOpen = viewport.keyboardInset > 80;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
+  const [freeRoamInput, setFreeRoamInput] = useState<FreeRoamInput>({
+    forward: 0,
+    strafe: 0,
+    turn: 0,
+  });
   const activeCardMotions = cardMotions;
   const movingToHand = useMemo(
     () =>
@@ -477,12 +687,17 @@ export function SalonScene({
           {room
             ? seats(
                 room.players,
-                room.viewerId,
+                room.role === "spectator" && spectatorMode === "follow"
+                  ? (room.focusedPlayerId ?? room.players[0]?.id)
+                  : room.viewerId,
                 room.currentPlayerId,
                 lowPower,
                 movingToSeats,
                 stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
-                room.role !== "spectator",
+                room.role !== "spectator" || spectatorMode === "follow",
+                effectInteraction,
+                onEffectCardSelect,
+                onEffectPlayerSelect,
               )
             : previewAvatar && (
                 <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
@@ -491,9 +706,13 @@ export function SalonScene({
               )}
           {!dealing &&
             fieldCards(room?.fieldPlays ?? (room?.field.length ? [room.field] : []), movingToField)}
-          {!dealing && discardStack(room?.discard ?? [], movingToDiscard)}
+          {!dealing &&
+            discardStack(room?.discard ?? [], movingToDiscard, effectInteraction, (card) =>
+              onEffectCardSelect(card),
+            )}
           {room &&
             !dealing &&
+            !(room.role === "spectator" && spectatorMode === "free") &&
             handCards(room.hand, selectedIds, playableIds, onToggleCard, mobile, movingToHand)}
           {room && dealing && <DealingSequence playerCount={room.players.length} />}
           {room && (
@@ -521,25 +740,62 @@ export function SalonScene({
             </Environment>
           )}
         </Suspense>
-        <CameraRig
-          spectator={room?.role === "spectator"}
-          mobile={mobile}
-          reducedMotion={reducedMotion}
-          focusIndex={Math.max(
-            0,
-            room?.players.findIndex(
-              (player) => player.id === (stealVisual?.targetPlayerId ?? room.focusedPlayerId),
-            ) ?? 0,
-          )}
-          playerCount={room?.players.length ?? 0}
-          keyboardOpen={keyboardOpen}
-          effectPerspective={stealVisual?.perspective}
-          actorIndex={Math.max(
-            0,
-            room?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
-          )}
-        />
+        {room?.role === "spectator" && spectatorMode === "free" ? (
+          <FreeRoamCamera
+            mobileInput={freeRoamInput}
+            playerCount={room.players.length}
+            mobile={mobile}
+          />
+        ) : (
+          <CameraRig
+            spectator={room?.role === "spectator"}
+            mobile={mobile}
+            reducedMotion={reducedMotion}
+            focusIndex={Math.max(
+              0,
+              room?.players.findIndex(
+                (player) => player.id === (stealVisual?.targetPlayerId ?? room.focusedPlayerId),
+              ) ?? 0,
+            )}
+            playerCount={room?.players.length ?? 0}
+            keyboardOpen={keyboardOpen}
+            effectPerspective={stealVisual?.perspective}
+            actorIndex={Math.max(
+              0,
+              room?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
+            )}
+          />
+        )}
       </Canvas>
+      {room?.role === "spectator" && spectatorMode === "free" && (
+        <div className="free-roam-controls" aria-label="自由観戦の移動操作">
+          <p>{mobile ? "ボタンで移動・画面ドラッグで視点" : "WASD／矢印で移動・ドラッグで視点"}</p>
+          <div>
+            {[
+              ["↶", { turn: -1 }, "左を向く"],
+              ["↑", { forward: 1 }, "前へ進む"],
+              ["↷", { turn: 1 }, "右を向く"],
+              ["←", { strafe: -1 }, "左へ移動"],
+              ["↓", { forward: -1 }, "後ろへ進む"],
+              ["→", { strafe: 1 }, "右へ移動"],
+            ].map(([label, value, ariaLabel]) => (
+              <button
+                type="button"
+                key={String(ariaLabel)}
+                aria-label={String(ariaLabel)}
+                onPointerDown={() =>
+                  setFreeRoamInput((current) => ({ ...current, ...(value as object) }))
+                }
+                onPointerUp={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
+                onPointerCancel={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
+                onPointerLeave={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
+              >
+                {String(label)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {contextLost && (
         <p className="webgl-recovery" role="status">
           3D表示を復旧しています。カードは下の操作一覧から選べます。

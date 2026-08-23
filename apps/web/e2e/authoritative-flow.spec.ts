@@ -145,7 +145,7 @@ test.describe("browser-injected authoritative room transport", () => {
 
       await openSalon(spectator.page, "観戦者");
       await joinByCode(spectator.page, authority.roomId, "spectator");
-      await expect(spectator.page.getByText("観戦中", { exact: true })).toBeVisible();
+      await expect(spectator.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
       await expect(spectator.page.getByRole("button", { name: "パス" })).toHaveCount(0);
       const spectatorLabels = await spectator.page
         .getByRole("listbox", { name: /手札/ })
@@ -154,6 +154,12 @@ test.describe("browser-injected authoritative room transport", () => {
       expect(spectatorLabels).toHaveLength(3);
       expect(spectatorLabels.every((label) => !label.includes("中身は非公開"))).toBe(true);
       expect(spectatorLabels.some((label) => label.includes("ブラインド札"))).toBe(true);
+      const freeMode = spectator.page.getByRole("button", { name: "自由移動" });
+      await freeMode.click();
+      await expect(freeMode).toHaveAttribute("aria-pressed", "true");
+      await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
+      await spectator.page.getByRole("button", { name: "憑依" }).click();
+      await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
 
       authority.pauseViewer("uid-spectator");
       authority.bumpRevision();
@@ -175,19 +181,16 @@ test.describe("browser-injected authoritative room transport", () => {
       await playCard(player3.page, /ハートA/);
       const effect = player3.page.getByRole("region", { name: "A奪い" });
       await expect(effect).toBeVisible();
-      await effect.getByRole("button", { name: "プレイヤー2から奪う枚数を増やす" }).click();
-      await effect.getByRole("button", { name: "この配分で位置を選ぶ" }).click();
-      await effect.getByRole("option", { name: /1番目/ }).click();
+      await player3.page.getByRole("option").click();
       if (capturePerspective === "actor" || capturePerspective === "1") {
         await player3.page.waitForTimeout(900);
         await player3.page.screenshot({ path: testInfo.outputPath("a-steal-actor-view.png") });
       }
       if (capturePerspective === "victim") {
-        await expect(player2.page.getByRole("heading", { name: "相手が札を選択中" })).toBeVisible();
+        await expect(player2.page.getByText(/プレイヤー3が効果を処理しています/)).toBeVisible();
         await player2.page.waitForTimeout(900);
         await player2.page.screenshot({ path: testInfo.outputPath("a-steal-victim-view.png") });
       }
-      await effect.getByRole("button", { name: "選択内容を確認" }).click();
       await effect.getByRole("button", { name: "A奪いを確定" }).click();
       await expect(effect).toBeHidden();
       await expectTurn(host.page, "ホスト");

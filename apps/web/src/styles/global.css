@@ -821,12 +821,49 @@ h2 {
   gap: 0.3rem;
   overflow-x: auto;
 }
+.spectator-controls .spectator-modes {
+  flex: 0 0 auto;
+  padding-right: 0.5rem;
+  border-right: 1px solid var(--line);
+}
+.spectator-controls .spectator-focus.hidden {
+  display: none;
+}
 .spectator-controls button {
   white-space: nowrap;
 }
 .spectator-controls button[aria-pressed="true"] {
   background: #d7b668;
   color: #14201c;
+}
+.free-roam-controls {
+  position: absolute;
+  z-index: 7;
+  right: max(0.65rem, env(safe-area-inset-right));
+  bottom: max(0.65rem, env(safe-area-inset-bottom));
+  width: 168px;
+  padding: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(5, 18, 16, 0.86);
+  backdrop-filter: blur(8px);
+}
+.free-roam-controls p {
+  margin: 0 0 0.35rem;
+  color: #c3cec7;
+  font-size: 0.6rem;
+  text-align: center;
+}
+.free-roam-controls > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+}
+.free-roam-controls button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  touch-action: none;
 }
 .emote-controls {
   position: absolute;
@@ -1012,6 +1049,61 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(5, 18, 16, 0.96);
+}
+.direct-effect-controls {
+  position: absolute;
+  z-index: 12;
+  left: 50%;
+  bottom: max(72px, calc(env(safe-area-inset-bottom) + 62px));
+  width: min(760px, calc(100% - 1rem));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(244, 212, 127, 0.48);
+  border-radius: 16px;
+  background: rgba(5, 18, 16, 0.9);
+  box-shadow: 0 15px 45px #0009;
+  backdrop-filter: blur(10px);
+}
+.direct-effect-controls > div:first-child {
+  display: grid;
+  min-width: 150px;
+}
+.direct-effect-controls strong {
+  color: var(--brass-light);
+}
+.direct-effect-controls span,
+.direct-effect-controls output {
+  font-size: 0.7rem;
+}
+.direct-effect-controls output {
+  color: #cbd5ce;
+}
+.direct-effect-targets {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+.direct-effect-controls footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.35rem;
+}
+.effect-observer-status {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(5, 18, 16, 0.88);
+  font-size: 0.72rem;
 }
 .effect-cards,
 .rank-grid {
@@ -1820,6 +1912,10 @@ h2 {
     transform: none;
     display: grid;
   }
+  .spectator-controls .spectator-modes {
+    padding-right: 0;
+    border-right: 0;
+  }
   .spectator-controls strong {
     font-size: 0.72rem;
   }
@@ -1827,7 +1923,11 @@ h2 {
     padding-inline: 0.65rem;
   }
   .game-screen.spectator .emote-controls {
-    top: 170px;
+    z-index: 6;
+    top: 220px;
+  }
+  .game-screen.spectator .emote-controls span {
+    display: none;
   }
   .play-controls {
     bottom: max(66px, calc(env(safe-area-inset-bottom) + 60px));
@@ -1850,6 +1950,27 @@ h2 {
     bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
     width: auto;
     max-height: 58vh;
+  }
+  .direct-effect-controls {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: calc(env(safe-area-inset-bottom) + 60px);
+    width: auto;
+    transform: none;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .direct-effect-controls > div:first-child {
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .direct-effect-controls footer > button {
+    flex: 1;
+  }
+  .free-roam-controls {
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
   .steal-panel {
     left: 0.5rem;

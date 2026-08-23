@@ -658,10 +658,12 @@ export class SparkAuthority {
       if (requiresMimic && !Array.isArray(payload.mimics)) {
         commandError("invalid-argument", "Joker宣言の形式が不正です");
       }
-      const sentMimics = (Array.isArray(payload.mimics) ? payload.mimics : []) as JokerMimic[];
+      let sentMimics = (Array.isArray(payload.mimics) ? payload.mimics : []) as JokerMimic[];
       if (requiresMimic && sentMimics.length === 0) {
         const candidates = findLegalJokerMimics(game, uid, cardIds);
-        if (candidates.length > 0) {
+        if (candidates.length === 1) {
+          sentMimics = candidates[0]!;
+        } else if (candidates.length > 1) {
           const mimicResponse = {
             requiresJokerMimic: true,
             candidateCount: candidates.length,

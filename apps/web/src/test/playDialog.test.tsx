@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CardView, Suit } from "../app/model";
 import { PlayDialog } from "../screens/GameScreen";
+
+afterEach(cleanup);
 
 describe("play confirmation dialog", () => {
   it("lets the player choose a legal Joker suit and rank", () => {
@@ -34,5 +36,28 @@ describe("play confirmation dialog", () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     expect(submit).toHaveBeenCalledWith([{ cardId: "joker", suit: "club", rank: "7" }]);
+  });
+
+  it("prepares a unique Joker declaration without showing redundant controls", () => {
+    const cards: CardView[] = [
+      { id: "heart-7", visibility: "face", suit: "heart", rank: "7", blind: false },
+      { id: "joker", visibility: "face", joker: "monochrome", blind: false },
+    ];
+    const submit = vi.fn();
+    render(
+      <PlayDialog
+        cards={cards}
+        candidates={[[{ cardId: "joker", suit: "spade", rank: "7" }]]}
+        close={() => undefined}
+        submit={submit}
+        busy={false}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Joker 1のスート")).not.toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "この札を出す" });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(submit).toHaveBeenCalledWith([{ cardId: "joker", suit: "spade", rank: "7" }]);
   });
 });

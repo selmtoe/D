@@ -194,9 +194,12 @@ export const submitPlay = onCall(callableOptions, async (request) => {
           uid,
           actual.cardIds,
         );
+        let authoritativeJokerMimics = actual.jokerMimics;
         if (requiresBlindJokerMimic) {
           const candidates = legalJokerMimicCandidates(original.game, uid, actual.cardIds);
-          if (candidates.length > 0) {
+          if (candidates.length === 1) {
+            authoritativeJokerMimics = candidates[0]!;
+          } else if (candidates.length > 1) {
             const room = cloneRoom(original);
             room.pendingMimic = {
               actorUid: uid,
@@ -221,8 +224,9 @@ export const submitPlay = onCall(callableOptions, async (request) => {
           {
             type: "play",
             cardIds: actual.cardIds,
-            // A mixed blind Joker must pass through the committed reveal stage.
-            jokerMimics: requiresBlindJokerMimic ? [] : actual.jokerMimics,
+            // A unique authoritative declaration is applied immediately; only
+            // genuinely ambiguous blind Jokers enter the committed reveal stage.
+            jokerMimics: requiresBlindJokerMimic ? authoritativeJokerMimics : actual.jokerMimics,
             blindConfirmed: input.blindConfirmed,
             actionId: input.clientActionId,
             expectedVersion: original.game.version,

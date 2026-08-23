@@ -62,7 +62,7 @@ function beginPendingMimic(authority: SparkAuthority, actionId: string) {
       clientActionId: actionId,
       expectedRevision: authority.exportSnapshot().revision,
       gameId: authority.exportSnapshot().game!.id,
-      cardIds: ["spade-6", "joker-1", "spade-8"],
+      cardIds: ["spade-6", "joker-1"],
       mimics: [],
       blindConfirmed: true,
     },
@@ -239,6 +239,7 @@ describe("Spark browser authority", () => {
     ).toThrow(/Joker宣言/);
     expect(authority.project("p1").pendingJokerMimic).toBeDefined();
 
+    const chosen = authority.project("p1").pendingJokerMimic!.candidates[0]!;
     authority.handleCommand(
       "p1",
       "declareJokerMimic",
@@ -246,12 +247,39 @@ describe("Spark browser authority", () => {
         clientActionId: "valid-declaration",
         expectedRevision: authority.exportSnapshot().revision,
         gameId: authority.exportSnapshot().game!.id,
-        mimics: [{ cardId: "joker-1", suit: "spade", rank: "7" }],
+        mimics: chosen,
       },
       2_201,
     );
     expect(authority.project("p1").pendingJokerMimic).toBeUndefined();
+    // A pair of sixes triggers rokurokubi and moves both cards to discard.
+    expect(authority.exportSnapshot().game?.pile).toBeNull();
+    expect(authority.exportSnapshot().game?.discard).toHaveLength(2);
+  });
+
+  it("applies a uniquely determined blind Joker without opening a declaration step", () => {
+    const authority = pendingBlindJokerAuthority();
+    const result = authority.handleCommand(
+      "p1",
+      "submitPlay",
+      {
+        clientActionId: "unique-blind-joker",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game!.id,
+        cardIds: ["spade-6", "joker-1", "spade-8"],
+        mimics: [],
+        blindConfirmed: true,
+      },
+      2_100,
+    );
+
+    expect(result).toEqual({});
+    expect(authority.project("p1").pendingJokerMimic).toBeUndefined();
     expect(authority.exportSnapshot().game?.pile?.cards).toHaveLength(3);
+    expect(
+      authority.exportSnapshot().game?.pile?.cards.find((entry) => entry.card.id === "joker-1")
+        ?.mimic,
+    ).toEqual({ cardId: "joker-1", suit: "spade", rank: "7" });
   });
 
   it("resolves a pending blind Joker declaration deterministically on timeout", () => {
@@ -260,10 +288,8 @@ describe("Spark browser authority", () => {
     expect(authority.timeoutCurrent(62_101)).toBe(true);
     const snapshot = authority.exportSnapshot();
     expect(snapshot.pendingMimic).toBeUndefined();
-    expect(snapshot.game?.pile?.cards).toHaveLength(3);
-    expect(
-      snapshot.game?.pile?.cards.find((entry) => entry.card.id === "joker-1")?.mimic,
-    ).toMatchObject({ suit: "spade", rank: "7" });
+    expect(snapshot.game?.pile).toBeNull();
+    expect(snapshot.game?.discard.map((card) => card.id)).toContain("joker-1");
   });
 
   it("hands coordinator ownership to the oldest online member on explicit leave", () => {
