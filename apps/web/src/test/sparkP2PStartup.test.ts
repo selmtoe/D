@@ -33,12 +33,14 @@ type StartupInternals = {
   connectToCoordinator(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
+  tick(): Promise<void>;
   enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
   persistAndBroadcast(): Promise<void>;
   sendWire(targetUid: string, targetPeerId: string, wire: unknown): Promise<void>;
   authority?: SparkAuthority;
   coordinatorUid: string;
   coordinatorPeerId: string;
+  directory?: { heartbeatAtMs: number };
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
   mode: "webrtc" | "firebase" | "offline";
 };
@@ -51,7 +53,10 @@ type SparkSessionConstructor = new (options: {
 }) => SparkP2PSession;
 
 describe("Spark P2P startup cleanup", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   test("stops a partially started session when its handshake fails", async () => {
     firestore.getDoc.mockResolvedValueOnce({
@@ -272,6 +277,33 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(internals.mode).toBe("offline");
     await session.stop(false);
+  });
+
+  test("periodically retries a dropped coordinator data channel", async () => {
+    vi.stubGlobal("RTCPeerConnection", class {});
+    const now = vi.spyOn(Date, "now");
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.coordinatorUid = "host";
+    internals.coordinatorPeerId = "host-peer";
+    internals.directory = { heartbeatAtMs: 100_000 };
+    const reconnect = vi.spyOn(internals, "connectToCoordinator").mockResolvedValue();
+
+    now.mockReturnValue(100_000);
+    await internals.tick();
+    now.mockReturnValue(110_000);
+    await internals.tick();
+    expect(reconnect).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(131_000);
+    await internals.tick();
+    expect(reconnect).toHaveBeenCalledTimes(2);
   });
 
   test("demotes an old coordinator after another peer wins the directory lease", async () => {

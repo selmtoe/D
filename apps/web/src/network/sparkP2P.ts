@@ -79,6 +79,7 @@ type PendingRequest = {
 };
 
 const HEARTBEAT_MS = 30_000;
+const PEER_RECONNECT_MS = 30_000;
 const COORDINATOR_STALE_MS = 75_000;
 const MEMBER_OFFLINE_MS = 70_000;
 const DISCONNECT_LIMIT_MS = 120_000;
@@ -297,6 +298,7 @@ export class SparkP2PSession {
   private mode: "webrtc" | "firebase" | "offline" = "firebase";
   private presenceListening = false;
   private presenceWriteQueue: Promise<void> = Promise.resolve();
+  private lastPeerConnectAttemptAt = 0;
 
   private constructor(options: SparkSessionOptions) {
     this.db = options.db;
@@ -597,6 +599,18 @@ export class SparkP2PSession {
     }
     if (this.directory && now - this.directory.heartbeatAtMs > COORDINATOR_STALE_MS) {
       await this.tryCoordinatorElection(now);
+      return;
+    }
+    const coordinatorPeer = this.peers.get(this.coordinatorPeerId);
+    if (
+      typeof RTCPeerConnection !== "undefined" &&
+      this.coordinatorPeerId &&
+      this.coordinatorPeerId !== this.peerId &&
+      coordinatorPeer?.channel?.readyState !== "open" &&
+      now - this.lastPeerConnectAttemptAt >= PEER_RECONNECT_MS
+    ) {
+      this.lastPeerConnectAttemptAt = now;
+      await this.connectToCoordinator();
     }
   }
 
@@ -774,6 +788,7 @@ export class SparkP2PSession {
       this.setMode("firebase");
       return;
     }
+    this.lastPeerConnectAttemptAt = Date.now();
     this.closePeer(this.coordinatorPeerId);
     try {
       const peer = this.createPeer(this.coordinatorUid, this.coordinatorPeerId);
