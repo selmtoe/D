@@ -202,6 +202,10 @@ export default function App() {
         setActiveRoomId(undefined);
         history.replaceState(null, "", location.pathname);
         dispatch({ type: "LEAVE_ROOM" });
+        dispatch({
+          type: "CONNECTION",
+          connection: navigator.onLine ? "connected" : "offline",
+        });
       }
     });
   };

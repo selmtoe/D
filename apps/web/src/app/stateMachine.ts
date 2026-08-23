@@ -72,7 +72,9 @@ export function transition(state: AppState, event: AppEvent): AppState {
     case "EVICTED":
       return {
         phase: "SALON_LOBBY",
-        connection: "offline",
+        // An eviction is itself an authoritative network message. The room
+        // session ended, but the lobby transport is still available.
+        connection: "connected",
         profile: state.profile,
         error: event.message,
       };

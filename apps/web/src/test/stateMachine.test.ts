@@ -107,7 +107,7 @@ describe("application state machine", () => {
       transition(playing, { type: "EVICTED", message: "ホストによりキックされました" }),
     ).toMatchObject({
       phase: "SALON_LOBBY",
-      connection: "offline",
+      connection: "connected",
       error: "ホストによりキックされました",
     });
   });
