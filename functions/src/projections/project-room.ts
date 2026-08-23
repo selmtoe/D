@@ -212,10 +212,14 @@ export function projectRoomForViewer(
     (viewerGamePlayer !== undefined && viewerGamePlayer.status !== "active")
       ? "spectator"
       : "player";
+  const requestedFocus = gamePlayers.find(
+    (player) => player.id === viewer.focusPlayerId && player.status === "active",
+  )?.id;
   const focusedPlayerId =
     effectiveRole === "spectator"
-      ? (viewer.focusPlayerId ??
-        (String(gamePlayers.find((player) => player.status === "active")?.id ?? "") || null))
+      ? String(
+          requestedFocus ?? gamePlayers.find((player) => player.status === "active")?.id ?? "",
+        ) || null
       : viewerUid;
 
   function cardView(card: unknown, forceFace = false): Record<string, unknown> {

@@ -165,7 +165,12 @@ test.describe("rulebook authority contracts", () => {
       ).toBeVisible();
       await expect(hostChatPanel.getByText("一覧観戦者（観戦）", { exact: true })).toBeVisible();
 
+      await spectator.page.getByRole("button", { name: "一覧参加者", exact: true }).click();
+      await expect(spectator.page.getByText("一覧参加者を観戦中", { exact: true })).toBeVisible();
       authority.forceFinish("player-ui", 1);
+      await expect(spectator.page.getByText("公開ホストを観戦中", { exact: true })).toBeVisible();
+      const spectatorFallback = await view(authority, "spectator-ui");
+      expect(spectatorFallback.focusedPlayerId).toBe("host-ui");
       await expect(player.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
       const finishedView = await view(authority, "player-ui");
       expect(finishedView.role).toBe("spectator");

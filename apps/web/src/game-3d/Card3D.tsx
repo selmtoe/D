@@ -1,6 +1,7 @@
 import { RoundedBox } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CanvasTexture, Color, Plane, SRGBColorSpace, Vector3 } from "three";
+import { CanvasTexture, Color, Plane, SRGBColorSpace, Vector3, type Group } from "three";
 import type { CardView } from "../app/model";
 
 const suitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
@@ -9,6 +10,29 @@ type PointerCaptureTarget = EventTarget & {
   hasPointerCapture: (pointerId: number) => boolean;
   releasePointerCapture: (pointerId: number) => void;
 };
+
+function CardProjectionProbe({ dataAttribute }: { dataAttribute: string }) {
+  const marker = useRef<Group>(null);
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  const size = useThree((state) => state.size);
+  const point = useMemo(() => new Vector3(), []);
+  useFrame(() => {
+    if (!marker.current) return;
+    marker.current.getWorldPosition(point).project(camera);
+    gl.domElement.setAttribute(
+      dataAttribute,
+      `${(((point.x + 1) * size.width) / 2).toFixed(2)},${(((1 - point.y) * size.height) / 2).toFixed(2)}`,
+    );
+  });
+  useEffect(
+    () => () => {
+      gl.domElement.removeAttribute(dataAttribute);
+    },
+    [dataAttribute, gl],
+  );
+  return <group ref={marker} />;
+}
 
 function cardTexture(card: CardView, back: boolean): CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -90,6 +114,8 @@ export function Card3D({
   dragPlaneY = 1.15,
   onDragStart,
   onDragEnd,
+  expandedHitArea = false,
+  e2eProjectionAttribute,
 }: {
   card: CardView;
   position?: [number, number, number];
@@ -105,6 +131,8 @@ export function Card3D({
   dragPlaneY?: number;
   onDragStart?: (() => void) | undefined;
   onDragEnd?: ((point: [number, number, number]) => void) | undefined;
+  expandedHitArea?: boolean | undefined;
+  e2eProjectionAttribute?: string | undefined;
 }) {
   const dragging = useRef(false);
   const captureTarget = useRef<PointerCaptureTarget | undefined>(undefined);
@@ -178,6 +206,13 @@ export function Card3D({
         setDragPosition(undefined);
       }}
     >
+      {e2eProjectionAttribute && <CardProjectionProbe dataAttribute={e2eProjectionAttribute} />}
+      {(onDragEnd || (onSelect && expandedHitArea)) && (
+        <mesh position={[0, 0, 0.065]} renderOrder={renderOrder + 1}>
+          <planeGeometry args={onDragEnd ? [1.72, 2.24] : [1.48, 2.32]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+        </mesh>
+      )}
       <RoundedBox
         renderOrder={renderOrder}
         args={[1.22, 1.78, 0.075]}

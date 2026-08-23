@@ -373,6 +373,9 @@ export function GameScreen({
   const myTurn = room.currentPlayerId === room.viewerId;
   const readOnly = room.role === "spectator" || me?.status !== "active";
   const sortedHand = useMemo(() => sortHandWeakToStrong(room.hand), [room.hand]);
+  const spectatorFocusId =
+    room.players.find((player) => player.id === room.focusedPlayerId && player.status === "active")
+      ?.id ?? room.players.find((player) => player.status === "active")?.id;
   const selectedCards = sortedHand.filter((card) => selectedIds.includes(card.id));
   const selection = useMemo(() => analyzeCardSelection(room, selectedIds), [room, selectedIds]);
   const playableIds = useMemo(
@@ -380,15 +383,21 @@ export function GameScreen({
     [readOnly, room, selectedIds],
   );
   const displayRoom = useMemo(() => {
-    const viewpointId =
-      room.role === "spectator" ? (room.focusedPlayerId ?? room.players[0]?.id) : room.viewerId;
+    const viewpointId = room.role === "spectator" ? spectatorFocusId : room.viewerId;
     const viewerIndex = room.players.findIndex((player) => player.id === viewpointId);
     const players =
       viewerIndex > 0
         ? [...room.players.slice(viewerIndex), ...room.players.slice(0, viewerIndex)]
         : room.players;
-    return { ...room, players, hand: sortedHand };
-  }, [room, sortedHand]);
+    return {
+      ...room,
+      players,
+      hand: sortedHand,
+      ...(room.role === "spectator" && spectatorFocusId
+        ? { focusedPlayerId: spectatorFocusId }
+        : {}),
+    };
+  }, [room, sortedHand, spectatorFocusId]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (!selection.completable) return "この組み合わせでは出せません。札を選び直してください";
@@ -586,6 +595,7 @@ export function GameScreen({
           : { cardIds: effectCardIds };
     void resolveEffect(directEffect, payload);
   };
+  const focusedSpectator = room.players.find((player) => player.id === spectatorFocusId);
   return (
     <main id="main" className={`game-screen ${room.role}`}>
       <div className="game-world">
@@ -621,6 +631,7 @@ export function GameScreen({
           onEffectPlayerSelect={chooseEffectTarget}
           onGiveCardDrop={dropGiveCard}
           freeRoamAvatar={localAvatar ?? me?.avatar ?? room.players[0]?.avatar}
+          onExitFreeRoam={() => setSpectatorMode("follow")}
         />
       </div>
       <header className="game-topbar">
@@ -727,7 +738,12 @@ export function GameScreen({
       </aside>
       {room.role === "spectator" && (
         <section className="spectator-controls" aria-label="観戦するプレイヤー">
-          <strong>{spectatorMode === "follow" ? "プレイヤー視点" : "自由観戦"}</strong>
+          <strong>
+            <span>{spectatorMode === "follow" ? "プレイヤー視点" : "自由観戦"}</span>
+            {spectatorMode === "follow" && focusedSpectator && (
+              <small>{focusedSpectator.name}を観戦中</small>
+            )}
+          </strong>
           <div className="spectator-modes">
             <button
               type="button"
@@ -739,24 +755,29 @@ export function GameScreen({
             <button
               type="button"
               aria-pressed={spectatorMode === "free"}
-              onClick={() => setSpectatorMode("free")}
+              onClick={(event) => {
+                setSpectatorMode("free");
+                event.currentTarget.blur();
+              }}
             >
               キャラ移動
             </button>
           </div>
           <div className={spectatorMode === "free" ? "spectator-focus hidden" : "spectator-focus"}>
-            {room.players.map((player) => (
-              <button
-                type="button"
-                key={player.id}
-                aria-pressed={(room.focusedPlayerId ?? room.players[0]?.id) === player.id}
-                onClick={() =>
-                  command("changeSpectatorFocus", { ...payloadBase, focusPlayerId: player.id })
-                }
-              >
-                {player.name}
-              </button>
-            ))}
+            {room.players
+              .filter((player) => player.status === "active")
+              .map((player) => (
+                <button
+                  type="button"
+                  key={player.id}
+                  aria-pressed={(room.focusedPlayerId ?? room.players[0]?.id) === player.id}
+                  onClick={() =>
+                    command("changeSpectatorFocus", { ...payloadBase, focusPlayerId: player.id })
+                  }
+                >
+                  {player.name}
+                </button>
+              ))}
           </div>
         </section>
       )}

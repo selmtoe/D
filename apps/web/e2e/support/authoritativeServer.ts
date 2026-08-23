@@ -21,8 +21,9 @@ type BridgeRequest = {
 
 type AuthorityCard = {
   id: string;
-  suit: Suit;
-  rank: Rank;
+  suit?: Suit;
+  rank?: Rank;
+  joker?: "monochrome" | "crimson";
   blind: boolean;
   blindOutcome?: "success" | "disqualify";
 };
@@ -67,8 +68,7 @@ type AuthorityOptions = {
 const face = (card: AuthorityCard): CardView => ({
   id: card.id,
   visibility: "face",
-  suit: card.suit,
-  rank: card.rank,
+  ...(card.joker ? { joker: card.joker } : { suit: card.suit, rank: card.rank }),
   blind: card.blind,
 });
 
@@ -202,6 +202,30 @@ export class AuthoritativeE2EServer {
     room.revision += 1;
   }
 
+  forceDiscardEffect(uid = "uid-host"): void {
+    const room = this.room(this.roomId);
+    const actor = this.member(room, uid);
+    actor.hand[0] = {
+      id: "effect-ten-discard",
+      suit: "heart",
+      rank: "10",
+      blind: false,
+    };
+    room.phase = "effect";
+    room.currentPlayerId = uid;
+    room.pendingEffects = [
+      {
+        id: "effect-discard-visual",
+        kind: "discard",
+        actorId: uid,
+        requiredCount: 1,
+        eligibleCardIds: ["effect-ten-discard"],
+        message: "捨てる札を選んでください",
+      },
+    ];
+    room.revision += 1;
+  }
+
   forceCollectEffect(uid = "uid-player-3", discardCount = 32): void {
     const room = this.room(this.roomId);
     const ranks: Rank[] = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
@@ -223,6 +247,42 @@ export class AuthoritativeE2EServer {
         eligibleCardIds: room.discard.map((card) => card.id),
         message: "回収する札を選んでください",
       },
+    ];
+    room.revision += 1;
+  }
+
+  forceJokerChoice(uid = "uid-host"): void {
+    const room = this.room(this.roomId);
+    const actor = this.member(room, uid);
+    actor.hand = [
+      { id: "joker-normal-seven", suit: "spade", rank: "7", blind: false },
+      { id: "joker-choice", joker: "monochrome", blind: false },
+      { id: "joker-remaining-card", suit: "club", rank: "5", blind: false },
+    ];
+    room.phase = "playing";
+    room.currentPlayerId = uid;
+    room.openingPlayPending = false;
+    room.field = [];
+    room.fieldPlays = [];
+    room.pendingEffects = [];
+    room.revision += 1;
+  }
+
+  forceFinishedRankings(): void {
+    const room = this.room(this.roomId);
+    const players = room.members.filter((member) => member.role === "player");
+    players.forEach((player) => {
+      player.status = "finished";
+      player.hand = [];
+      delete player.focusPlayerId;
+    });
+    room.phase = "finished";
+    delete room.currentPlayerId;
+    room.pendingEffects = [];
+    room.rankings = [
+      { playerId: players[0]!.uid, place: 1, reason: "finished" },
+      { playerId: players[1]!.uid, place: 3, reason: "finished" },
+      { playerId: players[2]!.uid, place: 2, reason: "finished" },
     ];
     room.revision += 1;
   }
@@ -312,9 +372,15 @@ export class AuthoritativeE2EServer {
     const viewer = this.member(room, uid);
     const viewerRole: Role =
       viewer.role === "spectator" || viewer.status !== "active" ? "spectator" : "player";
+    const requestedFocus = room.members.find(
+      (member) =>
+        member.uid === viewer.focusPlayerId &&
+        member.role === "player" &&
+        member.status === "active",
+    )?.uid;
     const focusedPlayerId =
       viewerRole === "spectator"
-        ? (viewer.focusPlayerId ??
+        ? (requestedFocus ??
           room.members.find((member) => member.role === "player" && member.status === "active")
             ?.uid)
         : undefined;
@@ -594,12 +660,128 @@ export class AuthoritativeE2EServer {
     const target = this.member(room, selection.targetUid);
     const cardIndex = target.hand.findIndex((card) => card.id === selection.cardId);
     if (cardIndex < 0) throw new Error("failed-precondition: カードが移動済みです");
-    actor.hand.push(target.hand.splice(cardIndex, 1)[0]!);
+    const stolen = target.hand.splice(cardIndex, 1)[0]!;
+    stolen.blind = false;
+    actor.hand.push(stolen);
     room.pendingEffects = [];
     room.phase = "playing";
     room.currentPlayerId = room.hostId;
     room.revision += 1;
     this.log(room, `${actor.name}がA奪いを解決しました`, "effect");
+  }
+
+  private resolveGive(
+    room: AuthorityRoom,
+    actor: AuthorityMember,
+    payload: Record<string, unknown>,
+  ): void {
+    const effect = room.pendingEffects.find(
+      (pending) => pending.kind === "give" && pending.actorId === actor.uid,
+    );
+    if (!effect) throw new Error("failed-precondition: 解決すべき効果がありません");
+    const transfers = payload.transfers;
+    if (!Array.isArray(transfers) || transfers.length !== effect.requiredCount)
+      throw new Error("invalid-argument: transfers");
+    const entries = transfers as { targetUid?: unknown; cardId?: unknown }[];
+    const transferCardIds = new Set<string>();
+    for (const entry of entries) {
+      if (typeof entry.targetUid !== "string" || typeof entry.cardId !== "string")
+        throw new Error("invalid-argument: transfer");
+      if (
+        !effect.eligibleCardIds?.includes(entry.cardId) ||
+        !effect.eligiblePlayerIds?.includes(entry.targetUid)
+      )
+        throw new Error("permission-denied: 対象外のカードまたは相手です");
+      if (transferCardIds.has(entry.cardId))
+        throw new Error("invalid-argument: カードIDが重複しています");
+      transferCardIds.add(entry.cardId);
+      const target = this.member(room, entry.targetUid);
+      if (target.uid === actor.uid || target.role !== "player" || target.status !== "active")
+        throw new Error("permission-denied: 渡せない相手です");
+      if (!actor.hand.some((card) => card.id === entry.cardId))
+        throw new Error("failed-precondition: カードが移動済みです");
+    }
+    for (const entry of entries) {
+      const cardIndex = actor.hand.findIndex((card) => card.id === entry.cardId);
+      const transferred = actor.hand.splice(cardIndex, 1)[0]!;
+      transferred.blind = false;
+      this.member(room, entry.targetUid as string).hand.push(transferred);
+    }
+    room.pendingEffects = [];
+    room.phase = "playing";
+    room.currentPlayerId = this.nextPlayer(room, actor.uid);
+    room.revision += 1;
+    this.log(room, `${actor.name}が7渡しを解決しました`, "effect");
+  }
+
+  private resolveDiscard(
+    room: AuthorityRoom,
+    actor: AuthorityMember,
+    payload: Record<string, unknown>,
+  ): void {
+    const effect = room.pendingEffects.find(
+      (pending) => pending.kind === "discard" && pending.actorId === actor.uid,
+    );
+    if (!effect) throw new Error("failed-precondition: 解決すべき効果がありません");
+    const cardIds = payload.cardIds;
+    if (!Array.isArray(cardIds) || cardIds.length !== effect.requiredCount)
+      throw new Error("invalid-argument: cardIds");
+    if (new Set(cardIds).size !== cardIds.length)
+      throw new Error("invalid-argument: カードIDが重複しています");
+    if (
+      cardIds.some(
+        (cardId) =>
+          typeof cardId !== "string" ||
+          !effect.eligibleCardIds?.includes(cardId) ||
+          !actor.hand.some((card) => card.id === cardId),
+      )
+    )
+      throw new Error("permission-denied: 対象外のカードです");
+    for (const cardId of cardIds) {
+      const cardIndex = actor.hand.findIndex((card) => card.id === cardId);
+      room.discard.push(actor.hand.splice(cardIndex, 1)[0]!);
+    }
+    room.pendingEffects = [];
+    room.phase = "playing";
+    room.currentPlayerId = this.nextPlayer(room, actor.uid);
+    room.revision += 1;
+    this.log(room, `${actor.name}が10捨てを解決しました`, "effect");
+  }
+
+  private resolveCollect(
+    room: AuthorityRoom,
+    actor: AuthorityMember,
+    payload: Record<string, unknown>,
+  ): void {
+    const effect = room.pendingEffects.find(
+      (pending) => pending.kind === "collect" && pending.actorId === actor.uid,
+    );
+    if (!effect) throw new Error("failed-precondition: 解決すべき効果がありません");
+    const cardIds = payload.cardIds;
+    if (!Array.isArray(cardIds) || cardIds.length !== effect.requiredCount)
+      throw new Error("invalid-argument: cardIds");
+    if (new Set(cardIds).size !== cardIds.length)
+      throw new Error("invalid-argument: カードIDが重複しています");
+    if (
+      cardIds.some(
+        (cardId) =>
+          typeof cardId !== "string" ||
+          !effect.eligibleCardIds?.includes(cardId) ||
+          !room.discard.some((card) => card.id === cardId),
+      )
+    )
+      throw new Error("permission-denied: 対象外のカードです");
+    for (const cardId of cardIds) {
+      const cardIndex = room.discard.findIndex((card) => card.id === cardId);
+      const collected = room.discard.splice(cardIndex, 1)[0]!;
+      collected.blind = false;
+      actor.hand.push(collected);
+    }
+    room.pendingEffects = [];
+    room.phase = "playing";
+    room.currentPlayerId = this.nextPlayer(room, actor.uid);
+    room.revision += 1;
+    this.log(room, `${actor.name}がK回収を解決しました`, "effect");
   }
 
   private applyCommand(uid: string, name: string, payload: Record<string, unknown>): unknown {
@@ -639,6 +821,18 @@ export class AuthoritativeE2EServer {
     }
     if (name === "resolveSteal") {
       this.resolveSteal(room, member, payload);
+      return {};
+    }
+    if (name === "resolveGive") {
+      this.resolveGive(room, member, payload);
+      return {};
+    }
+    if (name === "resolveDiscard") {
+      this.resolveDiscard(room, member, payload);
+      return {};
+    }
+    if (name === "resolveCollect") {
+      this.resolveCollect(room, member, payload);
       return {};
     }
     if (name === "changeSpectatorFocus") {

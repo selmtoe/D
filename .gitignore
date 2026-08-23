@@ -5,6 +5,8 @@ functions/lib/
 coverage/
 playwright-report/
 test-results/
+test-results-*/
+.playwright-results/
 .firebase/
 firebase-debug.log
 *-debug.log

@@ -449,6 +449,26 @@ describe("Spark browser authority", () => {
       role: "spectator",
       text: "観戦しています",
     });
+
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      {
+        clientActionId: "kick-focused-player",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game?.id,
+        targetUid: "p2",
+      },
+      2_005,
+    );
+    const fallbackView = authority.project("watcher");
+    const fallbackId = authority
+      .exportSnapshot()
+      .game?.players.find((player) => player.status === "active")?.id;
+    expect(fallbackView.focusedPlayerId).toBe(fallbackId);
+    expect(fallbackView.hand).toEqual(
+      fallbackView.players.find((player) => player.id === fallbackId)?.cards,
+    );
   });
 
   it("runs hundreds of automatic legal turns and effects for 3 to 6 players without corruption", () => {

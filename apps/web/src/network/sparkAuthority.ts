@@ -937,9 +937,12 @@ export class SparkAuthority {
       member.role === "spectator" || (gamePlayer && gamePlayer.status !== "active")
         ? "spectator"
         : "player";
+    const requestedFocus = game.players.find(
+      (player) => player.id === member.focusPlayerId && player.status === "active",
+    )?.id;
     const focusPlayerId =
       effectiveRole === "spectator"
-        ? (member.focusPlayerId ?? game.players.find((player) => player.status === "active")?.id)
+        ? (requestedFocus ?? game.players.find((player) => player.status === "active")?.id)
         : uid;
     const projected = projectGame(game, {
       ...(effectiveRole === "player" ? { playerId: uid } : {}),

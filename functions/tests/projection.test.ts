@@ -250,4 +250,21 @@ describe("viewer-specific projection", () => {
     expect(cards.every((card) => card.visibility === "face")).toBe(true);
     expect(view).not.toHaveProperty("cardTokens");
   });
+
+  test("spectators fall back to the first active player when their focus finishes", () => {
+    const room = blindRoom();
+    room.members.watcher!.focusPlayerId = "bob";
+    const bob = room.game!.players.find((player) => player.id === "bob")!;
+    bob.status = "finished";
+    bob.rank = 1;
+    bob.hand = [];
+
+    const fallbackId = room.game!.players.find((player) => player.status === "active")!.id;
+    const view = projectRoomForViewer(room, "watcher");
+    expect(view.focusedPlayerId).toBe(fallbackId);
+    const fallback = (view.players as Array<Record<string, unknown>>).find(
+      (player) => player.id === fallbackId,
+    );
+    expect(view.hand).toEqual(fallback?.cards);
+  });
 });

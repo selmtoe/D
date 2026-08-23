@@ -821,6 +821,17 @@ h2 {
   gap: 0.3rem;
   overflow-x: auto;
 }
+.spectator-controls strong {
+  display: grid;
+  flex: 0 0 auto;
+  line-height: 1.15;
+}
+.spectator-controls strong small {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
 .spectator-controls .spectator-modes {
   flex: 0 0 auto;
   padding-right: 0.5rem;
@@ -1966,8 +1977,20 @@ h2 {
     padding-right: 0;
     border-right: 0;
   }
+  .spectator-controls .spectator-focus {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
   .spectator-controls strong {
     font-size: 0.72rem;
+  }
+  .spectator-controls .spectator-focus button {
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 0.3rem;
+    font-size: 0.72rem;
+    text-overflow: ellipsis;
   }
   .spectator-controls button {
     padding-inline: 0.65rem;
