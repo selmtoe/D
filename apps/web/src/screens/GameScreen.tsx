@@ -44,6 +44,15 @@ export function useCountdown(deadline?: number): number {
   return deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
 }
 
+export function canOpenPlayConfirmation(
+  selectionComplete: boolean,
+  myTurn: boolean,
+  readOnly: boolean,
+  hasActiveEffect: boolean,
+): boolean {
+  return selectionComplete && myTurn && !readOnly && !hasActiveEffect;
+}
+
 export function PlayDialog({
   cards,
   candidates,
@@ -463,6 +472,14 @@ export function GameScreen({
     if (directEffect) clearSelection();
   }, [clearSelection, directEffect?.id]);
   useEffect(() => {
+    if (
+      playDialog &&
+      !canOpenPlayConfirmation(selection.complete, myTurn, readOnly, Boolean(activeEffect))
+    ) {
+      setPlayDialog(false);
+    }
+  }, [activeEffect?.id, myTurn, playDialog, readOnly, selection.complete]);
+  useEffect(() => {
     if (!directEffectKind) return;
     setEffectCardIds((ids) => {
       const next = ids
@@ -504,7 +521,8 @@ export function GameScreen({
     })();
   }, [busy, command, payloadBase, room.pendingJokerMimic, room.revision]);
   const openPlay = () => {
-    if (!selection.complete || !myTurn || readOnly) return;
+    if (!canOpenPlayConfirmation(selection.complete, myTurn, readOnly, Boolean(activeEffect)))
+      return;
     setPlayDialog(true);
   };
   const selectCard = (card: CardView) => {

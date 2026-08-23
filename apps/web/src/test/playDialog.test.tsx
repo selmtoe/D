@@ -1,11 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CardView, Suit } from "../app/model";
-import { PlayDialog } from "../screens/GameScreen";
+import { canOpenPlayConfirmation, PlayDialog } from "../screens/GameScreen";
 
 afterEach(cleanup);
 
 describe("play confirmation dialog", () => {
+  it("invalidates an open confirmation after the turn or selection changes", () => {
+    expect(canOpenPlayConfirmation(true, true, false, false)).toBe(true);
+    expect(canOpenPlayConfirmation(true, false, false, false)).toBe(false);
+    expect(canOpenPlayConfirmation(false, true, false, false)).toBe(false);
+    expect(canOpenPlayConfirmation(true, true, false, true)).toBe(false);
+  });
+
   it("keeps a complete legal Joker candidate selectable across parent rerenders", () => {
     const cards: CardView[] = [
       { id: "heart-7", visibility: "face", suit: "heart", rank: "7", blind: false },
