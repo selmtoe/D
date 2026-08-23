@@ -210,6 +210,7 @@ export default function App() {
         openEditor={() => setSettings({ editorOpen: true })}
         openRules={() => setSettings({ activeDialog: "rules" })}
         enter={enter}
+        reconnecting={busy && Boolean(reconnectRoomId)}
       />
     );
   else if (app.phase === "SALON_LOBBY" && app.profile)

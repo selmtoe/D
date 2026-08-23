@@ -15,6 +15,7 @@ export function EntranceScreen({
   openEditor,
   openRules,
   enter,
+  reconnecting = false,
 }: {
   app: AppState;
   avatar: AvatarProfileV1;
@@ -26,11 +27,13 @@ export function EntranceScreen({
   openEditor: () => void;
   openRules: () => void;
   enter: (name: string, avatar: AvatarProfileV1) => void;
+  reconnecting?: boolean | undefined;
 }) {
   const [name, setName] = useState(() => localStorage.getItem("daifugo-player-name") ?? "");
   const [nameError, setNameError] = useState("");
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (reconnecting) return;
     const trimmed = name.trim();
     if (!trimmed) {
       setNameError("プレイヤー名を入力してください");
@@ -76,12 +79,16 @@ export function EntranceScreen({
           <button
             className="primary entrance-submit"
             type="submit"
-            disabled={app.phase === "AUTHENTICATING"}
+            disabled={app.phase === "AUTHENTICATING" || reconnecting}
           >
-            {app.phase === "AUTHENTICATING" ? "認証中…" : "サロンへ入る"}
+            {app.phase === "AUTHENTICATING"
+              ? "認証中…"
+              : reconnecting
+                ? "部屋へ再接続中…"
+                : "サロンへ入る"}
           </button>
         </form>
-        <button type="button" className="secondary" onClick={openEditor}>
+        <button type="button" className="secondary" disabled={reconnecting} onClick={openEditor}>
           アバターを仕立てる
         </button>
         {app.error && (
