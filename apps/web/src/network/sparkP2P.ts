@@ -19,7 +19,7 @@ import {
 } from "firebase/firestore";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import type { PublicRoom, Role, RoomView } from "../app/model";
-import type { CueEvent } from "./peerCues";
+import { parseCue, type CueEvent } from "./peerCues";
 import { SparkAuthority, type SparkMember, type SparkRoomSnapshot } from "./sparkAuthority";
 
 interface DirectoryDocument extends PublicRoom {
@@ -169,8 +169,9 @@ export function parseSparkWire(payload: string): WireMessage | null {
     if (value.type === "view" && value.view && typeof value.view === "object") {
       return value as unknown as WireMessage;
     }
-    if (value.type === "cue" && value.cue && typeof value.cue === "object") {
-      return value as unknown as WireMessage;
+    if (value.type === "cue") {
+      const cue = parseCue(value.cue);
+      return cue ? { type: "cue", cue } : null;
     }
     if (value.type === "hello" && value.profile && typeof value.profile === "object") {
       return value as unknown as WireMessage;

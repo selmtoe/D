@@ -37,4 +37,20 @@ describe("Spark wire decoding", () => {
     });
     expect(parseSparkWire(JSON.stringify({ type: "evicted", reason: "leave" }))).toBeNull();
   });
+  test("applies the strict cosmetic cue schema on the P2P wire", () => {
+    const validCue = {
+      version: 1,
+      type: "emote",
+      eventId: "emote-1",
+      emote: "applause",
+      atMs: 1,
+    };
+    expect(parseSparkWire(JSON.stringify({ type: "cue", cue: validCue }))).toEqual({
+      type: "cue",
+      cue: validCue,
+    });
+    expect(
+      parseSparkWire(JSON.stringify({ type: "cue", cue: { ...validCue, turnPlayerId: "forged" } })),
+    ).toBeNull();
+  });
 });
