@@ -770,7 +770,7 @@ export function GameScreen({
                 <button
                   type="button"
                   key={player.id}
-                  aria-pressed={(room.focusedPlayerId ?? room.players[0]?.id) === player.id}
+                  aria-pressed={spectatorFocusId === player.id}
                   onClick={() =>
                     command("changeSpectatorFocus", { ...payloadBase, focusPlayerId: player.id })
                   }
@@ -861,7 +861,7 @@ export function GameScreen({
           readOnly={readOnly}
           label={
             room.role === "spectator"
-              ? `${room.players.find((player) => player.id === room.focusedPlayerId)?.name ?? room.players[0]?.name ?? "プレイヤー"}を観戦中の手札 ${sortedHand.length}枚`
+              ? `${focusedSpectator?.name ?? "プレイヤー"}を観戦中の手札 ${sortedHand.length}枚`
               : undefined
           }
         />

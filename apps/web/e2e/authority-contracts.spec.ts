@@ -169,6 +169,12 @@ test.describe("rulebook authority contracts", () => {
       await expect(spectator.page.getByText("一覧参加者を観戦中", { exact: true })).toBeVisible();
       authority.forceFinish("player-ui", 1);
       await expect(spectator.page.getByText("公開ホストを観戦中", { exact: true })).toBeVisible();
+      await expect(
+        spectator.page.getByRole("button", { name: "公開ホスト", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await expect(
+        spectator.page.getByRole("listbox", { name: /公開ホストを観戦中の手札/ }),
+      ).toBeVisible();
       const spectatorFallback = await view(authority, "spectator-ui");
       expect(spectatorFallback.focusedPlayerId).toBe("host-ui");
       await expect(player.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
