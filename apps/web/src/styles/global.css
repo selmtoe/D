@@ -1997,7 +1997,9 @@ h2 {
   }
   .game-screen.spectator .emote-controls {
     z-index: 6;
-    top: 220px;
+    /* Six players make the focus picker two rows tall. Keep emotes below it so
+       the second row remains visible and receives pointer input. */
+    top: 300px;
   }
   .game-screen.spectator .emote-controls span {
     display: none;
