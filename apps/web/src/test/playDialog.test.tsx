@@ -6,7 +6,7 @@ import { PlayDialog } from "../screens/GameScreen";
 afterEach(cleanup);
 
 describe("play confirmation dialog", () => {
-  it("lets the player choose a legal Joker suit and rank", () => {
+  it("keeps a complete legal Joker candidate selectable across parent rerenders", () => {
     const cards: CardView[] = [
       { id: "heart-7", visibility: "face", suit: "heart", rank: "7", blind: false },
       { id: "joker", visibility: "face", joker: "monochrome", blind: false },
@@ -15,7 +15,7 @@ describe("play confirmation dialog", () => {
       { cardId: "joker", suit, rank: "7" as const },
     ]);
     const submit = vi.fn();
-    render(
+    const view = render(
       <PlayDialog
         cards={cards}
         candidates={candidates}
@@ -26,14 +26,21 @@ describe("play confirmation dialog", () => {
     );
 
     const confirm = screen.getByRole("button", { name: "この札を出す" });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Joker 1のスート"), {
-      target: { value: "club" },
-    });
-    fireEvent.change(screen.getByLabelText("Joker 1のランク"), {
-      target: { value: "7" },
-    });
     expect(confirm).toBeEnabled();
+    const club = screen.getByRole("radio", { name: "クラブ 7" });
+    fireEvent.click(club);
+    club.focus();
+    view.rerender(
+      <PlayDialog
+        cards={cards}
+        candidates={[...candidates].reverse()}
+        close={() => undefined}
+        submit={submit}
+        busy={false}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "クラブ 7" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "クラブ 7" })).toHaveFocus();
     fireEvent.click(confirm);
     expect(submit).toHaveBeenCalledWith([{ cardId: "joker", suit: "club", rank: "7" }]);
   });
@@ -54,7 +61,7 @@ describe("play confirmation dialog", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("Joker 1のスート")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Jokerの擬態" })).not.toBeInTheDocument();
     const confirm = screen.getByRole("button", { name: "この札を出す" });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);

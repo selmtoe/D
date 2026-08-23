@@ -154,7 +154,7 @@ test.describe("browser-injected authoritative room transport", () => {
       expect(spectatorLabels).toHaveLength(3);
       expect(spectatorLabels.every((label) => !label.includes("中身は非公開"))).toBe(true);
       expect(spectatorLabels.some((label) => label.includes("ブラインド札"))).toBe(true);
-      const freeMode = spectator.page.getByRole("button", { name: "自由移動" });
+      const freeMode = spectator.page.getByRole("button", { name: "キャラ移動" });
       await freeMode.click();
       await expect(freeMode).toHaveAttribute("aria-pressed", "true");
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);

@@ -2,6 +2,12 @@ import { useState } from "react";
 import type { Rank, RoomView, Suit } from "../app/model";
 
 const suits = { spade: "スペード", heart: "ハート", diamond: "ダイヤ", club: "クラブ" } as const;
+const candidateKey = (candidate: { cardId: string; suit: Suit; rank: Rank }[]) =>
+  [...candidate]
+    .sort((left, right) => left.cardId.localeCompare(right.cardId))
+    .map(({ cardId, suit, rank }) => `${cardId}:${suit}:${rank}`)
+    .join("|");
+
 export function JokerDeclarationPanel({
   pending,
   busy,
@@ -13,8 +19,10 @@ export function JokerDeclarationPanel({
 }) {
   // The legal list is authoritative, so make the first valid declaration ready
   // immediately instead of forcing an otherwise meaningless extra click.
-  const [candidateIndex, setCandidateIndex] = useState(0);
-  const chosen = candidateIndex === undefined ? undefined : pending.candidates[candidateIndex];
+  const [selectedKey, setSelectedKey] = useState(() => candidateKey(pending.candidates[0] ?? []));
+  const chosen =
+    pending.candidates.find((candidate) => candidateKey(candidate) === selectedKey) ??
+    pending.candidates[0];
   return (
     <section className="effect-panel joker-declaration" aria-labelledby="joker-declaration-title">
       <p className="eyebrow">BLIND JOKER REVEALED</p>
@@ -23,13 +31,13 @@ export function JokerDeclarationPanel({
         ブラインドJokerが公開されました。組合せ依存を保った合法候補セットから一つ選んでください。
       </p>
       <div className="joker-candidate-sets" role="radiogroup" aria-label="Joker擬態の合法候補">
-        {pending.candidates.map((candidateSet, index) => (
-          <label key={index}>
+        {pending.candidates.map((candidateSet) => (
+          <label key={candidateKey(candidateSet)}>
             <input
               type="radio"
-              name="joker-candidate"
-              checked={candidateIndex === index}
-              onChange={() => setCandidateIndex(index)}
+              name="pending-joker-candidate"
+              checked={candidateKey(chosen ?? []) === candidateKey(candidateSet)}
+              onChange={() => setSelectedKey(candidateKey(candidateSet))}
             />
             <span>
               {candidateSet

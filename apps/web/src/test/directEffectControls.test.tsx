@@ -42,7 +42,7 @@ const room: RoomView = {
   suitLock: [],
   field: [],
   discard: [],
-  hand: [],
+  hand: [{ id: "own-card", visibility: "face", suit: "heart", rank: "7", blind: false }],
   pendingEffects: [],
   rankings: [],
   log: [],
@@ -97,5 +97,22 @@ describe("direct table effect controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "相手へ" }));
     expect(chooseTarget).toHaveBeenCalledWith("target");
     expect(screen.getByRole("button", { name: "7渡しを確定" })).toBeDisabled();
+  });
+
+  it("shows the card-to-player relationship after a 7 has been dropped", () => {
+    render(
+      <DirectEffectControls
+        effect={{ ...steal, id: "give", kind: "give" }}
+        room={room}
+        selectedIds={["own-card"]}
+        targets={{ "own-card": "target" }}
+        busy={false}
+        chooseTarget={() => undefined}
+        clear={() => undefined}
+        confirm={() => undefined}
+      />,
+    );
+    expect(screen.getByLabelText("7渡しの割り当て")).toHaveTextContent("♥7 → 相手");
+    expect(screen.getByRole("button", { name: "7渡しを確定" })).toBeEnabled();
   });
 });

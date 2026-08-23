@@ -154,7 +154,7 @@ test.describe("rulebook authority contracts", () => {
       await roomRow
         .getByRole("button", { name: `公開ホストの部屋 ${authority.roomId} を観戦` })
         .click();
-      await expect(spectator.page.getByText("観戦中", { exact: true })).toBeVisible();
+      await expect(spectator.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
       await spectator.page.getByRole("button", { name: "ログ／チャット" }).click();
       await spectator.page.getByPlaceholder("メッセージ").fill("観戦からよろしくお願いします");
       await spectator.page.getByRole("button", { name: "送信", exact: true }).click();
@@ -166,7 +166,7 @@ test.describe("rulebook authority contracts", () => {
       await expect(hostChatPanel.getByText("一覧観戦者（観戦）", { exact: true })).toBeVisible();
 
       authority.forceFinish("player-ui", 1);
-      await expect(player.page.getByText("観戦中", { exact: true })).toBeVisible();
+      await expect(player.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
       const finishedView = await view(authority, "player-ui");
       expect(finishedView.role).toBe("spectator");
       expect(finishedView.rankings).toContainEqual({

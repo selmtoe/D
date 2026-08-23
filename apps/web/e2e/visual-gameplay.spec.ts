@@ -124,9 +124,11 @@ async function reconnectPage(
 test.describe("single-canvas visual gameplay inspection", () => {
   test.beforeEach(({ browserName }, testInfo) => {
     void browserName;
-    const spectatorCoverage = testInfo.title.includes("spectators can inspect");
+    const mobileCoverage =
+      testInfo.title.includes("spectators can inspect") ||
+      testInfo.title.includes("selected cards");
     test.skip(
-      testInfo.project.name !== "desktop-chromium" && !spectatorCoverage,
+      testInfo.project.name !== "desktop-chromium" && !mobileCoverage,
       "視覚証拠はdesktopで一度だけ撮影",
     );
   });
@@ -158,7 +160,15 @@ test.describe("single-canvas visual gameplay inspection", () => {
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     await advanceToThirdPlayer(authority);
-    const player = await reconnectPage(browser, authority, "uid-player-3");
+    const player = await reconnectPage(
+      browser,
+      authority,
+      "uid-player-3",
+      "player",
+      testInfo.project.name === "mobile-chromium"
+        ? { width: 412, height: 915 }
+        : { width: 1280, height: 900 },
+    );
     try {
       await expect(player.page.locator("canvas").first()).toBeVisible();
       const king = player.page.getByRole("option", { name: /クラブK/ });
@@ -218,10 +228,11 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
       await capture(spectator.page, testInfo.outputPath("spectator-follow-view.png"));
 
-      await spectator.page.getByRole("button", { name: "自由移動" }).click();
+      await spectator.page.getByRole("button", { name: "キャラ移動" }).click();
       await expect(
-        spectator.page.getByText(mobile ? /ボタンで移動/ : /WASD／矢印で移動/),
+        spectator.page.getByText(mobile ? /キャラクターを移動/ : /WASD／矢印で移動/),
       ).toBeVisible();
+      await expect(spectator.page.getByRole("button", { name: "ジャンプ" })).toBeVisible();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
       const canvas = spectator.page.locator("canvas").first();
       const bounds = await canvas.boundingBox();
@@ -246,12 +257,65 @@ test.describe("single-canvas visual gameplay inspection", () => {
         await spectator.page.waitForTimeout(650);
         await spectator.page.keyboard.up("d");
       }
+      await spectator.page.getByRole("button", { name: "ジャンプ" }).dispatchEvent("pointerdown");
+      await spectator.page.waitForTimeout(180);
       await capture(spectator.page, testInfo.outputPath("spectator-free-roam.png"));
       expect(
         await spectator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       ).toBe(true);
     } finally {
       await closeContext(spectator.context);
+    }
+  });
+
+  test("K recovery floats in a readable rack", async ({ browser }, testInfo) => {
+    test.setTimeout(90_000);
+    const collectAuthority = new AuthoritativeE2EServer();
+    await seedStartedRoom(collectAuthority);
+    const collector = await reconnectPage(browser, collectAuthority, "uid-player-3");
+    try {
+      collectAuthority.forceCollectEffect();
+      await expect(collector.page.getByRole("region", { name: "K回収" })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(collector.page.getByText("空中に並んだ回収札を直接タップ")).toBeVisible();
+      await capture(collector.page, testInfo.outputPath("k-recovery-floating-rack.png"));
+    } finally {
+      await closeContext(collector.context);
+    }
+  });
+
+  test("7-give drags the actual card to its destination", async ({ browser }, testInfo) => {
+    test.setTimeout(90_000);
+    const giveAuthority = new AuthoritativeE2EServer();
+    await seedStartedRoom(giveAuthority);
+    const giver = await reconnectPage(browser, giveAuthority, "uid-host");
+    try {
+      giveAuthority.forceGiveEffect();
+      await expect(giver.page.getByRole("region", { name: "7渡し" })).toBeVisible({
+        timeout: 15_000,
+      });
+      await capture(giver.page, testInfo.outputPath("seven-give-before-drag.png"));
+      const canvas = giver.page.locator("canvas").first();
+      const bounds = await canvas.boundingBox();
+      expect(bounds).not.toBeNull();
+      if (bounds) {
+        await giver.page.mouse.move(
+          bounds.x + bounds.width * 0.48,
+          bounds.y + bounds.height * 0.69,
+        );
+        await giver.page.mouse.down();
+        await giver.page.mouse.move(
+          bounds.x + bounds.width * 0.24,
+          bounds.y + bounds.height * 0.36,
+          { steps: 16 },
+        );
+        await giver.page.mouse.up();
+      }
+      await expect(giver.page.getByLabel("7渡しの割り当て")).toContainText("♠7 → プレイヤー2");
+      await capture(giver.page, testInfo.outputPath("seven-give-assigned-seat.png"));
+    } finally {
+      await closeContext(giver.context);
     }
   });
 });

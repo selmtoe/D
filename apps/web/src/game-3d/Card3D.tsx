@@ -1,9 +1,14 @@
 import { RoundedBox } from "@react-three/drei";
-import { useEffect, useMemo } from "react";
-import { CanvasTexture, Color, SRGBColorSpace } from "three";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CanvasTexture, Color, Plane, SRGBColorSpace, Vector3 } from "three";
 import type { CardView } from "../app/model";
 
 const suitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
+type PointerCaptureTarget = EventTarget & {
+  setPointerCapture: (pointerId: number) => void;
+  hasPointerCapture: (pointerId: number) => boolean;
+  releasePointerCapture: (pointerId: number) => void;
+};
 
 function cardTexture(card: CardView, back: boolean): CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -81,6 +86,10 @@ export function Card3D({
   scale = 1,
   renderOrder = 0,
   selectedLift = 0.18,
+  selectedDepth = 0,
+  dragPlaneY = 1.15,
+  onDragStart,
+  onDragEnd,
 }: {
   card: CardView;
   position?: [number, number, number];
@@ -92,7 +101,16 @@ export function Card3D({
   scale?: number;
   renderOrder?: number;
   selectedLift?: number;
+  selectedDepth?: number;
+  dragPlaneY?: number;
+  onDragStart?: (() => void) | undefined;
+  onDragEnd?: ((point: [number, number, number]) => void) | undefined;
 }) {
+  const dragging = useRef(false);
+  const captureTarget = useRef<PointerCaptureTarget | undefined>(undefined);
+  const [dragPosition, setDragPosition] = useState<[number, number, number]>();
+  const dragPlane = useMemo(() => new Plane(new Vector3(0, 1, 0), -dragPlaneY), [dragPlaneY]);
+  const dragPoint = useMemo(() => new Vector3(), []);
   const front = useMemo(() => cardTexture(card, card.visibility === "hidden"), [card]);
   const back = useMemo(() => cardTexture(card, true), [card]);
   useEffect(
@@ -104,16 +122,60 @@ export function Card3D({
   );
   const inactive = dimmed && !selected;
   const edge = selected ? "#f4d47f" : inactive ? "#242827" : "#d8cfb8";
+  const restingPosition: [number, number, number] = [
+    position[0],
+    position[1] + (selected ? selectedLift : 0),
+    position[2] + (selected ? selectedDepth : 0),
+  ];
   return (
     <group
       renderOrder={renderOrder}
       visible={!hidden}
-      position={[position[0], position[1] + (selected ? selectedLift : 0), position[2]]}
+      position={dragPosition ?? restingPosition}
       rotation={rotation}
       scale={scale}
       onPointerDown={(event) => {
         event.stopPropagation();
-        if (!inactive) onSelect?.();
+        if (inactive) return;
+        if (onDragEnd) {
+          dragging.current = true;
+          captureTarget.current = event.target as PointerCaptureTarget;
+          captureTarget.current?.setPointerCapture(event.pointerId);
+          onDragStart?.();
+        } else {
+          onSelect?.();
+        }
+      }}
+      onPointerMove={(event) => {
+        if (!dragging.current) return;
+        event.stopPropagation();
+        if (event.ray.intersectPlane(dragPlane, dragPoint)) {
+          setDragPosition([dragPoint.x, dragPlaneY, dragPoint.z]);
+        }
+      }}
+      onPointerUp={(event) => {
+        if (!dragging.current) return;
+        event.stopPropagation();
+        dragging.current = false;
+        if (captureTarget.current?.hasPointerCapture(event.pointerId)) {
+          captureTarget.current.releasePointerCapture(event.pointerId);
+        }
+        const finalPoint = event.ray.intersectPlane(dragPlane, dragPoint)
+          ? ([dragPoint.x, dragPlaneY, dragPoint.z] as [number, number, number])
+          : (dragPosition ?? restingPosition);
+        setDragPosition(undefined);
+        captureTarget.current = undefined;
+        onDragEnd?.(finalPoint);
+      }}
+      onPointerCancel={(event) => {
+        if (!dragging.current) return;
+        event.stopPropagation();
+        dragging.current = false;
+        if (captureTarget.current?.hasPointerCapture(event.pointerId)) {
+          captureTarget.current.releasePointerCapture(event.pointerId);
+        }
+        captureTarget.current = undefined;
+        setDragPosition(undefined);
       }}
     >
       <RoundedBox

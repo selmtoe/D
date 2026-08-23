@@ -176,6 +176,57 @@ export class AuthoritativeE2EServer {
     this.log(room, `${member.name}が${place}位で上がり、観戦へ移りました`, "system");
   }
 
+  forceGiveEffect(uid = "uid-host"): void {
+    const room = this.room(this.roomId);
+    const actor = this.member(room, uid);
+    const card = actor.hand.find((candidate) => candidate.rank === "7");
+    if (!card) throw new Error("failed-precondition: 7 card required");
+    const targets = room.members
+      .filter(
+        (member) => member.role === "player" && member.status === "active" && member.uid !== uid,
+      )
+      .map((member) => member.uid);
+    room.phase = "effect";
+    room.currentPlayerId = uid;
+    room.pendingEffects = [
+      {
+        id: "effect-give-visual",
+        kind: "give",
+        actorId: uid,
+        requiredCount: 1,
+        eligibleCardIds: [card.id],
+        eligiblePlayerIds: targets,
+        message: "7渡しの相手を選んでください",
+      },
+    ];
+    room.revision += 1;
+  }
+
+  forceCollectEffect(uid = "uid-player-3", discardCount = 32): void {
+    const room = this.room(this.roomId);
+    const ranks: Rank[] = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
+    const suits: Suit[] = ["spade", "heart", "diamond", "club"];
+    room.discard = Array.from({ length: discardCount }, (_, index) => ({
+      id: `rack-${index}`,
+      suit: suits[index % suits.length]!,
+      rank: ranks[index % ranks.length]!,
+      blind: false,
+    }));
+    room.phase = "effect";
+    room.currentPlayerId = uid;
+    room.pendingEffects = [
+      {
+        id: "effect-collect-visual",
+        kind: "collect",
+        actorId: uid,
+        requiredCount: 2,
+        eligibleCardIds: room.discard.map((card) => card.id),
+        message: "回収する札を選んでください",
+      },
+    ];
+    room.revision += 1;
+  }
+
   disconnect(uid: string, disconnectedAtMs: number): void {
     const room = this.room(this.roomId);
     const member = this.member(room, uid);

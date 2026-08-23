@@ -1,10 +1,11 @@
-import { ContactShadows, Environment } from "@react-three/drei";
+import { Billboard, ContactShadows, Environment } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
   BackSide,
   MathUtils,
+  Vector3,
   type Group,
   type PerspectiveCamera,
 } from "three";
@@ -23,6 +24,8 @@ export interface TableEffectInteraction {
   selectableIds: ReadonlySet<string>;
   targetPlayerIds: ReadonlySet<string>;
   pendingGiveCardId?: string | undefined;
+  giveTargets: Readonly<Record<string, string>>;
+  giveCards: readonly CardView[];
 }
 
 function FrameScheduler({ fps }: { fps: number }) {
@@ -102,35 +105,47 @@ function CameraRig({
   return null;
 }
 
-type FreeRoamInput = { forward: number; strafe: number; turn: number };
+type FreeRoamInput = { forward: number; strafe: number; turn: number; jump: number };
 
-function FreeRoamCamera({
+function FreeRoamAvatar({
   mobileInput,
   playerCount,
   mobile,
+  profile,
+  lowPower,
 }: {
   mobileInput: FreeRoamInput;
   playerCount: number;
   mobile: boolean;
+  profile: PlayerView["avatar"];
+  lowPower: boolean;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
   const gl = useThree((state) => state.gl);
+  const avatar = useRef<Group>(null);
   const keys = useRef(new Set<string>());
   const yaw = useRef(0);
-  const pitch = useRef(-0.08);
   const dragging = useRef(false);
   const pointer = useRef({ x: 0, y: 0 });
-  const cameraHeight = mobile ? 2.85 : 2.45;
+  const position = useRef(new Vector3(0, 0.05, mobile ? 8.6 : 7.8));
+  const desiredCamera = useRef(new Vector3());
+  const verticalVelocity = useRef(0);
+  const jumpRequested = useRef(false);
+  const handledMobileJump = useRef(0);
 
   useEffect(() => {
-    camera.position.set(0, cameraHeight, mobile ? 8.85 : 8.05);
-    camera.fov = 68;
+    camera.position.set(0, 3.15, mobile ? 11.8 : 11.1);
+    camera.fov = mobile ? 61 : 56;
     camera.updateProjectionMatrix();
     const down = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, button") || target?.isContentEditable) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
         event.preventDefault();
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (!event.repeat) jumpRequested.current = true;
       }
       keys.current.add(event.code);
     };
@@ -144,11 +159,6 @@ function FreeRoamCamera({
     const pointerMove = (event: PointerEvent) => {
       if (!dragging.current) return;
       yaw.current -= (event.clientX - pointer.current.x) * 0.004;
-      pitch.current = MathUtils.clamp(
-        pitch.current - (event.clientY - pointer.current.y) * 0.003,
-        -0.9,
-        0.72,
-      );
       pointer.current = { x: event.clientX, y: event.clientY };
     };
     const pointerUp = (event: PointerEvent) => {
@@ -170,9 +180,10 @@ function FreeRoamCamera({
       canvas.removeEventListener("pointercancel", pointerUp);
       keys.current.clear();
     };
-  }, [camera, cameraHeight, gl, mobile]);
+  }, [camera, gl, mobile]);
 
   useFrame((_, delta) => {
+    const frameDelta = Math.min(delta, 0.05);
     const forward =
       (keys.current.has("KeyW") || keys.current.has("ArrowUp") ? 1 : 0) -
       (keys.current.has("KeyS") || keys.current.has("ArrowDown") ? 1 : 0) +
@@ -182,12 +193,12 @@ function FreeRoamCamera({
       (keys.current.has("KeyA") || keys.current.has("ArrowLeft") ? 1 : 0) +
       mobileInput.strafe;
     yaw.current += mobileInput.turn * delta * 1.65;
-    const speed = (keys.current.has("ShiftLeft") ? 5.2 : 2.8) * Math.min(delta, 0.05);
+    const speed = (keys.current.has("ShiftLeft") ? 5.2 : 2.8) * frameDelta;
     let nextX =
-      camera.position.x +
+      position.current.x +
       (Math.sin(yaw.current) * forward + Math.cos(yaw.current) * strafe) * speed;
     let nextZ =
-      camera.position.z +
+      position.current.z +
       (-Math.cos(yaw.current) * forward + Math.sin(yaw.current) * strafe) * speed;
     const xLimit = 6.55;
     const zMinimum = -7.35;
@@ -233,15 +244,38 @@ function FreeRoamCamera({
         nextZ = resolved.z;
       }
     }
-    camera.position.set(nextX, cameraHeight, nextZ);
-    const horizontal = Math.cos(pitch.current);
-    camera.lookAt(
-      nextX + Math.sin(yaw.current) * horizontal,
-      cameraHeight + Math.sin(pitch.current),
-      nextZ - Math.cos(yaw.current) * horizontal,
+    const mobileJumpStarted = mobileInput.jump !== handledMobileJump.current;
+    handledMobileJump.current = mobileInput.jump;
+    if ((jumpRequested.current || mobileJumpStarted) && position.current.y <= 0.051) {
+      verticalVelocity.current = 5.2;
+    }
+    jumpRequested.current = false;
+    verticalVelocity.current -= 12.8 * frameDelta;
+    const nextY = Math.max(0.05, position.current.y + verticalVelocity.current * frameDelta);
+    if (nextY <= 0.05) verticalVelocity.current = 0;
+    position.current.set(nextX, nextY, nextZ);
+    if (avatar.current) {
+      avatar.current.position.copy(position.current);
+      avatar.current.rotation.y = yaw.current + Math.PI;
+    }
+    const behind = mobile ? 4.4 : 3.75;
+    desiredCamera.current.set(
+      nextX - Math.sin(yaw.current) * behind,
+      nextY + (mobile ? 3.15 : 2.75),
+      nextZ + Math.cos(yaw.current) * behind,
     );
+    camera.position.lerp(desiredCamera.current, 1 - Math.exp(-frameDelta * 8));
+    camera.lookAt(nextX, nextY + 1.25, nextZ);
   });
-  return null;
+  return (
+    <group ref={avatar} position={position.current.toArray()}>
+      <Avatar3D profile={profile} lowPower={lowPower} active />
+      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.66, 0.78, 32]} />
+        <meshBasicMaterial color="#f4d47f" transparent opacity={0.68} />
+      </mesh>
+    </group>
+  );
 }
 
 function CircularTable() {
@@ -333,8 +367,15 @@ function seats(
     const radius = 5.45;
     const giveTarget =
       effectInteraction?.kind === "give" &&
-      Boolean(effectInteraction.pendingGiveCardId) &&
-      effectInteraction.targetPlayerIds.has(player.id);
+      ((Boolean(effectInteraction.pendingGiveCardId) &&
+        effectInteraction.targetPlayerIds.has(player.id)) ||
+        Object.values(effectInteraction.giveTargets).includes(player.id));
+    const assignedGiveCards =
+      effectInteraction?.kind === "give"
+        ? effectInteraction.giveCards.filter(
+            (card) => effectInteraction.giveTargets[card.id] === player.id,
+          )
+        : [];
     return (
       <group
         key={player.id}
@@ -359,10 +400,10 @@ function seats(
           />
         )}
         {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
-          <group position={[0, 0.28, 0.95]}>
+          <group position={[0, 0.42, 1.35]}>
             {(player.cards ?? []).map((card, cardIndex) => {
               const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
-              const spacing = Math.min(0.16, 2.4 / Math.max(player.cards?.length ?? 1, 1));
+              const spacing = Math.min(0.24, 3.2 / Math.max(player.cards?.length ?? 1, 1));
               return (
                 <Card3D
                   key={card.id}
@@ -379,15 +420,35 @@ function seats(
                     : {})}
                   position={[
                     centered * (effectInteraction?.kind === "steal" ? 0.31 : spacing),
-                    Math.abs(centered) * 0.002,
-                    0,
+                    0.72 + Math.abs(centered) * 0.008,
+                    cardIndex * 0.012,
                   ]}
-                  scale={effectInteraction?.kind === "steal" ? 0.38 : 0.22}
+                  rotation={[-0.34, 0, -centered * 0.035]}
+                  scale={effectInteraction?.kind === "steal" ? 0.44 : 0.36}
                   selectedLift={0.42}
+                  selectedDepth={-0.3}
                 />
               );
             })}
           </group>
+        )}
+        {assignedGiveCards.length > 0 && (
+          <Billboard position={[0, 1.72, 0.18]} follow lockX={false} lockY={false} lockZ={false}>
+            {assignedGiveCards.map((card, cardIndex) => {
+              const centered = cardIndex - (assignedGiveCards.length - 1) / 2;
+              return (
+                <Card3D
+                  key={`give-preview-${card.id}`}
+                  card={card}
+                  selected
+                  position={[centered * 0.46, Math.abs(centered) * 0.025, cardIndex * 0.02]}
+                  rotation={[0, 0, -centered * 0.07]}
+                  scale={0.38}
+                  selectedLift={0}
+                />
+              );
+            })}
+          </Billboard>
         )}
       </group>
     );
@@ -401,6 +462,9 @@ function handCards(
   toggle: (card: CardView) => void,
   mobile: boolean,
   movingToHand: ReadonlySet<string>,
+  effectInteraction?: TableEffectInteraction,
+  onGiveCardDrop: (card: CardView, playerId: string) => void = () => undefined,
+  players: PlayerView[] = [],
 ) {
   const spacing = Math.min(mobile ? 0.44 : 0.62, (mobile ? 6.8 : 8.8) / Math.max(cards.length, 1));
   return cards.map((card, index) => {
@@ -411,16 +475,50 @@ function handCards(
         card={card}
         selected={selectedIds.includes(card.id)}
         dimmed={Boolean(playableIds && !playableIds.has(card.id))}
-        hidden={movingToHand.has(card.id)}
-        onSelect={() => toggle(card)}
+        hidden={
+          movingToHand.has(card.id) ||
+          (effectInteraction?.kind === "give" && Boolean(effectInteraction.giveTargets[card.id]))
+        }
+        {...(effectInteraction?.kind === "give" && effectInteraction.selectableIds.has(card.id)
+          ? {
+              onDragStart: () => {
+                if (!effectInteraction.selectedIds.has(card.id)) toggle(card);
+              },
+              onDragEnd: (point: [number, number, number]) => {
+                const target = nearestGiveTarget(players, effectInteraction.targetPlayerIds, point);
+                if (target) onGiveCardDrop(card, target);
+              },
+            }
+          : { onSelect: () => toggle(card) })}
         position={[centered * spacing, 1.05 - Math.abs(centered) * 0.015, 4.08 + index * 0.035]}
         rotation={[-0.42, 0, -centered * 0.035]}
         scale={mobile ? 0.78 : 0.92}
-        renderOrder={selectedIds.includes(card.id) ? 1_000 + index : 100 + index}
-        selectedLift={mobile ? 0.48 : 0.56}
+        renderOrder={100 + index}
+        selectedLift={mobile ? 1.22 : 1.55}
+        selectedDepth={mobile ? -0.64 : -0.84}
+        dragPlaneY={1.32}
       />
     );
   });
+}
+
+export function nearestGiveTarget(
+  players: PlayerView[],
+  eligiblePlayerIds: ReadonlySet<string>,
+  point: readonly [number, number, number],
+  threshold = 2.25,
+): string | undefined {
+  let nearest: { id: string; distance: number } | undefined;
+  for (const [index, player] of players.entries()) {
+    if (!eligiblePlayerIds.has(player.id)) continue;
+    const angle = (index / Math.max(1, players.length)) * Math.PI * 2 + Math.PI / 2;
+    const distance = Math.hypot(
+      point[0] - Math.cos(angle) * 5.45,
+      point[2] - Math.sin(angle) * 5.45,
+    );
+    if (!nearest || distance < nearest.distance) nearest = { id: player.id, distance };
+  }
+  return nearest && nearest.distance <= threshold ? nearest.id : undefined;
 }
 
 function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {
@@ -459,31 +557,36 @@ function discardStack(
   const visibleStack = collecting
     ? cards.filter((card) => !movingToDiscard.has(card.id))
     : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
-  const spacing = Math.min(0.54, 7.2 / Math.max(visibleStack.length, 1));
-  return visibleStack.map((card, index) => (
-    <Card3D
-      key={card.id}
-      card={card}
-      selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
-      dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
-      {...(collecting && effectInteraction.selectableIds.has(card.id)
-        ? { onSelect: () => onEffectCardSelect(card) }
-        : {})}
-      position={
-        collecting
-          ? [(index - (visibleStack.length - 1) / 2) * spacing, 0.34 + index * 0.004, 2.15]
-          : [2.9, 0.15 + index * 0.012, -1.45]
-      }
-      rotation={
-        collecting
-          ? [-Math.PI / 2, 0, (index - (visibleStack.length - 1) / 2) * 0.014]
-          : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
-      }
-      scale={collecting ? 0.68 : 0.62}
-      renderOrder={(collecting ? 700 : 500) + index}
-      selectedLift={0.5}
-    />
-  ));
+  const columns = Math.min(14, Math.max(1, visibleStack.length));
+  return visibleStack.map((card, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const centeredColumn =
+      column - (Math.min(columns, visibleStack.length - row * columns) - 1) / 2;
+    return (
+      <Card3D
+        key={card.id}
+        card={card}
+        selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
+        dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
+        {...(collecting && effectInteraction.selectableIds.has(card.id)
+          ? { onSelect: () => onEffectCardSelect(card) }
+          : {})}
+        position={
+          collecting
+            ? [centeredColumn * 0.48, 0.88 + row * 0.76, 1.48 - row * 0.06]
+            : [2.9, 0.15 + index * 0.012, -1.45]
+        }
+        rotation={
+          collecting ? [0, 0, centeredColumn * 0.012] : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
+        }
+        scale={collecting ? 0.39 : 0.62}
+        renderOrder={(collecting ? 700 : 500) + index}
+        selectedLift={collecting ? 0.22 : 0.5}
+        selectedDepth={collecting ? -0.24 : 0}
+      />
+    );
+  });
 }
 
 const DEAL_CARD: CardView = { id: "deal-card", visibility: "hidden", blind: false };
@@ -572,7 +675,9 @@ export function SalonScene({
   effectInteraction,
   onEffectCardSelect = () => undefined,
   onEffectPlayerSelect = () => undefined,
+  onGiveCardDrop = () => undefined,
   spectatorMode = "follow",
+  freeRoamAvatar,
 }: {
   room?: RoomView;
   previewAvatar?: PlayerView["avatar"];
@@ -588,7 +693,9 @@ export function SalonScene({
   effectInteraction?: TableEffectInteraction | undefined;
   onEffectCardSelect?: ((card: CardView, ownerId?: string) => void) | undefined;
   onEffectPlayerSelect?: ((playerId: string) => void) | undefined;
+  onGiveCardDrop?: ((card: CardView, playerId: string) => void) | undefined;
   spectatorMode?: "follow" | "free" | undefined;
+  freeRoamAvatar?: PlayerView["avatar"] | undefined;
 }) {
   const viewport = useVisualViewport();
   const mobile = viewport.width < 600;
@@ -599,6 +706,7 @@ export function SalonScene({
     forward: 0,
     strafe: 0,
     turn: 0,
+    jump: 0,
   });
   const activeCardMotions = cardMotions;
   const movingToHand = useMemo(
@@ -713,7 +821,17 @@ export function SalonScene({
           {room &&
             !dealing &&
             !(room.role === "spectator" && spectatorMode === "free") &&
-            handCards(room.hand, selectedIds, playableIds, onToggleCard, mobile, movingToHand)}
+            handCards(
+              room.hand,
+              selectedIds,
+              playableIds,
+              onToggleCard,
+              mobile,
+              movingToHand,
+              effectInteraction,
+              onGiveCardDrop,
+              room.players,
+            )}
           {room && dealing && <DealingSequence playerCount={room.players.length} />}
           {room && (
             <CardMotionLayer
@@ -740,11 +858,13 @@ export function SalonScene({
             </Environment>
           )}
         </Suspense>
-        {room?.role === "spectator" && spectatorMode === "free" ? (
-          <FreeRoamCamera
+        {room?.role === "spectator" && spectatorMode === "free" && freeRoamAvatar ? (
+          <FreeRoamAvatar
             mobileInput={freeRoamInput}
             playerCount={room.players.length}
             mobile={mobile}
+            profile={freeRoamAvatar}
+            lowPower={lowPower}
           />
         ) : (
           <CameraRig
@@ -769,7 +889,11 @@ export function SalonScene({
       </Canvas>
       {room?.role === "spectator" && spectatorMode === "free" && (
         <div className="free-roam-controls" aria-label="自由観戦の移動操作">
-          <p>{mobile ? "ボタンで移動・画面ドラッグで視点" : "WASD／矢印で移動・ドラッグで視点"}</p>
+          <p>
+            {mobile
+              ? "キャラクターを移動・ジャンプ／画面ドラッグで向きを変更"
+              : "WASD／矢印で移動・Spaceでジャンプ・ドラッグで向きを変更"}
+          </p>
           <div>
             {[
               ["↶", { turn: -1 }, "左を向く"],
@@ -786,13 +910,29 @@ export function SalonScene({
                 onPointerDown={() =>
                   setFreeRoamInput((current) => ({ ...current, ...(value as object) }))
                 }
-                onPointerUp={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
-                onPointerCancel={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
-                onPointerLeave={() => setFreeRoamInput({ forward: 0, strafe: 0, turn: 0 })}
+                onPointerUp={() =>
+                  setFreeRoamInput((current) => ({ ...current, forward: 0, strafe: 0, turn: 0 }))
+                }
+                onPointerCancel={() =>
+                  setFreeRoamInput((current) => ({ ...current, forward: 0, strafe: 0, turn: 0 }))
+                }
+                onPointerLeave={() =>
+                  setFreeRoamInput((current) => ({ ...current, forward: 0, strafe: 0, turn: 0 }))
+                }
               >
                 {String(label)}
               </button>
             ))}
+            <button
+              type="button"
+              className="free-roam-jump"
+              aria-label="ジャンプ"
+              onPointerDown={() =>
+                setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }))
+              }
+            >
+              JUMP
+            </button>
           </div>
         </div>
       )}

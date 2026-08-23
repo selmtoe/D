@@ -17,7 +17,8 @@ export function ResultScreen({
       ...ranking,
       player: room.players.find((player) => player.id === ranking.playerId),
     }))
-    .filter((row) => row.player);
+    .filter((row) => row.player)
+    .sort((left, right) => left.place - right.place);
   return (
     <main id="main" className="result-screen">
       <section className="result-card">
