@@ -51,11 +51,11 @@ function RoomRow({
         {room.phase === "waiting" && (
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || room.playerCount >= 6}
             onClick={() => join(room.roomId, "player")}
             aria-label={`${room.hostName}の部屋 ${room.roomId} にプレイヤー参加`}
           >
-            参加
+            {room.playerCount >= 6 ? "満席" : "参加"}
           </button>
         )}
         <button
