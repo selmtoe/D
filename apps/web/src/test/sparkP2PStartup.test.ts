@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 const firestore = vi.hoisted(() => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(async () => ({ docs: [] })),
+  setDoc: vi.fn(),
 }));
 
 vi.mock("firebase/firestore", () => ({
@@ -17,7 +18,7 @@ vi.mock("firebase/firestore", () => ({
   query: vi.fn((...parts: unknown[]) => ({ parts })),
   runTransaction: vi.fn(),
   serverTimestamp: vi.fn(() => "server-time"),
-  setDoc: vi.fn(),
+  setDoc: firestore.setDoc,
   Timestamp: { fromMillis: vi.fn((value: number) => value) },
   where: vi.fn((...parts: unknown[]) => ({ parts })),
 }));
@@ -28,7 +29,15 @@ type StartupInternals = {
   startCommon(): Promise<void>;
   connectToCoordinator(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
+  writePresence(online: boolean): Promise<void>;
 };
+
+type SparkSessionConstructor = new (options: {
+  db: never;
+  user: { uid: string };
+  roomId: string;
+  peerId: string;
+}) => SparkP2PSession;
 
 describe("Spark P2P startup cleanup", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -53,5 +62,38 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(false);
+  });
+
+  test("serializes presence writes so offline is the final update", async () => {
+    let releaseOnline: () => void = () => undefined;
+    firestore.setDoc
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseOnline = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+
+    const heartbeat = internals.writePresence(true);
+    await vi.waitFor(() => expect(firestore.setDoc).toHaveBeenCalledOnce());
+    const stopping = session.stop();
+    await Promise.resolve();
+    expect(firestore.setDoc).toHaveBeenCalledOnce();
+
+    releaseOnline();
+    await heartbeat;
+    await stopping;
+    expect(firestore.setDoc).toHaveBeenCalledTimes(2);
+    expect(firestore.setDoc.mock.calls[0]?.[1]).toMatchObject({ online: true });
+    expect(firestore.setDoc.mock.calls[1]?.[1]).toMatchObject({ online: false });
   });
 });

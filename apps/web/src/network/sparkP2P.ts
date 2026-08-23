@@ -235,6 +235,7 @@ export class SparkP2PSession {
   private coordinatorQueue: Promise<void> = Promise.resolve();
   private mode: "webrtc" | "firebase" | "offline" = "firebase";
   private presenceListening = false;
+  private presenceWriteQueue: Promise<void> = Promise.resolve();
 
   private constructor(options: SparkSessionOptions) {
     this.db = options.db;
@@ -511,18 +512,25 @@ export class SparkP2PSession {
   }
 
   private async writePresence(online: boolean): Promise<void> {
-    await setDoc(
-      doc(this.db, "sparkPresence", this.roomId, "members", this.uid),
-      {
-        uid: this.uid,
-        peerId: this.peerId,
-        online,
-        role: this.role,
-        name: this.profile?.name ?? "ゲスト",
-        lastSeenMs: Date.now(),
-      },
-      { merge: true },
-    ).catch(() => undefined);
+    if (online && this.stopped) return;
+    const write = async () => {
+      if (online && this.stopped) return;
+      await setDoc(
+        doc(this.db, "sparkPresence", this.roomId, "members", this.uid),
+        {
+          uid: this.uid,
+          peerId: this.peerId,
+          online,
+          role: this.role,
+          name: this.profile?.name ?? "ゲスト",
+          lastSeenMs: Date.now(),
+        },
+        { merge: true },
+      ).catch(() => undefined);
+    };
+    const pending = this.presenceWriteQueue.then(write, write);
+    this.presenceWriteQueue = pending.catch(() => undefined);
+    await pending;
   }
 
   private async persistAndBroadcast(): Promise<void> {
@@ -932,9 +940,9 @@ export class SparkP2PSession {
   async stop(markOffline = true): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    if (markOffline) await this.writePresence(false);
     this.unsubscribes.splice(0).forEach((unsubscribe) => unsubscribe());
     this.intervals.splice(0).forEach((interval) => clearInterval(interval));
+    if (markOffline) await this.writePresence(false);
     this.peers.forEach((peer) => peer.connection.close());
     this.pendingRequests.forEach((pending) => {
       clearTimeout(pending.timer);
