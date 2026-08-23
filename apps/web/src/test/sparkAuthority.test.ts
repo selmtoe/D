@@ -563,6 +563,34 @@ describe("Spark browser authority", () => {
     );
   });
 
+  it("moves disconnected waiting players to spectator mode when a game starts", () => {
+    const authority = waitingRoom();
+    authority.setMemberOnline("p3", false, undefined, 1_500);
+    authority.join(
+      { uid: "p4", peerId: "peer-4", profile: profile("四郎"), role: "player" },
+      1_600,
+    );
+
+    authority.handleCommand("p1", "startGame", { clientActionId: "start-with-offline" }, 2_000);
+
+    expect(
+      authority
+        .exportSnapshot()
+        .game?.players.map((player) => player.id)
+        .sort(),
+    ).toEqual(["p1", "p2", "p4"]);
+    expect(authority.member("p3")?.role).toBe("spectator");
+    expect(authority.project("p3").role).toBe("spectator");
+    expect(() =>
+      authority.handleCommand(
+        "p3",
+        "changeSpectatorFocus",
+        { clientActionId: "offline-player-focus", focusPlayerId: "p2" },
+        2_001,
+      ),
+    ).not.toThrow();
+  });
+
   it("runs hundreds of automatic legal turns and effects for 3 to 6 players without corruption", () => {
     for (let playerCount = 3; playerCount <= 6; playerCount += 1) {
       const authority = SparkAuthority.create(

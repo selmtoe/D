@@ -579,10 +579,22 @@ export class SparkAuthority {
         this.requireHost(uid);
         if (this.snapshot.status !== "waiting") commandError("failed-precondition", "開始済みです");
         const players = Object.values(this.snapshot.members)
-          .filter((candidate) => candidate.role === "player" && candidate.online)
+          .filter(
+            (candidate) =>
+              candidate.role === "player" && (candidate.online || candidate.uid === uid),
+          )
           .sort((left, right) => left.joinedAtMs - right.joinedAtMs);
         if (players.length < 3 || players.length > 6) {
           commandError("failed-precondition", "接続中プレイヤー3〜6人で開始してください");
+        }
+        const participatingIds = new Set(players.map((player) => player.uid));
+        for (const candidate of Object.values(this.snapshot.members)) {
+          if (candidate.role === "player" && !participatingIds.has(candidate.uid)) {
+            // A disconnected waiting-room member can reconnect as a spectator,
+            // but must not become a player with no seat in the running game.
+            candidate.role = "spectator";
+            delete candidate.focusPlayerId;
+          }
         }
         const gameId = `p2p-${this.snapshot.generation}-${crypto.randomUUID()}`;
         this.snapshot.game = createInitialGameState(
@@ -616,11 +628,15 @@ export class SparkAuthority {
         return response;
       case "changeSpectatorFocus": {
         const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
-        if (member.role !== "spectator" && (!player || player.status === "active")) {
+        if (member.role !== "spectator" && player?.status === "active") {
           commandError("permission-denied", "観戦者専用操作です");
         }
         const focus = String(payload.focusPlayerId ?? "");
-        if (!this.snapshot.game?.players.some((player) => player.id === focus)) {
+        if (
+          !this.snapshot.game?.players.some(
+            (candidate) => candidate.id === focus && candidate.status === "active",
+          )
+        ) {
           commandError("invalid-argument", "指定プレイヤーが見つかりません");
         }
         member.focusPlayerId = focus;
@@ -970,9 +986,7 @@ export class SparkAuthority {
     }
     const gamePlayer = game.players.find((player) => player.id === uid);
     const effectiveRole: Role =
-      member.role === "spectator" || (gamePlayer && gamePlayer.status !== "active")
-        ? "spectator"
-        : "player";
+      member.role === "spectator" || gamePlayer?.status !== "active" ? "spectator" : "player";
     const requestedFocus = game.players.find(
       (player) => player.id === member.focusPlayerId && player.status === "active",
     )?.id;

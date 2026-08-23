@@ -208,8 +208,7 @@ export function projectRoomForViewer(
   const gamePlayers = Array.isArray(game?.players) ? game.players.filter(isObject) : [];
   const viewerGamePlayer = gamePlayers.find((player) => player.id === viewerUid);
   const effectiveRole =
-    viewer.role === "spectator" ||
-    (viewerGamePlayer !== undefined && viewerGamePlayer.status !== "active")
+    viewer.role === "spectator" || (room.game !== null && viewerGamePlayer?.status !== "active")
       ? "spectator"
       : "player";
   const requestedFocus = gamePlayers.find(

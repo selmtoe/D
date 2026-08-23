@@ -251,6 +251,18 @@ describe("viewer-specific projection", () => {
     expect(view).not.toHaveProperty("cardTokens");
   });
 
+  test("a room player without a seat is projected as a spectator", () => {
+    const room = blindRoom();
+    room.members.late = member("late", "player", 4);
+
+    const view = projectRoomForViewer(room, "late");
+
+    expect(view.role).toBe("spectator");
+    expect(view.focusedPlayerId).toBe(
+      room.game!.players.find((player) => player.status === "active")!.id,
+    );
+  });
+
   test("spectators fall back to the first active player when their focus finishes", () => {
     const room = blindRoom();
     room.members.watcher!.focusPlayerId = "bob";

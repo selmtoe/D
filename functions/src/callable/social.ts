@@ -31,9 +31,23 @@ export const changeSpectatorFocus = onCall(callableOptions, async (request) => {
     const input = parseInput(focusSchema, request.data);
     return await executeRoomMutation(identity(uid, "changeSpectatorFocus", input), (original) => {
       const member = requireMember(original, uid);
+      const viewer = original.game?.players.find((player) => player.id === uid);
+      const canSpectate =
+        member.role === "spectator" || (original.game !== null && viewer?.status !== "active");
+      if (!canSpectate) {
+        throw new CommandError("permission-denied", "Only spectators can change table focus.");
+      }
       if (input.focusPlayerId) {
         const target = original.members[input.focusPlayerId];
-        if (!target || target.role !== "player" || target.connectionStatus === "left") {
+        const targetPlayer = original.game?.players.find(
+          (player) => player.id === input.focusPlayerId && player.status === "active",
+        );
+        if (
+          !target ||
+          target.role !== "player" ||
+          target.connectionStatus === "left" ||
+          !targetPlayer
+        ) {
           throw new CommandError(
             "invalid-argument",
             "The focus target is not an active room player.",
