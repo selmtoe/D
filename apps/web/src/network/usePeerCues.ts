@@ -35,11 +35,11 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
         return true;
       }
       const session = getActiveSparkSession();
-      if (!session) return false;
+      if (!session || session.roomId !== roomId || session.uid !== uid) return false;
       await session.sendCue(cue);
       return true;
     },
-    [roomId],
+    [roomId, uid],
   );
   return { mode, lastCue, send };
 }
