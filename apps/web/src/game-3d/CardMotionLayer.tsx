@@ -13,7 +13,7 @@ export function cardAnchorPosition(
   if (anchor.kind === "hand") return [0, 1.15, mobile ? 3.75 : 4.15];
   if (anchor.kind === "field") return [0, 0.28, 0];
   if (anchor.kind === "discard") return [2.9, 0.23, -1.45];
-  if (anchor.kind === "deck") return [0, 0.28, 0.15];
+  if (anchor.kind === "deck") return [-2.9, 0.28, -1.45];
   const playerId = "playerId" in anchor ? anchor.playerId : room.viewerId;
   const index = Math.max(
     0,
