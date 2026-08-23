@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useUiStore } from "./app/store";
 import type { LocalProfile, Role, RoomView } from "./app/model";
@@ -26,6 +26,7 @@ import { ResultScreen } from "./screens/ResultScreen";
 import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
 import { useVisualViewport } from "./app/visualViewport";
+import { shouldClearRoomAfterViewLoss } from "./app/roomLifecycle";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -56,14 +57,24 @@ export default function App() {
     .slice(0, 5);
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const joinedRoomId = useRef<string | undefined>(undefined);
 
   useAuthentication();
   usePublicRoomSubscription(app.phase === "SALON_LOBBY");
   useRoomSubscription(activeRoomId);
 
   useEffect(() => {
-    if (app.phase !== "SALON_LOBBY" || !activeRoomId || app.room) return;
+    if (app.room) {
+      joinedRoomId.current = app.room.roomId;
+      return;
+    }
+    if (
+      !activeRoomId ||
+      !shouldClearRoomAfterViewLoss(app.phase, activeRoomId, undefined, joinedRoomId.current)
+    )
+      return;
     clearRoomReconnect(activeRoomId);
+    joinedRoomId.current = undefined;
     setActiveRoomId(undefined);
     history.replaceState(null, "", location.pathname);
   }, [activeRoomId, app.phase, app.room]);
