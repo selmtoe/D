@@ -243,6 +243,7 @@ export class SparkP2PSession {
   >();
   private intervals: Array<ReturnType<typeof setInterval>> = [];
   private stopped = false;
+  private tickPending = false;
   private coordinatorQueue: Promise<void> = Promise.resolve();
   private mode: "webrtc" | "firebase" | "offline" = "firebase";
   private presenceListening = false;
@@ -357,14 +358,31 @@ export class SparkP2PSession {
     if (this.authority) this.listenPresence();
     this.intervals.push(
       setInterval(() => void this.writePresence(true), HEARTBEAT_MS),
-      setInterval(
-        () => void this.tick().catch(() => this.setMode(navigator.onLine ? "firebase" : "offline")),
-        2_000,
-      ),
+      setInterval(() => {
+        if (this.tickPending) return;
+        this.tickPending = true;
+        void this.tick()
+          .catch(() => this.setMode(navigator.onLine ? "firebase" : "offline"))
+          .finally(() => {
+            this.tickPending = false;
+          });
+      }, 2_000),
     );
     const pageHide = () => void this.writePresence(false);
     addEventListener("pagehide", pageHide);
     this.unsubscribes.push(() => removeEventListener("pagehide", pageHide));
+  }
+
+  private enqueueCoordinator<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.coordinatorQueue.then(async () => {
+      if (this.stopped) throw new Error("offline: P2P接続は終了しています");
+      return task();
+    });
+    this.coordinatorQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private listenForRelays(
@@ -439,7 +457,7 @@ export class SparkP2PSession {
           });
         }
         if (this.authority) {
-          void this.reconcilePresence(now).catch(() =>
+          void this.enqueueCoordinator(() => this.reconcilePresence(now)).catch(() =>
             this.setMode(navigator.onLine ? "firebase" : "offline"),
           );
         }
@@ -469,23 +487,27 @@ export class SparkP2PSession {
     if (this.stopped) return;
     const now = Date.now();
     if (this.authority) {
-      if (this.directory && now - this.directory.heartbeatAtMs >= HEARTBEAT_MS) {
-        await this.persistDirectory(false).catch(() => this.setMode("offline"));
-      }
-      const snapshot = this.authority.exportSnapshot();
-      if (
-        snapshot.turnDeadlineMs &&
-        snapshot.turnDeadlineMs <= now &&
-        this.authority.timeoutCurrent(now)
-      ) {
-        await this.persistAndBroadcast();
-      }
-      for (const [uid, since] of this.disconnectSince) {
-        if (now - since >= DISCONNECT_LIMIT_MS && this.authority.disqualifyDisconnected(uid, now)) {
-          this.disconnectSince.delete(uid);
+      await this.enqueueCoordinator(async () => {
+        const authority = this.authority;
+        if (!authority) return;
+        if (this.directory && now - this.directory.heartbeatAtMs >= HEARTBEAT_MS) {
+          await this.persistDirectory(false).catch(() => this.setMode("offline"));
+        }
+        const snapshot = authority.exportSnapshot();
+        if (
+          snapshot.turnDeadlineMs &&
+          snapshot.turnDeadlineMs <= now &&
+          authority.timeoutCurrent(now)
+        ) {
           await this.persistAndBroadcast();
         }
-      }
+        for (const [uid, since] of this.disconnectSince) {
+          if (now - since >= DISCONNECT_LIMIT_MS && authority.disqualifyDisconnected(uid, now)) {
+            this.disconnectSince.delete(uid);
+            await this.persistAndBroadcast();
+          }
+        }
+      });
       return;
     }
     if (this.directory && now - this.directory.heartbeatAtMs > COORDINATOR_STALE_MS) {
@@ -809,50 +831,50 @@ export class SparkP2PSession {
       return;
     }
     if (!this.authority) return;
-    this.coordinatorQueue = this.coordinatorQueue
-      .catch(() => undefined)
-      .then(async () => {
-        const cached = this.processedRequests.get(wire.requestId);
-        if (cached) {
-          await this.sendWire(senderUid, senderPeerId, cached);
-          return;
+    void this.enqueueCoordinator(async () => {
+      const authority = this.authority;
+      if (!authority) return;
+      const cached = this.processedRequests.get(wire.requestId);
+      if (cached) {
+        await this.sendWire(senderUid, senderPeerId, cached);
+        return;
+      }
+      try {
+        let result: Record<string, unknown> = {};
+        if (wire.type === "hello") {
+          authority.join({
+            uid: senderUid,
+            peerId: senderPeerId,
+            profile: wire.profile,
+            role: wire.role,
+          });
+        } else {
+          result = authority.handleCommand(senderUid, wire.name, wire.payload);
         }
-        try {
-          let result: Record<string, unknown> = {};
-          if (wire.type === "hello") {
-            this.authority!.join({
-              uid: senderUid,
-              peerId: senderPeerId,
-              profile: wire.profile,
-              role: wire.role,
-            });
-          } else {
-            result = this.authority!.handleCommand(senderUid, wire.name, wire.payload);
-          }
-          const response: WireMessage = {
-            type: "response",
-            requestId: wire.requestId,
-            ok: true,
-            result,
-          };
-          this.processedRequests.set(wire.requestId, response);
-          await this.sendWire(senderUid, senderPeerId, response);
-          await this.persistAndBroadcast();
-        } catch (cause) {
-          const response: WireMessage = {
-            type: "response",
-            requestId: wire.requestId,
-            ok: false,
-            error: cause instanceof Error ? cause.message : "unknown: P2P command failed",
-          };
-          this.processedRequests.set(wire.requestId, response);
-          await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
-        }
-        if (this.processedRequests.size > 300) {
-          const first = this.processedRequests.keys().next().value as string | undefined;
-          if (first) this.processedRequests.delete(first);
-        }
-      });
+        const response: WireMessage = {
+          type: "response",
+          requestId: wire.requestId,
+          ok: true,
+          result,
+        };
+        this.processedRequests.set(wire.requestId, response);
+        await this.sendWire(senderUid, senderPeerId, response);
+        await this.persistAndBroadcast();
+      } catch (cause) {
+        const response: WireMessage = {
+          type: "response",
+          requestId: wire.requestId,
+          ok: false,
+          error: cause instanceof Error ? cause.message : "unknown: P2P command failed",
+        };
+        this.processedRequests.set(wire.requestId, response);
+        await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
+      }
+      if (this.processedRequests.size > 300) {
+        const first = this.processedRequests.keys().next().value as string | undefined;
+        if (first) this.processedRequests.delete(first);
+      }
+    }).catch(() => undefined);
   }
 
   private acceptView(view: RoomView): void {
@@ -887,9 +909,13 @@ export class SparkP2PSession {
       typeof payload.clientActionId === "string" ? payload.clientActionId : crypto.randomUUID();
     const withAction = { ...payload, clientActionId: requestId };
     if (this.authority) {
-      const result = this.authority.handleCommand(this.uid, name, withAction);
-      await this.persistAndBroadcast();
-      return result;
+      return this.enqueueCoordinator(async () => {
+        const authority = this.authority;
+        if (!authority) throw new Error("unavailable: ホストが切り替わりました");
+        const result = authority.handleCommand(this.uid, name, withAction);
+        await this.persistAndBroadcast();
+        return result;
+      });
     }
     return this.request({ type: "command", requestId, name, payload: withAction });
   }

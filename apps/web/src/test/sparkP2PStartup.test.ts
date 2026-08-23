@@ -30,6 +30,7 @@ type StartupInternals = {
   connectToCoordinator(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
+  enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
   coordinatorUid: string;
   coordinatorPeerId: string;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
@@ -98,6 +99,39 @@ describe("Spark P2P startup cleanup", () => {
     expect(firestore.setDoc).toHaveBeenCalledTimes(2);
     expect(firestore.setDoc.mock.calls[0]?.[1]).toMatchObject({ online: true });
     expect(firestore.setDoc.mock.calls[1]?.[1]).toMatchObject({ online: false });
+  });
+
+  test("serializes coordinator mutations", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    const order: string[] = [];
+    let releaseFirst: () => void = () => undefined;
+
+    const first = internals.enqueueCoordinator(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push("first-start");
+          releaseFirst = () => {
+            order.push("first-end");
+            resolve();
+          };
+        }),
+    );
+    const second = internals.enqueueCoordinator(async () => {
+      order.push("second");
+    });
+
+    await vi.waitFor(() => expect(order).toEqual(["first-start"]));
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["first-start", "first-end", "second"]);
   });
 
   test("rejects commands after the session has stopped", async () => {
