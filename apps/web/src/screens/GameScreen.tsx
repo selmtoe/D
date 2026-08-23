@@ -986,7 +986,13 @@ export function GameScreen({
         />
       )}
       {activeEffect?.kind === "bomber" && (
-        <EffectPanel effect={activeEffect} room={room} busy={busy} resolve={resolveEffect} />
+        <EffectPanel
+          key={activeEffect.id}
+          effect={activeEffect}
+          room={room}
+          busy={busy}
+          resolve={resolveEffect}
+        />
       )}
       {room.pendingEffects[0] && room.pendingEffects[0].actorId !== room.viewerId && (
         <p className="effect-observer-status" role="status">
