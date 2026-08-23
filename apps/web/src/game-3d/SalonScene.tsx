@@ -811,6 +811,24 @@ function EffectProjectionProbe({
 }
 
 const DEAL_CARD: CardView = { id: "deal-card", visibility: "hidden", blind: false };
+const DECK_POSITION = [-2.9, 0.18, -1.45] as const;
+
+function TableDeck() {
+  return (
+    <group>
+      {Array.from({ length: 5 }, (_, index) => (
+        <Card3D
+          key={`deck-${index}`}
+          card={{ ...DEAL_CARD, id: `deck-${index}` }}
+          position={[DECK_POSITION[0], DECK_POSITION[1] + index * 0.012, DECK_POSITION[2]]}
+          rotation={[-Math.PI / 2, 0, index * 0.018]}
+          scale={0.46}
+          renderOrder={450 + index}
+        />
+      ))}
+    </group>
+  );
+}
 
 function AnimatedDealCard({
   sequence,
@@ -838,9 +856,9 @@ function AnimatedDealCard({
     const targetX = Math.cos(angle) * 4.05 + tangentX;
     const targetZ = Math.sin(angle) * 4.05 + tangentZ;
     root.current.position.set(
-      MathUtils.lerp(0, targetX, eased),
+      MathUtils.lerp(DECK_POSITION[0], targetX, eased),
       0.24 + Math.sin(progress * Math.PI) * 2.15 + round * 0.008,
-      MathUtils.lerp(0, targetZ, eased),
+      MathUtils.lerp(DECK_POSITION[2], targetZ, eased),
     );
     root.current.rotation.y = MathUtils.lerp(sequence * 0.08, -angle + Math.PI / 2, eased);
     root.current.rotation.z = Math.sin(progress * Math.PI) * 0.16;
@@ -865,15 +883,6 @@ function DealingSequence({ playerCount }: { playerCount: number }) {
   if (!playerCount) return null;
   return (
     <group>
-      {Array.from({ length: 5 }, (_, index) => (
-        <Card3D
-          key={`deck-${index}`}
-          card={{ ...DEAL_CARD, id: `deck-${index}` }}
-          position={[0, 0.18 + index * 0.012, 0]}
-          rotation={[-Math.PI / 2, 0, index * 0.018]}
-          scale={0.46}
-        />
-      ))}
       {cards.map((card) => (
         <AnimatedDealCard key={card.sequence} {...card} playerCount={playerCount} />
       ))}
@@ -1057,6 +1066,7 @@ export function SalonScene({
         <Suspense fallback={null}>
           <SalonRoom lowPower={lowPower} />
           <CircularTable />
+          {room && <TableDeck />}
           {room
             ? seats(
                 room.players,
