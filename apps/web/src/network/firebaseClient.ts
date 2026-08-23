@@ -25,6 +25,7 @@ import {
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { migrateAvatar } from "@daifugo/avatar-schema";
 import type { PublicRoom, Role, RoomView } from "../app/model";
+import { getStoredValue, removeStoredValue, setStoredValue } from "../app/browserStorage";
 import {
   e2eCall,
   e2eViewerUid,
@@ -171,17 +172,17 @@ function reconnectKey(roomId: string): string {
 }
 
 export function clearRoomReconnect(roomId: string): void {
-  localStorage.removeItem(reconnectKey(roomId));
-  sessionStorage.removeItem(`daifugo-reconnect-${roomId}`);
+  removeStoredValue("local", reconnectKey(roomId));
+  removeStoredValue("session", `daifugo-reconnect-${roomId}`);
 }
 
 function saveReconnect(record: ReconnectRecord): void {
-  localStorage.setItem(reconnectKey(record.roomId), JSON.stringify(record));
+  setStoredValue("local", reconnectKey(record.roomId), JSON.stringify(record));
 }
 
 function loadReconnect(roomId: string): ReconnectRecord | undefined {
   try {
-    const raw = localStorage.getItem(reconnectKey(roomId));
+    const raw = getStoredValue("local", reconnectKey(roomId));
     if (!raw) return undefined;
     const value = JSON.parse(raw) as Partial<ReconnectRecord>;
     if (

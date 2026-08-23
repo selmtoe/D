@@ -27,6 +27,7 @@ import { ResultScreen } from "./screens/ResultScreen";
 import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
 import { useVisualViewport } from "./app/visualViewport";
+import { getStoredValue, setStoredValue } from "./app/browserStorage";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -126,17 +127,17 @@ export default function App() {
     if (app.phase !== "ENTRANCE" || !reconnectRoomId || activeRoomId) return;
     const storedReconnect = getStoredRoomReconnect(reconnectRoomId);
     const reconnectToken =
-      sessionStorage.getItem(`daifugo-reconnect-${reconnectRoomId}`) ?? storedReconnect?.token;
+      getStoredValue("session", `daifugo-reconnect-${reconnectRoomId}`) ?? storedReconnect?.token;
     if (!reconnectToken) return;
     setBusy(true);
     reconnectWithToken(reconnectRoomId, reconnectToken)
       .then((result) => {
-        sessionStorage.setItem(`daifugo-reconnect-${reconnectRoomId}`, result.reconnectToken);
+        setStoredValue("session", `daifugo-reconnect-${reconnectRoomId}`, result.reconnectToken);
         if (!app.profile) {
           dispatch({
             type: "RESTORE_PROFILE",
             profile: storedReconnect?.profile ?? {
-              name: localStorage.getItem("daifugo-player-name")?.trim() || "ゲスト",
+              name: getStoredValue("local", "daifugo-player-name")?.trim() || "ゲスト",
               avatar,
             },
           });
@@ -174,7 +175,7 @@ export default function App() {
     void run(async () => {
       const result = await joinRoom(roomId, role, app.profile!);
       if (result.reconnectToken)
-        sessionStorage.setItem(`daifugo-reconnect-${result.roomId}`, result.reconnectToken);
+        setStoredValue("session", `daifugo-reconnect-${result.roomId}`, result.reconnectToken);
       setActiveRoomId(result.roomId);
       history.replaceState(null, "", `${location.pathname}?room=${result.roomId}&role=${role}`);
     });
@@ -184,7 +185,7 @@ export default function App() {
     void run(async () => {
       const result = await createRoom(app.profile!);
       if (result.reconnectToken)
-        sessionStorage.setItem(`daifugo-reconnect-${result.roomId}`, result.reconnectToken);
+        setStoredValue("session", `daifugo-reconnect-${result.roomId}`, result.reconnectToken);
       setActiveRoomId(result.roomId);
       history.replaceState(null, "", `${location.pathname}?room=${result.roomId}&role=player`);
     });

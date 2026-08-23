@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { SalonScene } from "../game-3d/SalonScene";
+import { getStoredValue, setStoredValue } from "../app/browserStorage";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import type { AppState } from "../app/model";
 
@@ -29,7 +30,7 @@ export function EntranceScreen({
   enter: (name: string, avatar: AvatarProfileV1) => void;
   reconnecting?: boolean | undefined;
 }) {
-  const [name, setName] = useState(() => localStorage.getItem("daifugo-player-name") ?? "");
+  const [name, setName] = useState(() => getStoredValue("local", "daifugo-player-name") ?? "");
   const [nameError, setNameError] = useState("");
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -40,7 +41,7 @@ export function EntranceScreen({
       return;
     }
     setNameError("");
-    localStorage.setItem("daifugo-player-name", trimmed);
+    setStoredValue("local", "daifugo-player-name", trimmed);
     setAvatar(avatar);
     enter(trimmed, avatar);
   };

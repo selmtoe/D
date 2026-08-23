@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AppEvent, AppState, CardView, PublicRoom } from "./model";
 import { initialAppState, retainSelectedCardIds, transition } from "./stateMachine";
+import { getStoredValue, setStoredValue } from "./browserStorage";
 
 interface UiState {
   app: AppState;
@@ -32,9 +33,9 @@ export const useUiStore = create<UiState>((set) => ({
   app: initialAppState,
   publicRooms: [],
   selectedCardIds: [],
-  lowPower: localStorage.getItem("daifugo-low-power") === "true",
+  lowPower: getStoredValue("local", "daifugo-low-power") === "true",
   reducedMotion: mediaReduced,
-  soundMuted: localStorage.getItem("daifugo-muted") === "true",
+  soundMuted: getStoredValue("local", "daifugo-muted") === "true",
   logOpen: false,
   editorOpen: false,
   activeDialog: undefined,
@@ -58,9 +59,9 @@ export const useUiStore = create<UiState>((set) => ({
   clearSelection: () => set({ selectedCardIds: [] }),
   setSettings: (settings) => {
     if (settings.lowPower !== undefined)
-      localStorage.setItem("daifugo-low-power", String(settings.lowPower));
+      setStoredValue("local", "daifugo-low-power", String(settings.lowPower));
     if (settings.soundMuted !== undefined)
-      localStorage.setItem("daifugo-muted", String(settings.soundMuted));
+      setStoredValue("local", "daifugo-muted", String(settings.soundMuted));
     set(settings);
   },
 }));
