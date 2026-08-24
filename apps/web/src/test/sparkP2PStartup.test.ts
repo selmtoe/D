@@ -55,8 +55,22 @@ type StartupInternals = {
   lastCoordinatorElectionAttemptAt: number;
   presenceSeen: Map<string, { online: boolean; peerId: string; atMs: number }>;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
+  handleSignal(relay: unknown): Promise<void>;
   queueEarlyCandidate(peerId: string, candidate: RTCIceCandidateInit, now: number): void;
+  pruneTransientPeerState(now: number): void;
+  reserveIncomingHandshake(senderUid: string, senderPeerId: string, now: number): void;
   earlyCandidates: Map<string, Array<{ candidate: RTCIceCandidateInit; receivedAtMs: number }>>;
+  pendingPeerHandshakes: Map<string, number>;
+  pendingRequests: Map<string, unknown>;
+  peers: Map<
+    string,
+    {
+      uid: string;
+      peerId: string;
+      connection: { close(): void };
+      pendingCandidates: RTCIceCandidateInit[];
+    }
+  >;
   mode: "webrtc" | "firebase" | "offline";
 };
 
@@ -395,6 +409,163 @@ describe("Spark P2P startup cleanup", () => {
     await session.stop(false);
   });
 
+  test("coalesces duplicate requests and accepts the original host response after handoff", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.coordinatorUid = "old-host";
+    internals.coordinatorPeerId = "old-host-peer";
+    const sendWire = vi.spyOn(internals, "sendWire").mockResolvedValue();
+    const wire = {
+      type: "command",
+      requestId: "same-action",
+      name: "sendChat",
+      payload: { clientActionId: "same-action", text: "hello" },
+    };
+
+    const first = internals.request(wire);
+    const duplicate = internals.request(wire);
+    expect(duplicate).toBe(first);
+    expect(sendWire).toHaveBeenCalledOnce();
+    await expect(
+      internals.request({
+        ...wire,
+        name: "submitPass",
+        payload: { clientActionId: "same-action" },
+      }),
+    ).rejects.toThrow("invalid-argument: 同じ操作IDに異なる操作が指定されました");
+
+    internals.coordinatorUid = "new-host";
+    internals.coordinatorPeerId = "new-host-peer";
+    internals.handleWire(
+      { type: "response", requestId: "same-action", ok: true, result: { saved: true } },
+      "old-host",
+      "old-host-peer",
+    );
+
+    await expect(first).resolves.toEqual({ saved: true });
+    await expect(duplicate).resolves.toEqual({ saved: true });
+    expect(internals.pendingRequests.size).toBe(0);
+    await session.stop(false);
+  });
+
+  test("does not let an old send failure delete a newer request with the same ID", async () => {
+    vi.useFakeTimers();
+    try {
+      const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+      const session = new Session({
+        db: {} as never,
+        user: { uid: "guest" },
+        roomId: "ABCDE",
+        peerId: "guest-peer",
+      });
+      const internals = session as unknown as StartupInternals;
+      internals.coordinatorUid = "host";
+      internals.coordinatorPeerId = "host-peer";
+      let failOldSend: (error: Error) => void = () => undefined;
+      vi.spyOn(internals, "sendWire")
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((_resolve, reject) => {
+              failOldSend = reject;
+            }),
+        )
+        .mockResolvedValueOnce();
+      const wire = {
+        type: "command",
+        requestId: "retried-action",
+        name: "sendChat",
+        payload: { clientActionId: "retried-action", text: "hello" },
+      };
+
+      const oldRequest = internals.request(wire);
+      const oldOutcome = expect(oldRequest).rejects.toThrow("ホストから応答がありません");
+      await vi.advanceTimersByTimeAsync(15_000);
+      await oldOutcome;
+
+      const retry = internals.request(wire);
+      failOldSend(new Error("late failure"));
+      await Promise.resolve();
+      expect(internals.pendingRequests.size).toBe(1);
+      internals.handleWire(
+        { type: "response", requestId: "retried-action", ok: true, result: { saved: true } },
+        "host",
+        "host-peer",
+      );
+      await expect(retry).resolves.toEqual({ saved: true });
+      await session.stop(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("rejects peer ID collisions and delayed offers from an older session", async () => {
+    vi.stubGlobal("RTCPeerConnection", class {});
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.authority.join({
+      uid: "victim",
+      peerId: "victim-old-peer",
+      profile: { name: "victim", avatar: structuredClone(defaultAvatar) },
+      role: "spectator",
+    });
+    const close = vi.fn();
+    internals.peers.set("victim-new-peer", {
+      uid: "victim",
+      peerId: "victim-new-peer",
+      connection: { close },
+      pendingCandidates: [],
+    });
+    internals.presenceSeen.set("victim", {
+      online: true,
+      peerId: "victim-new-peer",
+      atMs: Date.now(),
+    });
+
+    await internals.handleSignal({
+      senderUid: "victim",
+      senderPeerId: "victim-old-peer",
+      targetUid: "host",
+      targetPeerId: "host-peer",
+      kind: "offer",
+      payload: JSON.stringify({ sdp: "valid-sdp" }),
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+    });
+    await internals.handleSignal({
+      senderUid: "attacker",
+      senderPeerId: "victim-new-peer",
+      targetUid: "host",
+      targetPeerId: "host-peer",
+      kind: "offer",
+      payload: JSON.stringify({ sdp: "valid-sdp" }),
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    expect(close).not.toHaveBeenCalled();
+    expect(internals.peers.get("victim-new-peer")?.uid).toBe("victim");
+    await session.stop(false);
+  });
+
   test("rejects an oversized hello peer ID before snapshot mutation", async () => {
     const Session = SparkP2PSession as unknown as SparkSessionConstructor;
     const session = new Session({
@@ -526,9 +697,36 @@ describe("Spark P2P startup cleanup", () => {
       [...internals.earlyCandidates.values()].reduce((sum, entries) => sum + entries.length, 0),
     ).toBeLessThanOrEqual(256);
 
-    internals.queueEarlyCandidate("fresh-peer", candidate, 61_001);
+    internals.pruneTransientPeerState(61_001);
     expect(internals.earlyCandidates.has("same-peer")).toBe(false);
-    expect(internals.earlyCandidates.get("fresh-peer")).toHaveLength(1);
+    expect(internals.earlyCandidates.size).toBe(0);
+  });
+
+  test("bounds and expires unauthenticated peer handshakes", () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+
+    for (let index = 0; index < 5; index += 1) {
+      internals.reserveIncomingHandshake(`unknown-${index}`, `peer-${index}`, 1_000 + index);
+    }
+    expect(internals.pendingPeerHandshakes.size).toBe(4);
+    expect(internals.pendingPeerHandshakes.has("peer-0")).toBe(false);
+
+    internals.pruneTransientPeerState(21_005);
+    expect(internals.pendingPeerHandshakes.size).toBe(0);
   });
 
   test("detects a stale directory by elapsed receipt time despite a skewed wall heartbeat", async () => {

@@ -85,9 +85,13 @@ type EarlyIceCandidate = {
 };
 
 type PendingRequest = {
+  promise: Promise<Record<string, unknown>>;
   resolve: (result: Record<string, unknown>) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  targetUid: string;
+  targetPeerId: string;
+  fingerprint: string;
 };
 
 const HEARTBEAT_MS = 30_000;
@@ -102,6 +106,8 @@ const MAX_EARLY_ICE_PEERS = 48;
 const MAX_EARLY_ICE_PER_PEER = 32;
 const MAX_EARLY_ICE_TOTAL = 256;
 const MAX_ACTIVE_PEERS = 48;
+const MAX_PENDING_PEER_HANDSHAKES = 4;
+const PENDING_PEER_HANDSHAKE_TTL_MS = 20_000;
 const MAX_COMMAND_WIRE_BYTES = 64 * 1_024;
 const MAX_WIRE_BYTES = 256 * 1_024;
 export const SPARK_ROOM_STALE_MS = 30 * 60_000;
@@ -381,6 +387,7 @@ export class SparkP2PSession {
   private lastView?: RoomView;
   private readonly peers = new Map<string, PeerState>();
   private readonly earlyCandidates = new Map<string, EarlyIceCandidate[]>();
+  private readonly pendingPeerHandshakes = new Map<string, number>();
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private readonly processedRequests = new Map<string, WireMessage>();
   private readonly viewListeners = new Set<(view: RoomView) => void>();
@@ -719,6 +726,7 @@ export class SparkP2PSession {
   private async tick(): Promise<void> {
     if (this.stopped) return;
     const now = Date.now();
+    this.pruneTransientPeerState(now);
     if (this.authority) {
       await this.enqueueCoordinator(async () => {
         const authority = this.authority;
@@ -960,6 +968,7 @@ export class SparkP2PSession {
   }
 
   private createPeer(uid: string, peerId: string): PeerState {
+    this.pruneEarlyCandidates(Date.now());
     const connection = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
@@ -992,7 +1001,40 @@ export class SparkP2PSession {
     if (!peerId) return;
     this.peers.get(peerId)?.connection.close();
     this.peers.delete(peerId);
+    this.pendingPeerHandshakes.delete(peerId);
     if (!preserveEarlyCandidates) this.earlyCandidates.delete(peerId);
+  }
+
+  private pruneEarlyCandidates(now: number): void {
+    for (const [candidatePeerId, entries] of this.earlyCandidates) {
+      const fresh = entries.filter((entry) => now - entry.receivedAtMs <= EARLY_ICE_TTL_MS);
+      if (fresh.length === 0) this.earlyCandidates.delete(candidatePeerId);
+      else this.earlyCandidates.set(candidatePeerId, fresh);
+    }
+  }
+
+  private pruneTransientPeerState(now: number): void {
+    this.pruneEarlyCandidates(now);
+    for (const [peerId, receivedAtMs] of this.pendingPeerHandshakes) {
+      if (now - receivedAtMs > PENDING_PEER_HANDSHAKE_TTL_MS) this.closePeer(peerId);
+    }
+  }
+
+  private reserveIncomingHandshake(
+    senderUid: string,
+    senderPeerId: string,
+    now = Date.now(),
+  ): void {
+    if (!this.authority || this.authority.member(senderUid)?.peerId === senderPeerId) return;
+    this.pruneTransientPeerState(now);
+    if (this.pendingPeerHandshakes.has(senderPeerId)) return;
+    if (this.pendingPeerHandshakes.size >= MAX_PENDING_PEER_HANDSHAKES) {
+      const oldestPeerId = [...this.pendingPeerHandshakes.entries()].sort(
+        (left, right) => left[1] - right[1],
+      )[0]?.[0];
+      if (oldestPeerId) this.closePeer(oldestPeerId);
+    }
+    this.pendingPeerHandshakes.set(senderPeerId, now);
   }
 
   private queueEarlyCandidate(
@@ -1000,15 +1042,11 @@ export class SparkP2PSession {
     candidate: RTCIceCandidateInit,
     now = Date.now(),
   ): void {
-    let total = 0;
-    for (const [candidatePeerId, entries] of this.earlyCandidates) {
-      const fresh = entries.filter((entry) => now - entry.receivedAtMs <= EARLY_ICE_TTL_MS);
-      if (fresh.length === 0) this.earlyCandidates.delete(candidatePeerId);
-      else {
-        this.earlyCandidates.set(candidatePeerId, fresh);
-        total += fresh.length;
-      }
-    }
+    this.pruneEarlyCandidates(now);
+    const total = [...this.earlyCandidates.values()].reduce(
+      (sum, entries) => sum + entries.length,
+      0,
+    );
     const current = this.earlyCandidates.get(peerId) ?? [];
     if (
       current.length >= MAX_EARLY_ICE_PER_PEER ||
@@ -1041,8 +1079,25 @@ export class SparkP2PSession {
     if (typeof RTCPeerConnection === "undefined") return;
     if (relay.kind === "offer") {
       if (typeof payload.sdp !== "string" || !payload.sdp || payload.sdp.length > 60_000) return;
-      if (!this.peers.has(relay.senderPeerId) && this.peers.size >= MAX_ACTIVE_PEERS) return;
+      if (!this.authority) return;
+      const existingPeer = this.peers.get(relay.senderPeerId);
+      if (existingPeer && existingPeer.uid !== relay.senderUid) return;
+      const authorityPeerId = this.authority.member(relay.senderUid)?.peerId;
+      const presence = this.presenceSeen.get(relay.senderUid);
+      const livePresence = Boolean(
+        presence?.online && Date.now() - presence.atMs < MEMBER_OFFLINE_MS,
+      );
+      if (livePresence && presence?.peerId !== relay.senderPeerId) return;
+      if (authorityPeerId !== relay.senderPeerId && !livePresence) return;
+      for (const [peerId, peer] of this.peers) {
+        if (peer.uid === relay.senderUid && peerId !== relay.senderPeerId) this.closePeer(peerId);
+      }
       this.closePeer(relay.senderPeerId, true);
+      this.reserveIncomingHandshake(relay.senderUid, relay.senderPeerId);
+      if (this.peers.size >= MAX_ACTIVE_PEERS) {
+        this.pendingPeerHandshakes.delete(relay.senderPeerId);
+        return;
+      }
       const peer = this.createPeer(relay.senderUid, relay.senderPeerId);
       await peer.connection.setRemoteDescription({ type: "offer", sdp: payload.sdp });
       for (const candidate of peer.pendingCandidates.splice(0)) {
@@ -1076,9 +1131,17 @@ export class SparkP2PSession {
   }
 
   private handleWire(wire: WireMessage, senderUid: string, senderPeerId: string): void {
+    const pendingResponse =
+      wire.type === "response" ? this.pendingRequests.get(wire.requestId) : undefined;
+    const expectedResponseSender = Boolean(
+      pendingResponse &&
+      pendingResponse.targetUid === senderUid &&
+      pendingResponse.targetPeerId === senderPeerId,
+    );
     if (
       !this.authority &&
       ["response", "view", "cue", "evicted"].includes(wire.type) &&
+      !expectedResponseSender &&
       (senderUid !== this.coordinatorUid || senderPeerId !== this.coordinatorPeerId)
     ) {
       return;
@@ -1144,6 +1207,7 @@ export class SparkP2PSession {
           result,
         };
         await this.persistAndBroadcast();
+        if (wire.type === "hello") this.pendingPeerHandshakes.delete(senderPeerId);
         this.processedRequests.set(wire.requestId, response);
         await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
       } catch (cause) {
@@ -1155,6 +1219,7 @@ export class SparkP2PSession {
         };
         this.processedRequests.set(wire.requestId, response);
         await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
+        if (wire.type === "hello") this.closePeer(senderPeerId);
       }
       if (this.processedRequests.size > 300) {
         const first = this.processedRequests.keys().next().value as string | undefined;
@@ -1212,18 +1277,41 @@ export class SparkP2PSession {
   private request(
     wire: Extract<WireMessage, { type: "hello" | "command" }>,
   ): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(wire.requestId);
-        reject(new Error("unavailable: ホストから応答がありません"));
-      }, 15_000);
-      this.pendingRequests.set(wire.requestId, { resolve, reject, timer });
-      void this.sendWire(this.coordinatorUid, this.coordinatorPeerId, wire).catch((cause) => {
-        clearTimeout(timer);
-        this.pendingRequests.delete(wire.requestId);
-        reject(cause instanceof Error ? cause : new Error("P2P送信に失敗しました"));
-      });
+    const targetUid = this.coordinatorUid;
+    const targetPeerId = this.coordinatorPeerId;
+    const fingerprint = safeJson({ wire, targetUid, targetPeerId });
+    const existing = this.pendingRequests.get(wire.requestId);
+    if (existing) {
+      if (existing.fingerprint === fingerprint) return existing.promise;
+      return Promise.reject(new Error("invalid-argument: 同じ操作IDに異なる操作が指定されました"));
+    }
+    let resolveRequest!: (result: Record<string, unknown>) => void;
+    let rejectRequest!: (error: Error) => void;
+    const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
     });
+    const pending: PendingRequest = {
+      promise,
+      resolve: resolveRequest,
+      reject: rejectRequest,
+      timer: setTimeout(() => {
+        if (this.pendingRequests.get(wire.requestId) !== pending) return;
+        this.pendingRequests.delete(wire.requestId);
+        rejectRequest(new Error("unavailable: ホストから応答がありません"));
+      }, 15_000),
+      targetUid,
+      targetPeerId,
+      fingerprint,
+    };
+    this.pendingRequests.set(wire.requestId, pending);
+    void this.sendWire(targetUid, targetPeerId, wire).catch((cause) => {
+      if (this.pendingRequests.get(wire.requestId) !== pending) return;
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(wire.requestId);
+      rejectRequest(cause instanceof Error ? cause : new Error("P2P送信に失敗しました"));
+    });
+    return promise;
   }
 
   private async sendWire(
@@ -1362,6 +1450,7 @@ export class SparkP2PSession {
     this.peers.forEach((peer) => peer.connection.close());
     this.peers.clear();
     this.earlyCandidates.clear();
+    this.pendingPeerHandshakes.clear();
     this.processedRequests.clear();
     this.disconnectSince.clear();
     this.presenceSeen.clear();
