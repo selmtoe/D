@@ -107,6 +107,8 @@ const MAX_EARLY_ICE_TOTAL = 256;
 const MAX_ACTIVE_PEERS = 48;
 const MAX_PENDING_PEER_HANDSHAKES = 4;
 const PENDING_PEER_HANDSHAKE_TTL_MS = 20_000;
+const REQUEST_FINGERPRINT_TTL_MS = 10 * 60_000;
+const MAX_REQUEST_FINGERPRINTS = 300;
 const MAX_COMMAND_WIRE_BYTES = 64 * 1_024;
 const MAX_WIRE_BYTES = 256 * 1_024;
 export const SPARK_ROOM_STALE_MS = 30 * 60_000;
@@ -239,6 +241,10 @@ function safeJson(value: unknown): string {
 
 function responseSource(uid: string, peerId: string): string {
   return safeJson([uid, peerId]);
+}
+
+function processedRequestKey(uid: string, peerId: string, requestId: string): string {
+  return safeJson([uid, peerId, requestId]);
 }
 
 function plain<T>(value: T): T {
@@ -393,6 +399,11 @@ export class SparkP2PSession {
   private readonly pendingPeerHandshakes = new Map<string, number>();
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private readonly processedRequests = new Map<string, WireMessage>();
+  private readonly processedRequestFingerprints = new Map<string, string>();
+  private readonly recentRequestFingerprints = new Map<
+    string,
+    { fingerprint: string; recordedAtMs: number }
+  >();
   private readonly viewListeners = new Set<(view: RoomView) => void>();
   private readonly cueListeners = new Set<(cue: CueEvent, senderUid: string) => void>();
   private readonly evictionListeners = new Set<(reason: "kick" | "room-closed") => void>();
@@ -1186,8 +1197,18 @@ export class SparkP2PSession {
         }).catch(() => undefined);
         return;
       }
-      const cached = this.processedRequests.get(wire.requestId);
+      const processedKey = processedRequestKey(senderUid, senderPeerId, wire.requestId);
+      const cached = this.processedRequests.get(processedKey);
       if (cached) {
+        if (this.processedRequestFingerprints.get(processedKey) !== safeJson(wire)) {
+          await this.sendWire(senderUid, senderPeerId, {
+            type: "response",
+            requestId: wire.requestId,
+            ok: false,
+            error: "invalid-argument: 同じ操作IDに異なる操作が指定されました",
+          }).catch(() => undefined);
+          return;
+        }
         await this.sendWire(senderUid, senderPeerId, cached);
         return;
       }
@@ -1211,7 +1232,8 @@ export class SparkP2PSession {
         };
         await this.persistAndBroadcast();
         if (wire.type === "hello") this.pendingPeerHandshakes.delete(senderPeerId);
-        this.processedRequests.set(wire.requestId, response);
+        this.processedRequests.set(processedKey, response);
+        this.processedRequestFingerprints.set(processedKey, safeJson(wire));
         await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
       } catch (cause) {
         const response: WireMessage = {
@@ -1220,13 +1242,17 @@ export class SparkP2PSession {
           ok: false,
           error: cause instanceof Error ? cause.message : "unknown: P2P command failed",
         };
-        this.processedRequests.set(wire.requestId, response);
+        this.processedRequests.set(processedKey, response);
+        this.processedRequestFingerprints.set(processedKey, safeJson(wire));
         await this.sendWire(senderUid, senderPeerId, response).catch(() => undefined);
         if (wire.type === "hello") this.closePeer(senderPeerId);
       }
       if (this.processedRequests.size > 300) {
         const first = this.processedRequests.keys().next().value as string | undefined;
-        if (first) this.processedRequests.delete(first);
+        if (first) {
+          this.processedRequests.delete(first);
+          this.processedRequestFingerprints.delete(first);
+        }
       }
     }).catch(() => undefined);
   }
@@ -1284,6 +1310,22 @@ export class SparkP2PSession {
     const targetPeerId = this.coordinatorPeerId;
     const fingerprint = safeJson(wire);
     const source = responseSource(targetUid, targetPeerId);
+    const now = Date.now();
+    for (const [requestId, record] of this.recentRequestFingerprints) {
+      if (now - record.recordedAtMs > REQUEST_FINGERPRINT_TTL_MS) {
+        this.recentRequestFingerprints.delete(requestId);
+      }
+    }
+    const recent = this.recentRequestFingerprints.get(wire.requestId);
+    if (recent && recent.fingerprint !== fingerprint) {
+      return Promise.reject(new Error("invalid-argument: 同じ操作IDに異なる操作が指定されました"));
+    }
+    this.recentRequestFingerprints.delete(wire.requestId);
+    this.recentRequestFingerprints.set(wire.requestId, { fingerprint, recordedAtMs: now });
+    if (this.recentRequestFingerprints.size > MAX_REQUEST_FINGERPRINTS) {
+      const oldest = this.recentRequestFingerprints.keys().next().value as string | undefined;
+      if (oldest) this.recentRequestFingerprints.delete(oldest);
+    }
     const existing = this.pendingRequests.get(wire.requestId);
     if (existing) {
       if (existing.fingerprint === fingerprint) {
@@ -1339,7 +1381,7 @@ export class SparkP2PSession {
       throw new Error("resource-exhausted: P2Pメッセージが大きすぎます");
     }
     const peer = this.peers.get(targetPeerId);
-    if (peer?.channel?.readyState === "open") {
+    if (peer?.uid === targetUid && peer.channel?.readyState === "open") {
       peer.channel.send(serialized);
       this.setMode("webrtc");
       return;
@@ -1463,6 +1505,8 @@ export class SparkP2PSession {
     this.earlyCandidates.clear();
     this.pendingPeerHandshakes.clear();
     this.processedRequests.clear();
+    this.processedRequestFingerprints.clear();
+    this.recentRequestFingerprints.clear();
     this.disconnectSince.clear();
     this.presenceSeen.clear();
     this.pendingRequests.forEach((pending) => {

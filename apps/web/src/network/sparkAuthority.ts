@@ -436,6 +436,10 @@ export class SparkAuthority {
     if (!isValidSparkPeerId(request.peerId)) {
       commandError("invalid-argument", "接続IDが不正です");
     }
+    const peerOwner = this.peerOwner(request.peerId);
+    if (peerOwner && peerOwner.uid !== request.uid) {
+      commandError("permission-denied", "接続IDは別の参加者が使用しています");
+    }
     if (this.snapshot.evictedUids?.includes(request.uid)) {
       commandError("permission-denied", "この部屋からキックされています");
     }

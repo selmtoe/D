@@ -247,6 +247,15 @@ describe("Spark browser authority", () => {
       }),
     ).toThrow("invalid-argument: 接続IDが不正です");
     expect(authority.exportSnapshot()).toEqual(before);
+    expect(() =>
+      authority.join({
+        uid: "watcher",
+        peerId: "peer-2",
+        profile: profile("観戦者"),
+        role: "spectator",
+      }),
+    ).toThrow("permission-denied: 接続IDは別の参加者が使用しています");
+    expect(authority.exportSnapshot()).toEqual(before);
 
     const legacy = authority.exportSnapshot();
     legacy.members.p2!.peerId = "p".repeat(193);

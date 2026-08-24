@@ -680,6 +680,7 @@ function handCards(
   effectInteraction?: TableEffectInteraction,
   onGiveCardDrop: (card: CardView, playerId: string) => void = () => undefined,
   players: PlayerView[] = [],
+  readOnly = false,
 ) {
   const layout = handCardInteractionLayout(cards.length, mobile);
   return cards.map((card, index) => {
@@ -695,17 +696,23 @@ function handCards(
           movingToHand.has(card.id) ||
           (effectInteraction?.kind === "give" && Boolean(effectInteraction.giveTargets[card.id]))
         }
-        {...(effectInteraction?.kind === "give" && effectInteraction.selectableIds.has(card.id)
-          ? {
-              onDragStart: () => {
-                if (!effectInteraction.selectedIds.has(card.id)) toggle(card);
-              },
-              onDragEnd: (point: [number, number, number]) => {
-                const target = nearestGiveTarget(players, effectInteraction.targetPlayerIds, point);
-                if (target) onGiveCardDrop(card, target);
-              },
-            }
-          : { onSelect: () => toggle(card) })}
+        {...(readOnly
+          ? {}
+          : effectInteraction?.kind === "give" && effectInteraction.selectableIds.has(card.id)
+            ? {
+                onDragStart: () => {
+                  if (!effectInteraction.selectedIds.has(card.id)) toggle(card);
+                },
+                onDragEnd: (point: [number, number, number]) => {
+                  const target = nearestGiveTarget(
+                    players,
+                    effectInteraction.targetPlayerIds,
+                    point,
+                  );
+                  if (target) onGiveCardDrop(card, target);
+                },
+              }
+            : { onSelect: () => toggle(card) })}
         position={[
           centered * layout.spacing,
           1.05 - Math.abs(centered) * 0.015,
@@ -1038,6 +1045,7 @@ export function SalonScene({
   previewAvatar,
   selectedIds = [],
   playableIds,
+  handReadOnly = false,
   onToggleCard = () => undefined,
   lowPower,
   reducedMotion,
@@ -1058,6 +1066,7 @@ export function SalonScene({
   previewAvatar?: PlayerView["avatar"];
   selectedIds?: string[];
   playableIds?: ReadonlySet<string> | undefined;
+  handReadOnly?: boolean | undefined;
   onToggleCard?: ((card: CardView) => void) | undefined;
   lowPower: boolean;
   reducedMotion: boolean;
@@ -1294,6 +1303,7 @@ export function SalonScene({
               effectInteraction,
               onGiveCardDrop,
               sceneRoom.players,
+              handReadOnly,
             )}
           {sceneRoom && dealing && <DealingSequence playerCount={sceneRoom.players.length} />}
           {sceneRoom &&

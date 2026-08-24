@@ -47,6 +47,13 @@ type StartupInternals = {
   persistDirectory(initial: boolean): Promise<void>;
   persistAndBroadcast(): Promise<void>;
   sendWire(targetUid: string, targetPeerId: string, wire: unknown): Promise<void>;
+  sendRelay(
+    collectionName: "sparkSignals" | "sparkMailboxes",
+    targetUid: string,
+    targetPeerId: string,
+    kind: string,
+    payload: unknown,
+  ): Promise<void>;
   authority?: SparkAuthority;
   coordinatorUid: string;
   coordinatorPeerId: string;
@@ -68,6 +75,7 @@ type StartupInternals = {
       uid: string;
       peerId: string;
       connection: { close(): void };
+      channel?: { readyState: string; send(value: string): void };
       pendingCandidates: RTCIceCandidateInit[];
     }
   >;
@@ -502,6 +510,12 @@ describe("Spark P2P startup cleanup", () => {
         "host-peer",
       );
       await expect(retry).resolves.toEqual({ saved: true });
+      await expect(
+        internals.request({
+          ...wire,
+          payload: { clientActionId: "retried-action", text: "other" },
+        }),
+      ).rejects.toThrow("invalid-argument: 同じ操作IDに異なる操作が指定されました");
       await session.stop(false);
     } finally {
       vi.useRealTimers();
@@ -583,6 +597,43 @@ describe("Spark P2P startup cleanup", () => {
     expect(close).not.toHaveBeenCalled();
     expect(internals.peers.get("victim-new-peer")?.uid).toBe("victim");
     expect(internals.pendingPeerHandshakes.has("victim-old-peer")).toBe(false);
+    await session.stop(false);
+  });
+
+  test("does not send a target user's wire over another user's peer channel", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    const channelSend = vi.fn();
+    internals.peers.set("claimed-peer", {
+      uid: "victim",
+      peerId: "claimed-peer",
+      connection: { close: vi.fn() },
+      channel: { readyState: "open", send: channelSend },
+      pendingCandidates: [],
+    });
+    const sendRelay = vi.spyOn(internals, "sendRelay").mockResolvedValue();
+
+    await internals.sendWire("attacker", "claimed-peer", {
+      type: "response",
+      requestId: "claim-test",
+      ok: false,
+      error: "rejected",
+    });
+
+    expect(channelSend).not.toHaveBeenCalled();
+    expect(sendRelay).toHaveBeenCalledWith(
+      "sparkMailboxes",
+      "attacker",
+      "claimed-peer",
+      "wire",
+      expect.objectContaining({ requestId: "claim-test" }),
+    );
     await session.stop(false);
   });
 

@@ -868,6 +868,7 @@ export function GameScreen({
           playableIds={
             directEffect ? effectSelectableIds : playBlocked ? noPlayableCards : playableIds
           }
+          handReadOnly={readOnly}
           onToggleCard={
             readOnly ? undefined : directEffect ? (card) => toggleEffectCard(card) : selectCard
           }
