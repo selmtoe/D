@@ -379,14 +379,20 @@ export class SparkP2PSession {
       if (session.authority) {
         await session.persistAndBroadcast();
       } else {
-        await session.connectToCoordinator();
-        await session.request({
-          type: "hello",
-          requestId: crypto.randomUUID(),
-          role: resolvedRole,
-          profile: plain(resolvedProfile),
-        });
-        await session.waitForInitialView();
+        // A returning non-host can arrive after every live peer has left an otherwise
+        // recoverable room. Probe the lease once before the 15-second hello timeout;
+        // Firestore Rules, not the candidate's wall clock, decides whether takeover is legal.
+        await session.tryCoordinatorElection(Date.now()).catch(() => undefined);
+        if (!session.authority) {
+          await session.connectToCoordinator();
+          await session.request({
+            type: "hello",
+            requestId: crypto.randomUUID(),
+            role: resolvedRole,
+            profile: plain(resolvedProfile),
+          });
+          await session.waitForInitialView();
+        }
       }
       return session;
     } catch (cause) {
@@ -949,6 +955,15 @@ export class SparkP2PSession {
     void this.enqueueCoordinator(async () => {
       const authority = this.authority;
       if (!authority) return;
+      if (wire.type === "command" && authority.member(senderUid)?.peerId !== senderPeerId) {
+        await this.sendWire(senderUid, senderPeerId, {
+          type: "response",
+          requestId: wire.requestId,
+          ok: false,
+          error: "permission-denied: この接続は新しいセッションに置き換えられました",
+        }).catch(() => undefined);
+        return;
+      }
       const cached = this.processedRequests.get(wire.requestId);
       if (cached) {
         await this.sendWire(senderUid, senderPeerId, cached);

@@ -72,6 +72,7 @@ describe("Spark P2P startup cleanup", () => {
     });
     const prototype = SparkP2PSession.prototype as unknown as StartupInternals;
     vi.spyOn(prototype, "startCommon").mockResolvedValue();
+    vi.spyOn(prototype, "tryCoordinatorElection").mockResolvedValue();
     vi.spyOn(prototype, "connectToCoordinator").mockResolvedValue();
     vi.spyOn(prototype, "request").mockRejectedValue(new Error("handshake failed"));
     const stop = vi.spyOn(SparkP2PSession.prototype, "stop").mockResolvedValue();
@@ -85,6 +86,41 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(false);
+  });
+
+  test("recovers a stale room before attempting a coordinator handshake", async () => {
+    firestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ coordinatorUid: "host", coordinatorPeerId: "host-peer" }),
+    });
+    const prototype = SparkP2PSession.prototype as unknown as StartupInternals;
+    vi.spyOn(prototype, "startCommon").mockResolvedValue();
+    const election = vi
+      .spyOn(prototype, "tryCoordinatorElection")
+      .mockImplementation(async function (this: StartupInternals) {
+        this.authority = SparkAuthority.create(
+          "ABCDE",
+          "guest",
+          "guest-peer",
+          { name: "guest", avatar: structuredClone(defaultAvatar) },
+          1_000,
+        );
+      });
+    const connect = vi.spyOn(prototype, "connectToCoordinator").mockResolvedValue();
+    const request = vi.spyOn(prototype, "request").mockResolvedValue({});
+
+    const session = await SparkP2PSession.connect(
+      {} as never,
+      { uid: "guest" } as never,
+      "ABCDE",
+      "player",
+      { name: "guest", avatar: structuredClone(defaultAvatar) },
+    );
+
+    expect(election).toHaveBeenCalledOnce();
+    expect(connect).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    await session.stop(false);
   });
 
   test("serializes presence writes so offline is the final update", async () => {
@@ -245,6 +281,52 @@ describe("Spark P2P startup cleanup", () => {
     expect(cueListener).not.toHaveBeenCalled();
     internals.handleWire(wire, "host", "host-peer");
     expect(cueListener).toHaveBeenCalledWith(wire.cue, "actor");
+  });
+
+  test("rejects commands from a peer replaced by a newer session", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.authority.join({
+      uid: "guest",
+      peerId: "new-peer",
+      profile: { name: "guest", avatar: structuredClone(defaultAvatar) },
+      role: "spectator",
+    });
+    const revision = internals.authority.exportSnapshot().revision;
+    const sendWire = vi.spyOn(internals, "sendWire").mockResolvedValue();
+
+    internals.handleWire(
+      {
+        type: "command",
+        requestId: "old-peer-command",
+        name: "sendChat",
+        payload: { expectedRevision: revision, text: "old tab" },
+      },
+      "guest",
+      "old-peer",
+    );
+
+    await vi.waitFor(() => expect(sendWire).toHaveBeenCalledOnce());
+    expect(sendWire).toHaveBeenCalledWith(
+      "guest",
+      "old-peer",
+      expect.objectContaining({ ok: false, requestId: "old-peer-command" }),
+    );
+    expect(internals.authority.exportSnapshot().revision).toBe(revision);
+    await session.stop(false);
   });
 
   test("does not deliver a queued mode update after unsubscribe", async () => {
