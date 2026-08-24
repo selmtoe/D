@@ -29,6 +29,7 @@ import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
 import { getStoredValue, setStoredValue } from "./app/browserStorage";
 import { connectionStateOnBrowserOnline } from "./app/connectionState";
+import { canApplyPwaUpdate, useApplyPwaUpdateWhenSafe } from "./app/pwaUpdate";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -59,6 +60,7 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const operationsInFlight = useRef(0);
+  useApplyPwaUpdateWhenSafe(canApplyPwaUpdate(app.phase, busy, Boolean(activeRoomId || app.room)));
   const handleRoomEvicted = useCallback((roomId: string) => {
     clearRoomReconnect(roomId);
     setActiveRoomId((current) => {
