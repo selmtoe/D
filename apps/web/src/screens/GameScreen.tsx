@@ -80,6 +80,10 @@ export function canRequestSpectatorFocus(
   return !busy && currentPlayerId !== targetPlayerId;
 }
 
+export function canShowLogControls(hasBlockingEffect: boolean): boolean {
+  return !hasBlockingEffect;
+}
+
 export function PlayDialog({
   cards,
   candidates,
@@ -495,6 +499,9 @@ export function GameScreen({
   const activeEffect = room.pendingEffects.find(
     (effect) => effect.actorId === room.viewerId && effect.kind !== "clearField",
   );
+  const logBlocked = Boolean(
+    room.pendingEffects.some((effect) => effect.kind !== "clearField") || room.pendingJokerMimic,
+  );
   const directEffect =
     activeEffect && ["steal", "give", "discard", "collect"].includes(activeEffect.kind)
       ? (activeEffect as PendingEffectView & {
@@ -550,6 +557,9 @@ export function GameScreen({
       setPlayDialog(false);
     }
   }, [myTurn, playBlocked, playDialog, readOnly, selection.complete]);
+  useEffect(() => {
+    if (logBlocked && logOpen) setSettings({ logOpen: false });
+  }, [logBlocked, logOpen, setSettings]);
   useEffect(() => {
     if (!directEffectKind) return;
     setEffectCardIds((ids) => {
@@ -1070,15 +1080,17 @@ export function GameScreen({
           }
         />
       )}
-      <button
-        type="button"
-        className="log-toggle"
-        aria-expanded={logOpen}
-        onClick={() => setSettings({ logOpen: !logOpen })}
-      >
-        ログ／チャット
-      </button>
-      {logOpen && (
+      {canShowLogControls(logBlocked) && (
+        <button
+          type="button"
+          className="log-toggle"
+          aria-expanded={logOpen}
+          onClick={() => setSettings({ logOpen: !logOpen })}
+        >
+          ログ／チャット
+        </button>
+      )}
+      {canShowLogControls(logBlocked) && logOpen && (
         <ChatPanel
           room={room}
           sendChat={(message) => command("sendChat", { ...payloadBase, text: message })}

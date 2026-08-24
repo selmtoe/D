@@ -4,6 +4,7 @@ import type { CardView, Suit } from "../app/model";
 import {
   canOpenPlayConfirmation,
   canRequestSpectatorFocus,
+  canShowLogControls,
   canShowPlayControls,
   PlayDialog,
 } from "../screens/GameScreen";
@@ -27,6 +28,11 @@ describe("play confirmation dialog", () => {
     expect(canRequestSpectatorFocus(false, "player-1", "player-2")).toBe(true);
     expect(canRequestSpectatorFocus(true, "player-1", "player-2")).toBe(false);
     expect(canRequestSpectatorFocus(false, "player-1", "player-1")).toBe(false);
+  });
+
+  it("hides log controls while a blocking effect is being resolved", () => {
+    expect(canShowLogControls(false)).toBe(true);
+    expect(canShowLogControls(true)).toBe(false);
   });
 
   it("keeps a complete legal Joker candidate selectable across parent rerenders", () => {
