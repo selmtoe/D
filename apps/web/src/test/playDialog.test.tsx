@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CardView, Suit } from "../app/model";
-import { canOpenPlayConfirmation, PlayDialog } from "../screens/GameScreen";
+import { canOpenPlayConfirmation, canShowPlayControls, PlayDialog } from "../screens/GameScreen";
 
 afterEach(cleanup);
 
@@ -11,6 +11,11 @@ describe("play confirmation dialog", () => {
     expect(canOpenPlayConfirmation(true, false, false, false)).toBe(false);
     expect(canOpenPlayConfirmation(false, true, false, false)).toBe(false);
     expect(canOpenPlayConfirmation(true, true, false, true)).toBe(false);
+  });
+
+  it("hides the play controls while the log panel is open", () => {
+    expect(canShowPlayControls(false, false, false, false)).toBe(true);
+    expect(canShowPlayControls(false, false, false, true)).toBe(false);
   });
 
   it("keeps a complete legal Joker candidate selectable across parent rerenders", () => {

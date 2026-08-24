@@ -63,6 +63,15 @@ export function canOpenPlayConfirmation(
   return selectionComplete && myTurn && !readOnly && !hasActiveEffect;
 }
 
+export function canShowPlayControls(
+  readOnly: boolean,
+  dealing: boolean,
+  hasDirectEffect: boolean,
+  logOpen: boolean,
+): boolean {
+  return !readOnly && !dealing && !hasDirectEffect && !logOpen;
+}
+
 export function PlayDialog({
   cards,
   candidates,
@@ -946,7 +955,7 @@ export function GameScreen({
           </button>
         </section>
       )}
-      {!readOnly && !dealing && !directEffect && (
+      {canShowPlayControls(readOnly, dealing, Boolean(directEffect), logOpen) && (
         <div className="play-controls">
           <p id="play-reason" className="control-reason">
             {!myTurn
