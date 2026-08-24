@@ -32,7 +32,7 @@ export function WaitingRoomScreen({
 }) {
   const [tab, setTab] = useState<"people" | "settings">("people");
   const me = room.players.find((player) => player.id === room.viewerId);
-  const isHost = room.hostId === room.viewerId;
+  const isHost = Boolean(me && room.hostId === room.viewerId);
   const settingsEditable = canEditRoomSettings(isHost, busy);
   const connectedCount = room.players.filter((player) => player.connection === "online").length;
   const inviteUrl = `${location.origin}${location.pathname}?room=${room.roomId}`;

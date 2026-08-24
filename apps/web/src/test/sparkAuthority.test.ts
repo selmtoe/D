@@ -266,6 +266,58 @@ describe("Spark browser authority", () => {
     expect(authority.exportSnapshot().hostUid).toBe("p3");
   });
 
+  it("keeps the host role with a player when only a spectator is online", () => {
+    const authority = waitingRoom();
+    authority.join({
+      uid: "watcher",
+      peerId: "watcher-peer",
+      profile: profile("観戦者"),
+      role: "spectator",
+    });
+    authority.setMemberOnline("p2", false, undefined, 1_100);
+    authority.setMemberOnline("p3", false, undefined, 1_101);
+
+    authority.handleCommand("p1", "leaveRoom", { clientActionId: "host-leaves" }, 1_200);
+
+    expect(authority.exportSnapshot()).toMatchObject({ hostUid: "p2", coordinatorUid: "watcher" });
+  });
+
+  it("never grants host commands to a spectator even when no player remains", () => {
+    const authority = waitingRoom();
+    authority.join({
+      uid: "watcher",
+      peerId: "watcher-peer",
+      profile: profile("観戦者"),
+      role: "spectator",
+    });
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      { clientActionId: "remove-p2", targetUid: "p2" },
+      1_100,
+    );
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      { clientActionId: "remove-p3", targetUid: "p3" },
+      1_101,
+    );
+    authority.handleCommand("p1", "leaveRoom", { clientActionId: "remove-host" }, 1_102);
+    expect(authority.exportSnapshot().hostUid).toBe("watcher");
+
+    expect(() =>
+      authority.handleCommand(
+        "watcher",
+        "updateRoomSettings",
+        { clientActionId: "spectator-settings", settings: { mode: "blind", blindCount: 1 } },
+        1_103,
+      ),
+    ).toThrow(/プレイヤーホスト専用/);
+    expect(() =>
+      authority.handleCommand("watcher", "startGame", { clientActionId: "spectator-start" }, 1_104),
+    ).toThrow(/プレイヤーホスト専用/);
+  });
+
   it("returns the original start response for the same room action id", () => {
     const authority = waitingRoom();
     const payload = {

@@ -14,6 +14,9 @@ export function ResultScreen({
   leave: () => void;
   rematch: () => void;
 }) {
+  const viewerIsPlayer = room.players.some(
+    (player) => player.id === room.viewerId && player.present !== false,
+  );
   const rows = room.rankings
     .map((ranking) => ({
       ...ranking,
@@ -53,7 +56,7 @@ export function ResultScreen({
           <button type="button" disabled={busy} onClick={leave}>
             サロンロビーへ
           </button>
-          {room.hostId === room.viewerId ? (
+          {viewerIsPlayer && room.hostId === room.viewerId ? (
             <button type="button" className="primary" disabled={busy} onClick={rematch}>
               {busy ? "準備中…" : "同じ部屋で次のゲーム"}
             </button>

@@ -870,8 +870,8 @@ export class SparkAuthority {
       );
       this.snapshot.hostUid =
         remaining.find((candidate) => candidate.role === "player" && candidate.online)?.uid ??
-        remaining.find((candidate) => candidate.online)?.uid ??
         remaining.find((candidate) => candidate.role === "player")?.uid ??
+        remaining.find((candidate) => candidate.online)?.uid ??
         remaining[0]?.uid ??
         "";
     }
@@ -890,7 +890,9 @@ export class SparkAuthority {
   }
 
   private requireHost(uid: string): void {
-    if (this.snapshot.hostUid !== uid) commandError("permission-denied", "ホスト専用操作です");
+    if (this.snapshot.hostUid !== uid || this.snapshot.members[uid]?.role !== "player") {
+      commandError("permission-denied", "プレイヤーホスト専用操作です");
+    }
   }
 
   private recordRoomAction(actionId: string, response: Record<string, unknown>): void {

@@ -91,6 +91,35 @@ describe("result rankings", () => {
     expect(screen.getByText(/ホストが次のゲーム/)).toBeInTheDocument();
   });
 
+  it("does not offer a rematch to a spectator even if a stale host id matches", () => {
+    const room: RoomView = {
+      roomId: "RESULT",
+      revision: 9,
+      generation: 0,
+      phase: "finished",
+      role: "spectator",
+      viewerId: "watcher",
+      hostId: "watcher",
+      players: [player("p1", "一郎")],
+      spectators: [{ id: "watcher", name: "観戦者" }],
+      settings: { mode: "normal", blindCount: 0 },
+      direction: 1,
+      revolution: false,
+      jackBack: false,
+      suitLock: [],
+      field: [],
+      discard: [],
+      hand: [],
+      pendingEffects: [],
+      rankings: [],
+      log: [],
+    };
+
+    render(<ResultScreen room={room} busy={false} leave={vi.fn()} rematch={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "同じ部屋で次のゲーム" })).toBeNull();
+  });
+
   it("shows a rematch or connection failure", () => {
     const room: RoomView = {
       roomId: "RESULT",

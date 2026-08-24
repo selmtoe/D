@@ -74,6 +74,8 @@ export const cardsOnTable = (room: RoomView): CardView[] =>
 
 export function cardMotionPerspectiveChanged(previous: RoomView, next: RoomView): boolean {
   return (
+    previous.roomId !== next.roomId ||
+    previous.gameId !== next.gameId ||
     previous.role !== next.role ||
     (next.role === "spectator" && previous.focusedPlayerId !== next.focusedPlayerId)
   );
@@ -81,8 +83,8 @@ export function cardMotionPerspectiveChanged(previous: RoomView, next: RoomView)
 
 export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotionEvent[] {
   if (
-    previous.gameId !== next.gameId ||
     previous.phase === "dealing" ||
+    next.phase === "dealing" ||
     cardMotionPerspectiveChanged(previous, next)
   )
     return [];

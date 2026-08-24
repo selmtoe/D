@@ -700,6 +700,11 @@ export function GameScreen({
       });
   }, [room]);
   useEffect(() => {
+    if (dealing || (room.role === "spectator" && spectatorMode === "free")) {
+      setCardMotions([]);
+    }
+  }, [dealing, room.role, spectatorMode]);
+  useEffect(() => {
     if (previousTurn.current !== room.currentPlayerId) {
       feedback("turn", muted);
       previousTurn.current = room.currentPlayerId;
@@ -782,7 +787,10 @@ export function GameScreen({
   };
   const focusedSpectator = room.players.find((player) => player.id === spectatorFocusId);
   return (
-    <main id="main" className={`game-screen ${room.role}`}>
+    <main
+      id="main"
+      className={`game-screen ${room.role}${room.role === "spectator" && spectatorMode === "free" ? " free-roam" : ""}`}
+    >
       <div className="game-world">
         <SalonScene
           room={displayRoom}
@@ -796,7 +804,9 @@ export function GameScreen({
           lowPower={lowPower}
           reducedMotion={reducedMotion}
           dealing={dealing}
-          cardMotions={cardMotions}
+          cardMotions={
+            dealing || (room.role === "spectator" && spectatorMode === "free") ? [] : cardMotions
+          }
           onCardMotionDone={(id) =>
             setCardMotions((motions) => motions.filter((motion) => motion.id !== id))
           }
@@ -827,7 +837,7 @@ export function GameScreen({
           <button type="button" disabled={busy} onClick={leave}>
             退出
           </button>
-          {room.hostId === room.viewerId && (
+          {me && room.hostId === room.viewerId && (
             <button
               type="button"
               aria-expanded={moderationOpen}
@@ -851,7 +861,7 @@ export function GameScreen({
           </div>
         )}
       </header>
-      {moderationOpen && room.hostId === room.viewerId && (
+      {moderationOpen && me && room.hostId === room.viewerId && (
         <section className="moderation-panel" aria-label="ホストの卓管理">
           <header>
             <strong>卓管理</strong>

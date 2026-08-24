@@ -143,6 +143,21 @@ describe("card motion projection diff", () => {
     expect(deriveCardMotions(previous, next)).toEqual([]);
   });
 
+  it("does not carry card motions across rooms, games, or dealing", () => {
+    const previous = view(10, [card("old-card")], []);
+    const nextRoom = view(11, [card("new-card")], []);
+    nextRoom.roomId = "OTHER";
+    expect(deriveCardMotions(previous, nextRoom)).toEqual([]);
+
+    const nextGame = view(11, [card("new-card")], []);
+    nextGame.gameId = "game-2";
+    expect(deriveCardMotions(previous, nextGame)).toEqual([]);
+
+    const dealingRoom = view(11, [], []);
+    dealingRoom.phase = "dealing";
+    expect(deriveCardMotions(previous, dealingRoom)).toEqual([]);
+  });
+
   it("holds an immediately-cleared play on the field before flushing it", () => {
     const eight = card("eight");
     const oldField = card("old-field");

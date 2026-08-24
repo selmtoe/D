@@ -1231,14 +1231,16 @@ export function SalonScene({
               sceneRoom.players,
             )}
           {sceneRoom && dealing && <DealingSequence playerCount={sceneRoom.players.length} />}
-          {sceneRoom && (
-            <CardMotionLayer
-              motions={activeCardMotions}
-              room={sceneRoom}
-              mobile={mobile}
-              onDone={onCardMotionDone}
-            />
-          )}
+          {sceneRoom &&
+            !dealing &&
+            !(sceneRoom.role === "spectator" && spectatorMode === "free") && (
+              <CardMotionLayer
+                motions={activeCardMotions}
+                room={sceneRoom}
+                mobile={mobile}
+                onDone={onCardMotionDone}
+              />
+            )}
           {sceneRoom && <StealVisualLayer state={stealVisual} room={sceneRoom} mobile={mobile} />}
           {!lowPower && (
             <ContactShadows position={[0, 0.08, 0]} opacity={0.5} scale={13} blur={2.8} far={6} />
