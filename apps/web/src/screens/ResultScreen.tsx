@@ -50,7 +50,7 @@ export function ResultScreen({
           </p>
         )}
         <footer>
-          <button type="button" onClick={leave}>
+          <button type="button" disabled={busy} onClick={leave}>
             サロンロビーへ
           </button>
           {room.hostId === room.viewerId ? (

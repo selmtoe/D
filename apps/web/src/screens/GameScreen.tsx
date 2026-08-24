@@ -782,7 +782,7 @@ export function GameScreen({
       <header className="game-topbar">
         <div>
           <span className="brand-mark">大富豪</span>
-          <button type="button" onClick={leave}>
+          <button type="button" disabled={busy} onClick={leave}>
             退出
           </button>
           {room.hostId === room.viewerId && (

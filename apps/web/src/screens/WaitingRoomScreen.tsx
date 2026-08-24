@@ -62,7 +62,7 @@ export function WaitingRoomScreen({
       <header className="topbar">
         <span className="brand-mark">大富豪</span>
         <ConnectionBadge state={connection} />
-        <button type="button" onClick={leave}>
+        <button type="button" disabled={busy} onClick={leave}>
           退出する
         </button>
       </header>
