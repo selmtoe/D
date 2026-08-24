@@ -3,6 +3,10 @@ import type { RoomView } from "../app/model";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 
+export function canEditRoomSettings(isHost: boolean, busy: boolean): boolean {
+  return isHost && !busy;
+}
+
 export function WaitingRoomScreen({
   room,
   connection,
@@ -29,6 +33,7 @@ export function WaitingRoomScreen({
   const [tab, setTab] = useState<"people" | "settings">("people");
   const me = room.players.find((player) => player.id === room.viewerId);
   const isHost = room.hostId === room.viewerId;
+  const settingsEditable = canEditRoomSettings(isHost, busy);
   const connectedCount = room.players.filter((player) => player.connection === "online").length;
   const inviteUrl = `${location.origin}${location.pathname}?room=${room.roomId}`;
   const copyText = async (text: string) => {
@@ -199,6 +204,7 @@ export function WaitingRoomScreen({
                   type="radio"
                   name="mode"
                   checked={room.settings.mode === "normal"}
+                  disabled={!settingsEditable}
                   onChange={() => updateSettings({ mode: "normal", blindCount: 0 })}
                 />
                 通常大富豪
@@ -208,6 +214,7 @@ export function WaitingRoomScreen({
                   type="radio"
                   name="mode"
                   checked={room.settings.mode === "blind"}
+                  disabled={!settingsEditable}
                   onChange={() =>
                     updateSettings({
                       mode: "blind",
@@ -221,7 +228,7 @@ export function WaitingRoomScreen({
                 ブラインド枚数{" "}
                 <select
                   value={room.settings.blindCount || 1}
-                  disabled={room.settings.mode !== "blind" || !isHost}
+                  disabled={room.settings.mode !== "blind" || !settingsEditable}
                   onChange={(event) =>
                     updateSettings({ ...room.settings, blindCount: Number(event.target.value) })
                   }
