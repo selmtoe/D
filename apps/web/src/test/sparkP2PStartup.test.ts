@@ -37,6 +37,7 @@ type StartupInternals = {
   startCommon(): Promise<void>;
   listenDirectory(): void;
   connectToCoordinator(): Promise<void>;
+  waitForInitialView(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
   tick(): Promise<void>;
@@ -54,6 +55,8 @@ type StartupInternals = {
   lastCoordinatorElectionAttemptAt: number;
   presenceSeen: Map<string, { online: boolean; peerId: string; atMs: number }>;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
+  queueEarlyCandidate(peerId: string, candidate: RTCIceCandidateInit, now: number): void;
+  earlyCandidates: Map<string, Array<{ candidate: RTCIceCandidateInit; receivedAtMs: number }>>;
   mode: "webrtc" | "firebase" | "offline";
 };
 
@@ -149,6 +152,40 @@ describe("Spark P2P startup cleanup", () => {
     expect(election).toHaveBeenCalledOnce();
     expect(connect).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
+    await session.stop(false);
+  });
+
+  test("recovers a valid coordinator peer from a malformed legacy directory", async () => {
+    firestore.getDoc
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({ coordinatorUid: "host", coordinatorPeerId: "p".repeat(193) }),
+      })
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({ members: { host: { peerId: "host-peer" } } }),
+      });
+    const prototype = SparkP2PSession.prototype as unknown as StartupInternals;
+    vi.spyOn(prototype, "startCommon").mockResolvedValue();
+    vi.spyOn(prototype, "tryCoordinatorElection").mockResolvedValue();
+    const connect = vi.spyOn(prototype, "connectToCoordinator").mockImplementation(async function (
+      this: StartupInternals,
+    ) {
+      expect(this.coordinatorPeerId).toBe("host-peer");
+    });
+    const request = vi.spyOn(prototype, "request").mockResolvedValue({});
+    vi.spyOn(prototype, "waitForInitialView").mockResolvedValue();
+
+    const session = await SparkP2PSession.connect(
+      {} as never,
+      { uid: "guest" } as never,
+      "ABCDE",
+      "spectator",
+      { name: "guest", avatar: structuredClone(defaultAvatar) },
+    );
+
+    expect(connect).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledOnce();
     await session.stop(false);
   });
 
@@ -463,6 +500,35 @@ describe("Spark P2P startup cleanup", () => {
     now.mockReturnValue(131_000);
     await internals.tick();
     expect(reconnect).toHaveBeenCalledTimes(2);
+  });
+
+  test("bounds and expires ICE candidates that arrive before an offer", () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    const candidate = { candidate: "candidate" };
+
+    for (let index = 0; index < 40; index += 1) {
+      internals.queueEarlyCandidate("same-peer", candidate, 1_000);
+    }
+    expect(internals.earlyCandidates.get("same-peer")).toHaveLength(32);
+
+    for (let index = 0; index < 300; index += 1) {
+      internals.queueEarlyCandidate(`peer-${index}`, candidate, 1_000);
+    }
+    expect(internals.earlyCandidates.size).toBeLessThanOrEqual(48);
+    expect(
+      [...internals.earlyCandidates.values()].reduce((sum, entries) => sum + entries.length, 0),
+    ).toBeLessThanOrEqual(256);
+
+    internals.queueEarlyCandidate("fresh-peer", candidate, 61_001);
+    expect(internals.earlyCandidates.has("same-peer")).toBe(false);
+    expect(internals.earlyCandidates.get("fresh-peer")).toHaveLength(1);
   });
 
   test("detects a stale directory by elapsed receipt time despite a skewed wall heartbeat", async () => {

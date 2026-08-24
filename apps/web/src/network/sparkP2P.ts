@@ -79,6 +79,11 @@ interface PeerState {
   pendingCandidates: RTCIceCandidateInit[];
 }
 
+type EarlyIceCandidate = {
+  candidate: RTCIceCandidateInit;
+  receivedAtMs: number;
+};
+
 type PendingRequest = {
   resolve: (result: Record<string, unknown>) => void;
   reject: (error: Error) => void;
@@ -92,6 +97,11 @@ const COORDINATOR_ELECTION_RETRY_MS = 15_000;
 const MEMBER_OFFLINE_MS = 70_000;
 const DISCONNECT_LIMIT_MS = 120_000;
 const RELAY_TTL_MS = 10 * 60_000;
+const EARLY_ICE_TTL_MS = 60_000;
+const MAX_EARLY_ICE_PEERS = 48;
+const MAX_EARLY_ICE_PER_PEER = 32;
+const MAX_EARLY_ICE_TOTAL = 256;
+const MAX_ACTIVE_PEERS = 48;
 const MAX_COMMAND_WIRE_BYTES = 64 * 1_024;
 const MAX_WIRE_BYTES = 256 * 1_024;
 export const SPARK_ROOM_STALE_MS = 30 * 60_000;
@@ -230,6 +240,42 @@ function wireRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+export function parseSparkIceCandidate(value: unknown): RTCIceCandidateInit | null {
+  if (!wireRecord(value)) return null;
+  if (typeof value.candidate !== "string" || value.candidate.length > 4_096) return null;
+  if (
+    value.sdpMid !== undefined &&
+    value.sdpMid !== null &&
+    (typeof value.sdpMid !== "string" || value.sdpMid.length > 256)
+  )
+    return null;
+  if (
+    value.sdpMLineIndex !== undefined &&
+    value.sdpMLineIndex !== null &&
+    (typeof value.sdpMLineIndex !== "number" ||
+      !Number.isInteger(value.sdpMLineIndex) ||
+      value.sdpMLineIndex < 0 ||
+      value.sdpMLineIndex > 65_535)
+  )
+    return null;
+  if (
+    value.usernameFragment !== undefined &&
+    value.usernameFragment !== null &&
+    (typeof value.usernameFragment !== "string" || value.usernameFragment.length > 256)
+  )
+    return null;
+  return {
+    candidate: value.candidate,
+    ...(value.sdpMid !== undefined ? { sdpMid: value.sdpMid as string | null } : {}),
+    ...(value.sdpMLineIndex !== undefined
+      ? { sdpMLineIndex: value.sdpMLineIndex as number | null }
+      : {}),
+    ...(value.usernameFragment !== undefined
+      ? { usernameFragment: value.usernameFragment as string | null }
+      : {}),
+  };
+}
+
 function validWireId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128;
 }
@@ -334,7 +380,7 @@ export class SparkP2PSession {
   private directoryObservedAtMs = Date.now();
   private lastView?: RoomView;
   private readonly peers = new Map<string, PeerState>();
-  private readonly earlyCandidates = new Map<string, RTCIceCandidateInit[]>();
+  private readonly earlyCandidates = new Map<string, EarlyIceCandidate[]>();
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private readonly processedRequests = new Map<string, WireMessage>();
   private readonly viewListeners = new Set<(view: RoomView) => void>();
@@ -404,6 +450,13 @@ export class SparkP2PSession {
     const directorySnapshot = await getDoc(doc(db, "sparkRoomDirectory", normalized));
     if (!directorySnapshot.exists()) throw new Error("not-found: 指定された部屋が見つかりません");
     const directory = normalizeDirectory(directorySnapshot.data() as DirectoryDocument);
+    let recoverySnapshot: SparkRoomSnapshot | undefined;
+    if (!directory.coordinatorPeerId) {
+      const recoveryDocument = await getDoc(doc(db, "sparkRoomSnapshots", normalized));
+      recoverySnapshot = recoveryDocument.data() as SparkRoomSnapshot | undefined;
+      const recoveryPeerId = recoverySnapshot?.members?.[directory.coordinatorUid]?.peerId;
+      if (isValidSparkPeerId(recoveryPeerId)) directory.coordinatorPeerId = recoveryPeerId;
+    }
     const session = new SparkP2PSession({ db, user, roomId: normalized });
     session.directory = directory;
     session.directoryObservedAtMs = Date.now();
@@ -413,8 +466,10 @@ export class SparkP2PSession {
     let resolvedProfile = profile;
     let resolvedRole = role;
     if (!resolvedProfile) {
-      const snapshotDocument = await getDoc(doc(db, "sparkRoomSnapshots", normalized));
-      const snapshot = snapshotDocument.data() as SparkRoomSnapshot | undefined;
+      const snapshot =
+        recoverySnapshot ??
+        ((await getDoc(doc(db, "sparkRoomSnapshots", normalized))).data() as
+          SparkRoomSnapshot | undefined);
       const member = snapshot?.members[user.uid];
       if (!member) throw new Error("permission-denied: 再接続情報がありません");
       resolvedProfile = { name: member.name, avatar: member.avatar };
@@ -424,9 +479,12 @@ export class SparkP2PSession {
     session.profile = plain(resolvedProfile);
 
     if (directory.coordinatorUid === user.uid) {
-      const snapshotDocument = await getDoc(doc(db, "sparkRoomSnapshots", normalized));
-      if (!snapshotDocument.exists()) throw new Error("not-found: 部屋状態がありません");
-      session.authority = SparkAuthority.restore(snapshotDocument.data() as SparkRoomSnapshot);
+      const snapshot =
+        recoverySnapshot ??
+        ((await getDoc(doc(db, "sparkRoomSnapshots", normalized))).data() as
+          SparkRoomSnapshot | undefined);
+      if (!snapshot) throw new Error("not-found: 部屋状態がありません");
+      session.authority = SparkAuthority.restore(snapshot);
       session.authority.setCoordinator(user.uid, session.peerId);
       session.coordinatorPeerId = session.peerId;
     }
@@ -613,11 +671,15 @@ export class SparkP2PSession {
               online?: boolean;
               peerId?: string;
             };
+            if (!isValidSparkPeerId(data.peerId)) {
+              this.presenceSeen.delete(change.doc.id);
+              continue;
+            }
             // Compare on the coordinator's clock. Client wall clocks can be
             // minutes apart, while each Firestore change arrives locally now.
             this.presenceSeen.set(change.doc.id, {
               online: data.online === true,
-              peerId: String(data.peerId ?? ""),
+              peerId: data.peerId,
               atMs: now,
             });
           }
@@ -905,7 +967,7 @@ export class SparkP2PSession {
       uid,
       peerId,
       connection,
-      pendingCandidates: this.earlyCandidates.get(peerId) ?? [],
+      pendingCandidates: (this.earlyCandidates.get(peerId) ?? []).map((entry) => entry.candidate),
     };
     this.earlyCandidates.delete(peerId);
     this.peers.set(peerId, peer);
@@ -926,11 +988,35 @@ export class SparkP2PSession {
     return peer;
   }
 
-  private closePeer(peerId: string): void {
+  private closePeer(peerId: string, preserveEarlyCandidates = false): void {
     if (!peerId) return;
     this.peers.get(peerId)?.connection.close();
     this.peers.delete(peerId);
-    this.earlyCandidates.delete(peerId);
+    if (!preserveEarlyCandidates) this.earlyCandidates.delete(peerId);
+  }
+
+  private queueEarlyCandidate(
+    peerId: string,
+    candidate: RTCIceCandidateInit,
+    now = Date.now(),
+  ): void {
+    let total = 0;
+    for (const [candidatePeerId, entries] of this.earlyCandidates) {
+      const fresh = entries.filter((entry) => now - entry.receivedAtMs <= EARLY_ICE_TTL_MS);
+      if (fresh.length === 0) this.earlyCandidates.delete(candidatePeerId);
+      else {
+        this.earlyCandidates.set(candidatePeerId, fresh);
+        total += fresh.length;
+      }
+    }
+    const current = this.earlyCandidates.get(peerId) ?? [];
+    if (
+      current.length >= MAX_EARLY_ICE_PER_PEER ||
+      total >= MAX_EARLY_ICE_TOTAL ||
+      (!this.earlyCandidates.has(peerId) && this.earlyCandidates.size >= MAX_EARLY_ICE_PEERS)
+    )
+      return;
+    this.earlyCandidates.set(peerId, [...current, { candidate, receivedAtMs: now }]);
   }
 
   private attachChannel(peer: PeerState, channel: RTCDataChannel): void {
@@ -951,11 +1037,14 @@ export class SparkP2PSession {
     } catch {
       return;
     }
+    if (!wireRecord(payload)) return;
     if (typeof RTCPeerConnection === "undefined") return;
     if (relay.kind === "offer") {
-      this.closePeer(relay.senderPeerId);
+      if (typeof payload.sdp !== "string" || !payload.sdp || payload.sdp.length > 60_000) return;
+      if (!this.peers.has(relay.senderPeerId) && this.peers.size >= MAX_ACTIVE_PEERS) return;
+      this.closePeer(relay.senderPeerId, true);
       const peer = this.createPeer(relay.senderUid, relay.senderPeerId);
-      await peer.connection.setRemoteDescription({ type: "offer", sdp: String(payload.sdp) });
+      await peer.connection.setRemoteDescription({ type: "offer", sdp: payload.sdp });
       for (const candidate of peer.pendingCandidates.splice(0)) {
         await peer.connection.addIceCandidate(candidate).catch(() => undefined);
       }
@@ -968,23 +1057,21 @@ export class SparkP2PSession {
     }
     const peer = this.peers.get(relay.senderPeerId);
     if (relay.kind === "answer" && peer) {
-      await peer.connection.setRemoteDescription({ type: "answer", sdp: String(payload.sdp) });
+      if (typeof payload.sdp !== "string" || !payload.sdp || payload.sdp.length > 60_000) return;
+      await peer.connection.setRemoteDescription({ type: "answer", sdp: payload.sdp });
       for (const candidate of peer.pendingCandidates.splice(0)) {
         await peer.connection.addIceCandidate(candidate).catch(() => undefined);
       }
       return;
     }
-    if (relay.kind === "ice" && payload.candidate && typeof payload.candidate === "object") {
-      const candidate = payload.candidate as RTCIceCandidateInit;
+    if (relay.kind === "ice") {
+      const candidate = parseSparkIceCandidate(payload.candidate);
+      if (!candidate) return;
       if (peer?.connection.remoteDescription) {
         await peer.connection.addIceCandidate(candidate).catch(() => undefined);
-      } else if (peer) peer.pendingCandidates.push(candidate);
-      else {
-        this.earlyCandidates.set(relay.senderPeerId, [
-          ...(this.earlyCandidates.get(relay.senderPeerId) ?? []),
-          candidate,
-        ]);
-      }
+      } else if (peer && peer.pendingCandidates.length < MAX_EARLY_ICE_PER_PEER)
+        peer.pendingCandidates.push(candidate);
+      else if (!peer) this.queueEarlyCandidate(relay.senderPeerId, candidate);
     }
   }
 

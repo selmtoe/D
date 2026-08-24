@@ -174,6 +174,7 @@ service cloud.firestore {
         ])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.peerId is string
+        && request.resource.data.peerId.size() > 0
         && request.resource.data.peerId.size() <= 192
         && request.resource.data.online is bool
         && request.resource.data.role in ['player', 'spectator']
@@ -206,6 +207,10 @@ service cloud.firestore {
         && request.resource.data.kind in ['offer', 'answer', 'ice']
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 65536
+        && request.resource.data.createdAtMs is int
+        && request.resource.data.expiresAtMs is int
+        && request.resource.data.expiresAtMs > request.time.toMillis()
+        && request.resource.data.expiresAtMs <= request.time.toMillis() + 600000
         && (!request.resource.data.keys().hasAny(['createdAt'])
           || request.resource.data.createdAt == request.time)
         && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;
@@ -235,6 +240,10 @@ service cloud.firestore {
         && request.resource.data.kind == 'wire'
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 262144
+        && request.resource.data.createdAtMs is int
+        && request.resource.data.expiresAtMs is int
+        && request.resource.data.expiresAtMs > request.time.toMillis()
+        && request.resource.data.expiresAtMs <= request.time.toMillis() + 600000
         && (!request.resource.data.keys().hasAny(['createdAt'])
           || request.resource.data.createdAt == request.time)
         && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;

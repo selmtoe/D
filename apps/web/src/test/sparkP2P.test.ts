@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   nextSparkActivityMetadata,
+  parseSparkIceCandidate,
   parseSparkWire,
   sparkDirectoryHeartbeatMs,
 } from "../network/sparkP2P";
@@ -44,6 +45,20 @@ describe("Spark directory activity metadata", () => {
 });
 
 describe("Spark wire decoding", () => {
+  test("accepts only bounded ICE candidate fields", () => {
+    expect(
+      parseSparkIceCandidate({
+        candidate: "candidate:1 1 UDP 1 127.0.0.1 1234 typ host",
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        usernameFragment: "fragment",
+      }),
+    ).toMatchObject({ sdpMid: "0", sdpMLineIndex: 0 });
+    expect(parseSparkIceCandidate({ candidate: "x".repeat(4_097) })).toBeNull();
+    expect(parseSparkIceCandidate({ candidate: "candidate", sdpMLineIndex: -1 })).toBeNull();
+    expect(parseSparkIceCandidate({ candidate: { nested: true } })).toBeNull();
+  });
+
   test("accepts only a valid kick eviction notification", () => {
     expect(parseSparkWire(JSON.stringify({ type: "evicted", reason: "kick" }))).toEqual({
       type: "evicted",

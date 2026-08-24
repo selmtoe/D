@@ -287,6 +287,9 @@ describe("Spark-plan P2P storage boundary", () => {
     await assertFails(
       setDoc(doc(alice, "sparkPresence/P2P22/members/alice"), { ...valid, gameState: {} }),
     );
+    await assertFails(
+      setDoc(doc(alice, "sparkPresence/P2P22/members/alice"), { ...valid, peerId: "" }),
+    );
   });
 
   test("mailbox packets bind sender identity and can be queried only for the recipient", async () => {
@@ -298,8 +301,8 @@ describe("Spark-plan P2P storage boundary", () => {
       targetPeerId: "bob_peer",
       kind: "wire",
       payload: JSON.stringify({ type: "hello" }),
-      createdAtMs: 1_000,
-      expiresAtMs: 61_000,
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
     };
     await assertSucceeds(setDoc(doc(alice, "sparkMailboxes/P2P22/items/message-1"), packet));
     await assertSucceeds(
@@ -354,6 +357,12 @@ describe("Spark-plan P2P storage boundary", () => {
       setDoc(doc(alice, "sparkMailboxes/P2P22/items/target-peer-too-long"), {
         ...packet,
         targetPeerId: "q".repeat(193),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/expires-too-late"), {
+        ...packet,
+        expiresAtMs: Date.now() + 10 * 60_000 + 30_000,
       }),
     );
     await assertSucceeds(
