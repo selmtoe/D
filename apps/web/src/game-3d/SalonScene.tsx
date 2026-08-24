@@ -167,6 +167,10 @@ function CameraRig({
 
 type FreeRoamInput = { forward: number; strafe: number; turn: number; jump: number };
 
+export function resetFreeRoamInput(input: FreeRoamInput): FreeRoamInput {
+  return { ...input, forward: 0, strafe: 0, turn: 0, jump: 0 };
+}
+
 export function containFreeRoamCamera(target: { x: number; z: number }): void {
   // Keep the near plane just inside the solid side and rear walls. The front of
   // the salon is intentionally open, so positive Z does not need clamping.
@@ -210,7 +214,7 @@ function FreeRoamAvatar({
   const desiredCamera = useRef(new Vector3());
   const verticalVelocity = useRef(0);
   const jumpRequested = useRef(false);
-  const handledMobileJump = useRef(0);
+  const handledMobileJump = useRef(mobileInput.jump);
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
 
@@ -1046,12 +1050,7 @@ export function SalonScene({
   useEffect(() => {
     const resetFreeRoamMotion = () => {
       freeRoamPointers.current.clear();
-      setFreeRoamInput((current) => ({
-        ...current,
-        forward: 0,
-        strafe: 0,
-        turn: 0,
-      }));
+      setFreeRoamInput(resetFreeRoamInput);
     };
     const change = () => {
       const visible = document.visibilityState !== "hidden";
@@ -1068,12 +1067,7 @@ export function SalonScene({
   useEffect(() => {
     if (spectatorMode === "free") return;
     freeRoamPointers.current.clear();
-    setFreeRoamInput((current) => ({
-      ...current,
-      forward: 0,
-      strafe: 0,
-      turn: 0,
-    }));
+    setFreeRoamInput(resetFreeRoamInput);
   }, [spectatorMode]);
   if (
     import.meta.env.DEV &&

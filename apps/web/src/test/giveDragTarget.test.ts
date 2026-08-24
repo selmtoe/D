@@ -5,6 +5,7 @@ import {
   containFreeRoamCamera,
   nearestGiveTarget,
   playersAtTable,
+  resetFreeRoamInput,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
 
@@ -49,6 +50,17 @@ describe("free-roam camera bounds", () => {
 
     expect(behindLeftWall).toEqual({ x: -6.62, z: 3 });
     expect(behindRightAndRearWalls).toEqual({ x: 6.62, z: -7.62 });
+  });
+});
+
+describe("free-roam input reset", () => {
+  it("does not replay an old mobile jump after leaving free-roam mode", () => {
+    expect(resetFreeRoamInput({ forward: 1, strafe: -1, turn: 1, jump: 4 })).toEqual({
+      forward: 0,
+      strafe: 0,
+      turn: 0,
+      jump: 0,
+    });
   });
 });
 
