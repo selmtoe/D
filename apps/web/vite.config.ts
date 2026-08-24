@@ -11,7 +11,9 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: "autoUpdate",
+        // Keep an update waiting until every active table tab has closed.
+        // Auto-update reloads in-memory Joker/effect selections mid-turn.
+        registerType: "prompt",
         includeAssets: ["icon-192.svg", "icon-512.svg"],
         manifest: {
           name: "大富豪",
