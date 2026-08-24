@@ -558,6 +558,10 @@ export class SparkP2PSession {
     const snapshot = this.authority.exportSnapshot();
     for (const member of Object.values(snapshot.members)) {
       const presence = this.presenceSeen.get(member.uid);
+      // A reloaded tab gets a new peer ID while an older tab can still deliver a delayed
+      // heartbeat/pagehide write for the same UID. Never let that stale session replace or
+      // disconnect the peer that most recently completed the authority handshake.
+      if (presence && presence.peerId !== member.peerId) continue;
       const online = Boolean(presence?.online && now - presence.atMs < MEMBER_OFFLINE_MS);
       if (this.authority.setMemberOnline(member.uid, online, presence?.peerId, now)) changed = true;
       if (!online) {

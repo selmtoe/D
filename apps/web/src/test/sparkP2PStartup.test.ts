@@ -34,6 +34,7 @@ type StartupInternals = {
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
   tick(): Promise<void>;
+  reconcilePresence(now: number): Promise<void>;
   enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
   persistAndBroadcast(): Promise<void>;
   sendWire(targetUid: string, targetPeerId: string, wire: unknown): Promise<void>;
@@ -41,6 +42,7 @@ type StartupInternals = {
   coordinatorUid: string;
   coordinatorPeerId: string;
   directory?: { heartbeatAtMs: number };
+  presenceSeen: Map<string, { online: boolean; peerId: string; atMs: number }>;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
   mode: "webrtc" | "firebase" | "offline";
 };
@@ -380,6 +382,54 @@ describe("Spark P2P startup cleanup", () => {
       ],
     });
     await vi.waitFor(() => expect(internals.authority?.member("host")?.online).toBe(true));
+
+    await session.stop(false);
+  });
+
+  test("ignores delayed presence from an older session of the same member", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.authority.join(
+      {
+        uid: "guest",
+        peerId: "guest-new-peer",
+        profile: { name: "guest", avatar: structuredClone(defaultAvatar) },
+        role: "player",
+      },
+      1_100,
+    );
+
+    internals.presenceSeen.set("host", {
+      online: true,
+      peerId: "host-peer",
+      atMs: 2_000,
+    });
+    internals.presenceSeen.set("guest", {
+      online: false,
+      peerId: "guest-old-peer",
+      atMs: 2_000,
+    });
+
+    await internals.reconcilePresence(2_000);
+
+    expect(internals.authority.member("guest")).toMatchObject({
+      online: true,
+      peerId: "guest-new-peer",
+    });
 
     await session.stop(false);
   });
