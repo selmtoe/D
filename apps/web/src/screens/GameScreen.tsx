@@ -864,6 +864,7 @@ export function GameScreen({
           onEffectPlayerSelect={chooseEffectTarget}
           onGiveCardDrop={dropGiveCard}
           freeRoamAvatar={localAvatar ?? me?.avatar ?? room.players[0]?.avatar}
+          freeRoamControlsPaused={logOpen}
           onExitFreeRoam={() => setSpectatorMode("follow")}
         />
       </div>

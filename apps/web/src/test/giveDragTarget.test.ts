@@ -1,4 +1,5 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
+import { Group, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../app/model";
 import {
@@ -10,10 +11,13 @@ import {
   nearestGiveTarget,
   playersAtTable,
   resetFreeRoamInput,
+  shouldExitFreeRoam,
   shouldIgnoreFreeRoamKeyboardTarget,
+  shouldResetFreeRoamInput,
   stealCardHitArea,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
+import { hitAreaCounterRotation } from "../game-3d/Card3D";
 
 const players: PlayerView[] = ["self", "right", "opposite", "left"].map((id) => ({
   id,
@@ -134,6 +138,14 @@ describe("free-roam input reset", () => {
     });
   });
 
+  it("keeps chat Escape local and releases hidden mobile controls", () => {
+    const input = document.createElement("input");
+    expect(shouldExitFreeRoam("Escape", input)).toBe(false);
+    expect(shouldExitFreeRoam("Escape", document.createElement("button"))).toBe(true);
+    expect(shouldResetFreeRoamInput("free", true)).toBe(true);
+    expect(shouldResetFreeRoamInput("free", false)).toBe(false);
+  });
+
   it("keeps movement keys active after focusing a control button", () => {
     const button = document.createElement("button");
     const input = document.createElement("input");
@@ -143,6 +155,37 @@ describe("free-roam input reset", () => {
     expect(isFreeRoamControlActivationKey("Enter")).toBe(true);
     expect(isFreeRoamControlActivationKey("Space")).toBe(true);
     expect(isFreeRoamControlActivationKey("KeyW")).toBe(false);
+  });
+});
+
+describe("card hit-area fan compensation", () => {
+  it("cancels only the fan angle so tall hit planes do not cover neighboring strips", () => {
+    expect(hitAreaCounterRotation([-0.42, 0, -0.3325])).toEqual([0, 0, 0.3325]);
+    expect(hitAreaCounterRotation([-0.42, 0, 0.21])).toEqual([0, 0, -0.21]);
+  });
+
+  it("removes the tall plane's horizontal projection with the actual Three.js transforms", () => {
+    const rotation: [number, number, number] = [-0.42, 0, -0.3325];
+    const width = handCardHitArea(0, 20, false).width;
+    const height = 2.32;
+    const scale = handCardInteractionLayout(20, false).scale;
+    const cardGroup = new Group();
+    cardGroup.rotation.set(...rotation);
+    cardGroup.scale.setScalar(scale);
+    const hitGroup = new Group();
+    hitGroup.rotation.set(...hitAreaCounterRotation(rotation));
+    cardGroup.add(hitGroup);
+    cardGroup.updateMatrixWorld(true);
+    const corners = [
+      [-width / 2, -height / 2],
+      [width / 2, -height / 2],
+      [-width / 2, height / 2],
+      [width / 2, height / 2],
+    ].map(([x, y]) => new Vector3(x, y, 0).applyMatrix4(hitGroup.matrixWorld));
+    const projectedWidth =
+      Math.max(...corners.map((point) => point.x)) - Math.min(...corners.map((point) => point.x));
+
+    expect(projectedWidth).toBeCloseTo(width * scale, 10);
   });
 });
 

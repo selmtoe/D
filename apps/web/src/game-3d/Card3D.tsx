@@ -11,6 +11,12 @@ type PointerCaptureTarget = EventTarget & {
   releasePointerCapture: (pointerId: number) => void;
 };
 
+export function hitAreaCounterRotation(
+  rotation: readonly [number, number, number],
+): [number, number, number] {
+  return [0, 0, -rotation[2]];
+}
+
 function CardProjectionProbe({ dataAttribute }: { dataAttribute: string }) {
   const marker = useRef<Group>(null);
   const camera = useThree((state) => state.camera);
@@ -258,15 +264,17 @@ export function Card3D({
     >
       {e2eProjectionAttribute && <CardProjectionProbe dataAttribute={e2eProjectionAttribute} />}
       {(onDragEnd || onSelect) && (
-        <mesh position={[hitAreaOffsetX, 0, 0.065]} renderOrder={renderOrder + 1}>
-          <planeGeometry
-            args={[
-              hitAreaWidth ?? (onDragEnd ? 1.72 : 1.22),
-              hitAreaHeight ?? (onDragEnd ? 2.24 : 2.32),
-            ]}
-          />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
-        </mesh>
+        <group rotation={hitAreaCounterRotation(rotation)}>
+          <mesh position={[hitAreaOffsetX, 0, 0.065]} renderOrder={renderOrder + 1}>
+            <planeGeometry
+              args={[
+                hitAreaWidth ?? (onDragEnd ? 1.72 : 1.22),
+                hitAreaHeight ?? (onDragEnd ? 2.24 : 2.32),
+              ]}
+            />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+          </mesh>
+        </group>
       )}
       <RoundedBox
         raycast={() => undefined}

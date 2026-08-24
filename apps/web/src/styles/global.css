@@ -883,6 +883,9 @@ h2 {
   font-size: 0.68rem;
   letter-spacing: 0.12em;
 }
+.game-screen.free-roam.log-open .free-roam-controls {
+  display: none;
+}
 .emote-controls {
   position: absolute;
   z-index: 5;
@@ -2050,9 +2053,6 @@ h2 {
   }
   .free-roam-controls {
     bottom: max(0.5rem, env(safe-area-inset-bottom));
-  }
-  .game-screen.free-roam.log-open .free-roam-controls {
-    display: none;
   }
   .game-screen.free-roam.log-open .effect-observer-status {
     display: none;

@@ -184,6 +184,17 @@ export function isFreeRoamControlActivationKey(code: string): boolean {
   return code === "Enter" || code === "Space";
 }
 
+export function shouldExitFreeRoam(code: string, target: EventTarget | null): boolean {
+  return code === "Escape" && !shouldIgnoreFreeRoamKeyboardTarget(target);
+}
+
+export function shouldResetFreeRoamInput(
+  spectatorMode: "follow" | "free",
+  controlsPaused: boolean,
+): boolean {
+  return spectatorMode !== "free" || controlsPaused;
+}
+
 export function containFreeRoamCamera(target: { x: number; z: number }): void {
   // Keep the near plane just inside the solid side and rear walls. The front of
   // the salon is intentionally open, so positive Z does not need clamping.
@@ -198,6 +209,7 @@ function FreeRoamAvatar({
   profile,
   lowPower,
   reducedMotion,
+  controlsPaused,
   onExit,
 }: {
   mobileInput: FreeRoamInput;
@@ -206,6 +218,7 @@ function FreeRoamAvatar({
   profile: PlayerView["avatar"];
   lowPower: boolean;
   reducedMotion: boolean;
+  controlsPaused: boolean;
   onExit: () => void;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
@@ -228,6 +241,8 @@ function FreeRoamAvatar({
   const verticalVelocity = useRef(0);
   const jumpRequested = useRef(false);
   const handledMobileJump = useRef(mobileInput.jump);
+  const controlsPausedRef = useRef(controlsPaused);
+  controlsPausedRef.current = controlsPaused;
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
 
@@ -242,12 +257,13 @@ function FreeRoamAvatar({
     camera.fov = mobile ? 61 : 56;
     camera.updateProjectionMatrix();
     const down = (event: KeyboardEvent) => {
-      if (event.code === "Escape") {
+      if (shouldExitFreeRoam(event.code, event.target)) {
         event.preventDefault();
         keys.current.clear();
         exitRef.current();
         return;
       }
+      if (controlsPausedRef.current) return;
       if (shouldIgnoreFreeRoamKeyboardTarget(event.target)) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
         event.preventDefault();
@@ -320,20 +336,28 @@ function FreeRoamAvatar({
     };
   }, [camera, gl, mobile, spawnX, spawnYaw, spawnZ]);
 
+  useEffect(() => {
+    if (!controlsPaused) return;
+    keys.current.clear();
+    jumpRequested.current = false;
+  }, [controlsPaused]);
+
   useFrame((_, delta) => {
     // Keep traversal tied to elapsed time even when a busy mobile GPU misses frames.
     // Jump integration stays tightly capped so a resumed tab cannot tunnel through the floor.
     const movementDelta = Math.min(delta, 0.2);
     const physicsDelta = Math.min(delta, 0.05);
-    const forward =
-      (keys.current.has("KeyW") || keys.current.has("ArrowUp") ? 1 : 0) -
-      (keys.current.has("KeyS") || keys.current.has("ArrowDown") ? 1 : 0) +
-      mobileInput.forward;
-    const strafe =
-      (keys.current.has("KeyD") || keys.current.has("ArrowRight") ? 1 : 0) -
-      (keys.current.has("KeyA") || keys.current.has("ArrowLeft") ? 1 : 0) +
-      mobileInput.strafe;
-    yaw.current += mobileInput.turn * movementDelta * 1.65;
+    const forward = controlsPaused
+      ? 0
+      : (keys.current.has("KeyW") || keys.current.has("ArrowUp") ? 1 : 0) -
+        (keys.current.has("KeyS") || keys.current.has("ArrowDown") ? 1 : 0) +
+        mobileInput.forward;
+    const strafe = controlsPaused
+      ? 0
+      : (keys.current.has("KeyD") || keys.current.has("ArrowRight") ? 1 : 0) -
+        (keys.current.has("KeyA") || keys.current.has("ArrowLeft") ? 1 : 0) +
+        mobileInput.strafe;
+    if (!controlsPaused) yaw.current += mobileInput.turn * movementDelta * 1.65;
     const speed = (keys.current.has("ShiftLeft") ? 5.2 : 3.6) * movementDelta;
     let nextX =
       position.current.x +
@@ -387,7 +411,11 @@ function FreeRoamAvatar({
     }
     const mobileJumpStarted = mobileInput.jump !== handledMobileJump.current;
     handledMobileJump.current = mobileInput.jump;
-    if ((jumpRequested.current || mobileJumpStarted) && position.current.y <= 0.051) {
+    if (
+      !controlsPaused &&
+      (jumpRequested.current || mobileJumpStarted) &&
+      position.current.y <= 0.051
+    ) {
       verticalVelocity.current = 5.2;
     }
     jumpRequested.current = false;
@@ -1011,6 +1039,7 @@ export function SalonScene({
   onGiveCardDrop = () => undefined,
   spectatorMode = "follow",
   freeRoamAvatar,
+  freeRoamControlsPaused = false,
   onExitFreeRoam = () => undefined,
 }: {
   room?: RoomView;
@@ -1030,6 +1059,7 @@ export function SalonScene({
   onGiveCardDrop?: ((card: CardView, playerId: string) => void) | undefined;
   spectatorMode?: "follow" | "free" | undefined;
   freeRoamAvatar?: PlayerView["avatar"] | undefined;
+  freeRoamControlsPaused?: boolean | undefined;
   onExitFreeRoam?: (() => void) | undefined;
 }) {
   const viewport = useVisualViewport();
@@ -1131,10 +1161,10 @@ export function SalonScene({
     };
   }, []);
   useEffect(() => {
-    if (spectatorMode === "free") return;
+    if (!shouldResetFreeRoamInput(spectatorMode, freeRoamControlsPaused)) return;
     freeRoamPointers.current.clear();
     setFreeRoamInput(resetFreeRoamInput);
-  }, [spectatorMode]);
+  }, [freeRoamControlsPaused, spectatorMode]);
   if (
     import.meta.env.DEV &&
     (window as unknown as { __DAIFUGO_E2E_RENDER_CANVAS__?: boolean })
@@ -1266,6 +1296,7 @@ export function SalonScene({
             profile={freeRoamAvatar}
             lowPower={lowPower}
             reducedMotion={reducedMotion}
+            controlsPaused={freeRoamControlsPaused}
             onExit={onExitFreeRoam}
           />
         ) : (
