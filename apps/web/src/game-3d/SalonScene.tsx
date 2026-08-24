@@ -478,14 +478,6 @@ function SalonRoom({ lowPower }: { lowPower: boolean }) {
             color="#ffcf89"
             castShadow
           />
-          <mesh position={[-3.5, 5.2, 1]}>
-            <cylinderGeometry args={[0.75, 0.35, 0.55, 24]} />
-            <meshStandardMaterial color="#b69552" metalness={0.8} />
-          </mesh>
-          <mesh position={[3.5, 5.2, 1]}>
-            <cylinderGeometry args={[0.75, 0.35, 0.55, 24]} />
-            <meshStandardMaterial color="#b69552" metalness={0.8} />
-          </mesh>
         </>
       )}
     </>
