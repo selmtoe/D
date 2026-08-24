@@ -235,6 +235,28 @@ describe("Spark browser authority", () => {
     ).toThrow(/6人まで/);
   });
 
+  it("rejects oversized peer IDs and safely restores legacy members", () => {
+    const authority = waitingRoom();
+    const before = authority.exportSnapshot();
+    expect(() =>
+      authority.join({
+        uid: "watcher",
+        peerId: "p".repeat(193),
+        profile: profile("観戦者"),
+        role: "spectator",
+      }),
+    ).toThrow("invalid-argument: 接続IDが不正です");
+    expect(authority.exportSnapshot()).toEqual(before);
+
+    const legacy = authority.exportSnapshot();
+    legacy.members.p2!.peerId = "p".repeat(193);
+    legacy.members.p2!.online = true;
+    expect(SparkAuthority.restore(legacy).member("p2")).toMatchObject({
+      peerId: "",
+      online: false,
+    });
+  });
+
   it("bounds peer face paint and migrates old snapshot profiles before projection", () => {
     const authority = waitingRoom();
     authority.join({

@@ -92,6 +92,10 @@ export function isValidRoomActionId(value: unknown): value is string {
   );
 }
 
+export function isValidSparkPeerId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 192;
+}
+
 function commandError(code: string, message: string): never {
   throw new Error(`${code}: ${message}`);
 }
@@ -327,6 +331,10 @@ export class SparkAuthority {
       // Snapshot/profile data crosses a browser trust boundary. Migration keeps
       // old v1 profiles usable while dropping unknown or oversized paint data.
       member.avatar = migrateAvatar(member.avatar);
+      if (!isValidSparkPeerId(member.peerId)) {
+        member.peerId = "";
+        member.online = false;
+      }
     }
     for (const profile of Object.values(restored.departedProfiles ?? {})) {
       profile.avatar = migrateAvatar(profile.avatar);
@@ -382,6 +390,7 @@ export class SparkAuthority {
   setCoordinator(uid: string, peerId: string, now = Date.now()): void {
     const member = this.snapshot.members[uid];
     if (!member) commandError("not-found", "移譲先が部屋にいません");
+    if (!isValidSparkPeerId(peerId)) commandError("invalid-argument", "接続IDが不正です");
     member.peerId = peerId;
     member.online = true;
     this.snapshot.coordinatorUid = uid;
@@ -417,6 +426,9 @@ export class SparkAuthority {
   }
 
   join(request: JoinRequest, now = Date.now()): void {
+    if (!isValidSparkPeerId(request.peerId)) {
+      commandError("invalid-argument", "接続IDが不正です");
+    }
     if (this.snapshot.evictedUids?.includes(request.uid)) {
       commandError("permission-denied", "この部屋からキックされています");
     }
@@ -466,6 +478,9 @@ export class SparkAuthority {
   }
 
   setMemberOnline(uid: string, online: boolean, peerId?: string, now = Date.now()): boolean {
+    if (peerId !== undefined && !isValidSparkPeerId(peerId)) {
+      commandError("invalid-argument", "接続IDが不正です");
+    }
     const member = this.snapshot.members[uid];
     if (!member || (member.online === online && (!peerId || member.peerId === peerId)))
       return false;

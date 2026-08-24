@@ -358,6 +358,47 @@ describe("Spark P2P startup cleanup", () => {
     await session.stop(false);
   });
 
+  test("rejects an oversized hello peer ID before snapshot mutation", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    const revision = internals.authority.exportSnapshot().revision;
+    const sendWire = vi.spyOn(internals, "sendWire").mockResolvedValue();
+
+    internals.handleWire(
+      {
+        type: "hello",
+        requestId: "oversized-peer",
+        role: "spectator",
+        profile: { name: "guest", avatar: structuredClone(defaultAvatar) },
+      },
+      "guest",
+      "p".repeat(193),
+    );
+
+    await vi.waitFor(() => expect(sendWire).toHaveBeenCalledOnce());
+    expect(internals.authority.member("guest")).toBeUndefined();
+    expect(internals.authority.exportSnapshot().revision).toBe(revision);
+    expect(sendWire).toHaveBeenCalledWith(
+      "guest",
+      "p".repeat(193),
+      expect.objectContaining({ ok: false, requestId: "oversized-peer" }),
+    );
+    await session.stop(false);
+  });
+
   test("does not deliver a queued mode update after unsubscribe", async () => {
     const Session = SparkP2PSession as unknown as SparkSessionConstructor;
     const session = new Session({

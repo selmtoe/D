@@ -131,6 +131,12 @@ describe("Spark-plan P2P storage boundary", () => {
     // This is the production regression: snapshot-first bootstrap has no lease
     // document for Rules to authorize against and must fail.
     await assertFails(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
+    await assertFails(
+      setDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        ...directory,
+        coordinatorPeerId: "p".repeat(193),
+      }),
+    );
     await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), directory));
     // A directory without a snapshot cannot be heartbeated/revived. Bootstrap
     // must finish directory -> snapshot before the normal snapshot -> directory cycle.
@@ -329,6 +335,40 @@ describe("Spark-plan P2P storage boundary", () => {
       setDoc(doc(alice, "sparkMailboxes/P2P22/items/spoof"), {
         ...packet,
         senderUid: "bob",
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/peer-boundary"), {
+        ...packet,
+        senderPeerId: "p".repeat(192),
+        targetPeerId: "q".repeat(192),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/sender-peer-too-long"), {
+        ...packet,
+        senderPeerId: "p".repeat(193),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/target-peer-too-long"), {
+        ...packet,
+        targetPeerId: "q".repeat(193),
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkSignals/P2P22/items/signal-boundary"), {
+        ...packet,
+        senderPeerId: "p".repeat(192),
+        targetPeerId: "q".repeat(192),
+        kind: "offer",
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkSignals/P2P22/items/signal-peer-too-long"), {
+        ...packet,
+        senderPeerId: "p".repeat(193),
+        kind: "offer",
       }),
     );
   });

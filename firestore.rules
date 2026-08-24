@@ -81,6 +81,8 @@ service cloud.firestore {
         && roomId.matches('^[A-HJ-NP-Z2-9]{5}$')
         && request.resource.data.coordinatorUid == request.auth.uid
         && request.resource.data.coordinatorPeerId is string
+        && request.resource.data.coordinatorPeerId.size() > 0
+        && request.resource.data.coordinatorPeerId.size() <= 192
         && request.resource.data.visibility == 'public'
         && request.resource.data.heartbeatAt == request.time
         && (
@@ -97,6 +99,9 @@ service cloud.firestore {
             .hasAny(['lastActivityAt', 'lastActivityAtMs', 'authorityRevision'])
         );
       allow update: if signedIn()
+        && request.resource.data.coordinatorPeerId is string
+        && request.resource.data.coordinatorPeerId.size() > 0
+        && request.resource.data.coordinatorPeerId.size() <= 192
         && request.resource.data.heartbeatAt == request.time
         && exists(/databases/$(database)/documents/sparkRoomSnapshots/$(roomId))
         && (
@@ -192,6 +197,12 @@ service cloud.firestore {
           'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
           'kind', 'payload', 'createdAtMs', 'expiresAtMs', 'createdAt'
         ])
+        && request.resource.data.senderPeerId is string
+        && request.resource.data.senderPeerId.size() > 0
+        && request.resource.data.senderPeerId.size() <= 192
+        && request.resource.data.targetPeerId is string
+        && request.resource.data.targetPeerId.size() > 0
+        && request.resource.data.targetPeerId.size() <= 192
         && request.resource.data.kind in ['offer', 'answer', 'ice']
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 65536
@@ -215,6 +226,12 @@ service cloud.firestore {
           'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
           'kind', 'payload', 'createdAtMs', 'expiresAtMs', 'createdAt'
         ])
+        && request.resource.data.senderPeerId is string
+        && request.resource.data.senderPeerId.size() > 0
+        && request.resource.data.senderPeerId.size() <= 192
+        && request.resource.data.targetPeerId is string
+        && request.resource.data.targetPeerId.size() > 0
+        && request.resource.data.targetPeerId.size() <= 192
         && request.resource.data.kind == 'wire'
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 262144

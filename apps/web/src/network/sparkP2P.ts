@@ -22,6 +22,7 @@ import type { PublicRoom, Role, RoomView } from "../app/model";
 import { parseCue, type CueEvent } from "./peerCues";
 import {
   isValidRoomActionId,
+  isValidSparkPeerId,
   SparkAuthority,
   type SparkMember,
   type SparkRoomSnapshot,
@@ -160,7 +161,13 @@ export function sparkRelayExpiresAtMs(relay: { createdAt?: unknown; expiresAtMs:
 }
 
 function normalizeDirectory(directory: DirectoryDocument): DirectoryDocument {
-  return { ...directory, heartbeatAtMs: sparkDirectoryHeartbeatMs(directory) };
+  return {
+    ...directory,
+    coordinatorPeerId: isValidSparkPeerId(directory.coordinatorPeerId)
+      ? directory.coordinatorPeerId
+      : "",
+    heartbeatAtMs: sparkDirectoryHeartbeatMs(directory),
+  };
 }
 
 /**
@@ -518,6 +525,13 @@ export class SparkP2PSession {
             if (change.type !== "added") continue;
             const relay = change.doc.data() as RelayDocument;
             if (relay.targetUid !== this.uid) continue;
+            if (
+              !isValidSparkPeerId(relay.senderPeerId) ||
+              !isValidSparkPeerId(relay.targetPeerId)
+            ) {
+              void deleteDoc(change.doc.ref).catch(() => undefined);
+              continue;
+            }
             const serverNowMs = sparkEstimatedServerNowMs(
               this.directory,
               this.directoryObservedAtMs,
@@ -1155,6 +1169,9 @@ export class SparkP2PSession {
     kind: string,
     payload: unknown,
   ): Promise<void> {
+    if (!isValidSparkPeerId(this.peerId) || !isValidSparkPeerId(targetPeerId)) {
+      throw new Error("invalid-argument: 接続IDが不正です");
+    }
     const now = sparkEstimatedServerNowMs(this.directory, this.directoryObservedAtMs, Date.now());
     const relay: RelayDocument = {
       senderUid: this.uid,
