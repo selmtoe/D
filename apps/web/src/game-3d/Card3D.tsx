@@ -253,13 +253,16 @@ export function Card3D({
       }}
     >
       {e2eProjectionAttribute && <CardProjectionProbe dataAttribute={e2eProjectionAttribute} />}
-      {(onDragEnd || (onSelect && hitAreaWidth)) && (
+      {(onDragEnd || onSelect) && (
         <mesh position={[0, 0, 0.065]} renderOrder={renderOrder + 1}>
-          <planeGeometry args={onDragEnd ? [1.72, 2.24] : [hitAreaWidth ?? 1.22, 2.32]} />
+          <planeGeometry
+            args={[hitAreaWidth ?? (onDragEnd ? 1.72 : 1.22), onDragEnd ? 2.24 : 2.32]}
+          />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
         </mesh>
       )}
       <RoundedBox
+        raycast={() => undefined}
         renderOrder={renderOrder}
         args={[1.22, 1.78, 0.075]}
         radius={0.08}
@@ -275,7 +278,7 @@ export function Card3D({
           opacity={inactive ? 0.55 : 1}
         />
       </RoundedBox>
-      <mesh renderOrder={renderOrder} position={[0, 0, 0.0405]}>
+      <mesh raycast={() => undefined} renderOrder={renderOrder} position={[0, 0, 0.0405]}>
         <planeGeometry args={[1.13, 1.68]} />
         <meshStandardMaterial
           map={front}
@@ -285,7 +288,12 @@ export function Card3D({
           opacity={inactive ? 0.42 : 1}
         />
       </mesh>
-      <mesh renderOrder={renderOrder} position={[0, 0, -0.0405]} rotation={[0, Math.PI, 0]}>
+      <mesh
+        raycast={() => undefined}
+        renderOrder={renderOrder}
+        position={[0, 0, -0.0405]}
+        rotation={[0, Math.PI, 0]}
+      >
         <planeGeometry args={[1.13, 1.68]} />
         <meshStandardMaterial
           map={back}

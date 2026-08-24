@@ -635,7 +635,7 @@ function handCards(
   onGiveCardDrop: (card: CardView, playerId: string) => void = () => undefined,
   players: PlayerView[] = [],
 ) {
-  const spacing = Math.min(mobile ? 0.44 : 0.62, (mobile ? 6.8 : 8.8) / Math.max(cards.length, 1));
+  const layout = handCardInteractionLayout(cards.length, mobile);
   return cards.map((card, index) => {
     const centered = index - (cards.length - 1) / 2;
     return (
@@ -659,9 +659,14 @@ function handCards(
               },
             }
           : { onSelect: () => toggle(card) })}
-        position={[centered * spacing, 1.05 - Math.abs(centered) * 0.015, 4.08 + index * 0.035]}
+        position={[
+          centered * layout.spacing,
+          1.05 - Math.abs(centered) * 0.015,
+          4.08 + index * 0.035,
+        ]}
         rotation={[-0.42, 0, -centered * 0.035]}
-        scale={mobile ? 0.78 : 0.92}
+        scale={layout.scale}
+        hitAreaWidth={layout.hitAreaWidth}
         renderOrder={100 + index}
         selectedLift={mobile ? 1.22 : 1.55}
         selectedDepth={mobile ? -0.64 : -0.84}
@@ -695,9 +700,22 @@ export function stealCardInteractionLayout(mobile: boolean): {
   scale: number;
   hitAreaWidth: number;
 } {
-  return mobile
-    ? { spacing: 0.27, scale: 0.4, hitAreaWidth: 1.22 }
-    : { spacing: 0.31, scale: 0.44, hitAreaWidth: 1.22 };
+  const spacing = mobile ? 0.27 : 0.31;
+  const scale = mobile ? 0.4 : 0.44;
+  return { spacing, scale, hitAreaWidth: nonOverlappingHitAreaWidth(spacing, scale) };
+}
+
+export function handCardInteractionLayout(
+  cardCount: number,
+  mobile: boolean,
+): { spacing: number; scale: number; hitAreaWidth: number } {
+  const scale = mobile ? 0.78 : 0.92;
+  const spacing = Math.min(mobile ? 0.44 : 0.62, (mobile ? 6.8 : 8.8) / Math.max(cardCount, 1));
+  return { spacing, scale, hitAreaWidth: nonOverlappingHitAreaWidth(spacing, scale) };
+}
+
+function nonOverlappingHitAreaWidth(spacing: number, scale: number): number {
+  return (spacing * 0.92) / scale;
 }
 
 function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {

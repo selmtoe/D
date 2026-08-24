@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../app/model";
 import {
   containFreeRoamCamera,
+  handCardInteractionLayout,
   nearestGiveTarget,
   playersAtTable,
   resetFreeRoamInput,
@@ -35,9 +36,22 @@ describe("A-steal card hit areas", () => {
     (mobile) => {
       const layout = stealCardInteractionLayout(mobile);
 
-      expect((layout.hitAreaWidth * layout.scale) / 2).toBeLessThan(layout.spacing);
+      expect(layout.hitAreaWidth * layout.scale).toBeLessThan(layout.spacing);
     },
   );
+});
+
+describe("hand card hit areas", () => {
+  it.each([
+    [false, 2],
+    [false, 20],
+    [true, 2],
+    [true, 20],
+  ])("keeps neighboring input strips separate (mobile=%s, cards=%s)", (mobile, cardCount) => {
+    const layout = handCardInteractionLayout(cardCount, mobile as boolean);
+
+    expect(layout.hitAreaWidth * layout.scale).toBeLessThan(layout.spacing);
+  });
 });
 
 describe("free-roam camera bounds", () => {
