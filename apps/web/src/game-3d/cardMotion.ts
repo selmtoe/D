@@ -11,6 +11,22 @@ export interface CardMotionEvent {
   to: CardAnchor;
   kind: "play" | "flush" | "acquire" | "give" | "discard" | "collect";
   holdMs?: number;
+  showWhileQueued?: boolean;
+}
+
+export function cardMotionsForDisplay(motions: CardMotionEvent[]): {
+  active: CardMotionEvent[];
+  queued: CardMotionEvent[];
+} {
+  const firstBatchId = motions[0]?.batchId;
+  const active = motions.filter((motion) => motion.batchId === firstBatchId);
+  const occupiedCardIds = new Set(active.map((motion) => motion.card.id));
+  const queued: CardMotionEvent[] = [];
+  for (const motion of motions.slice(active.length)) {
+    if (motion.showWhileQueued && !occupiedCardIds.has(motion.card.id)) queued.push(motion);
+    occupiedCardIds.add(motion.card.id);
+  }
+  return { active, queued };
 }
 
 const cardsAtSeats = (room: RoomView) =>
@@ -88,6 +104,7 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
         to: { kind: "discard" },
         kind: "flush",
         batchId: `${next.revision}-immediate-flush`,
+        showWhileQueued: previousField.has(card.id),
       });
     }
   }

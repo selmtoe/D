@@ -1,7 +1,7 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { CardView, RoomView } from "../app/model";
-import { deriveCardMotions } from "../game-3d/cardMotion";
+import { cardMotionsForDisplay, deriveCardMotions } from "../game-3d/cardMotion";
 
 const card = (id: string): CardView => ({
   id,
@@ -128,5 +128,19 @@ describe("card motion projection diff", () => {
     expect(play).toMatchObject({ holdMs: 1000, batchId: "11-immediate-play" });
     expect(flushes).toHaveLength(2);
     expect(flushes.every((motion) => motion.batchId === "11-immediate-flush")).toBe(true);
+    expect(flushes.find((motion) => motion.card.id === oldField.id)).toMatchObject({
+      showWhileQueued: true,
+    });
+    expect(flushes.find((motion) => motion.card.id === eight.id)?.showWhileQueued).toBe(false);
+
+    const firstFrame = cardMotionsForDisplay(motions);
+    expect(firstFrame.active).toEqual([play]);
+    expect(firstFrame.queued.map((motion) => motion.card.id)).toEqual([oldField.id]);
+
+    const afterPlay = cardMotionsForDisplay(
+      motions.filter((motion) => motion.batchId !== "11-immediate-play"),
+    );
+    expect(afterPlay.active).toEqual(flushes);
+    expect(afterPlay.queued).toEqual([]);
   });
 });

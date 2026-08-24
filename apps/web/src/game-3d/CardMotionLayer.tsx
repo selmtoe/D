@@ -3,7 +3,7 @@ import { useMemo, useRef } from "react";
 import { MathUtils, type Group } from "three";
 import type { RoomView } from "../app/model";
 import { Card3D } from "./Card3D";
-import type { CardAnchor, CardMotionEvent } from "./cardMotion";
+import { cardMotionsForDisplay, type CardAnchor, type CardMotionEvent } from "./cardMotion";
 
 export function cardAnchorPosition(
   anchor: CardAnchor,
@@ -75,6 +75,23 @@ function MotionCard({
   );
 }
 
+function QueuedMotionCard({
+  motion,
+  room,
+  mobile,
+}: {
+  motion: CardMotionEvent;
+  room: RoomView;
+  mobile: boolean;
+}) {
+  const position = cardAnchorPosition(motion.from, room, mobile);
+  return (
+    <group position={position}>
+      <Card3D card={motion.card} scale={motion.kind === "flush" ? 0.66 : 0.74} />
+    </group>
+  );
+}
+
 export function CardMotionLayer({
   motions,
   room,
@@ -86,10 +103,15 @@ export function CardMotionLayer({
   mobile: boolean;
   onDone: (id: string) => void;
 }) {
-  const firstBatchId = motions[0]?.batchId;
-  return motions
-    .filter((motion) => motion.batchId === firstBatchId)
-    .map((motion) => (
-      <MotionCard key={motion.id} motion={motion} room={room} mobile={mobile} onDone={onDone} />
-    ));
+  const display = cardMotionsForDisplay(motions);
+  return (
+    <>
+      {display.queued.map((motion) => (
+        <QueuedMotionCard key={`queued-${motion.id}`} motion={motion} room={room} mobile={mobile} />
+      ))}
+      {display.active.map((motion) => (
+        <MotionCard key={motion.id} motion={motion} room={room} mobile={mobile} onDone={onDone} />
+      ))}
+    </>
+  );
 }
