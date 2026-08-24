@@ -137,7 +137,7 @@ export function Card3D({
   dragPlaneY = 1.15,
   onDragStart,
   onDragEnd,
-  expandedHitArea = false,
+  hitAreaWidth,
   e2eProjectionAttribute,
 }: {
   card: CardView;
@@ -154,7 +154,7 @@ export function Card3D({
   dragPlaneY?: number;
   onDragStart?: (() => void) | undefined;
   onDragEnd?: ((point: [number, number, number]) => void) | undefined;
-  expandedHitArea?: boolean | undefined;
+  hitAreaWidth?: number | undefined;
   e2eProjectionAttribute?: string | undefined;
 }) {
   const dragging = useRef(false);
@@ -253,9 +253,9 @@ export function Card3D({
       }}
     >
       {e2eProjectionAttribute && <CardProjectionProbe dataAttribute={e2eProjectionAttribute} />}
-      {(onDragEnd || (onSelect && expandedHitArea)) && (
+      {(onDragEnd || (onSelect && hitAreaWidth)) && (
         <mesh position={[0, 0, 0.065]} renderOrder={renderOrder + 1}>
-          <planeGeometry args={onDragEnd ? [1.72, 2.24] : [1.48, 2.32]} />
+          <planeGeometry args={onDragEnd ? [1.72, 2.24] : [hitAreaWidth ?? 1.22, 2.32]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
         </mesh>
       )}

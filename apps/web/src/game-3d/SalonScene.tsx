@@ -502,6 +502,7 @@ function seats(
   onEffectCardSelect: (card: CardView, ownerId: string) => void = () => undefined,
   onEffectPlayerSelect: (playerId: string) => void = () => undefined,
 ) {
+  const stealLayout = stealCardInteractionLayout(mobile);
   return players.map((player, index) => {
     const angle = (index / players.length) * Math.PI * 2 + Math.PI / 2;
     const radius = 5.45;
@@ -561,7 +562,7 @@ function seats(
                   effectInteraction.selectableIds.has(card.id)
                     ? {
                         onSelect: () => onEffectCardSelect(card, player.id),
-                        expandedHitArea: true,
+                        hitAreaWidth: stealLayout.hitAreaWidth,
                         ...(e2eProjectionProbe
                           ? { e2eProjectionAttribute: "data-effect-steal-card" }
                           : {}),
@@ -569,19 +570,13 @@ function seats(
                     : {})}
                   position={[
                     centered *
-                      (effectInteraction?.kind === "steal" ? (mobile ? 0.25 : 0.31) : spacing),
+                      (effectInteraction?.kind === "steal" ? stealLayout.spacing : spacing),
                     Math.abs(centered) * 0.008,
                     cardIndex * 0.012,
                   ]}
                   rotation={[0, 0, -centered * 0.035]}
                   scale={
-                    effectInteraction?.kind === "steal"
-                      ? mobile
-                        ? 0.4
-                        : 0.44
-                      : mobile
-                        ? 0.32
-                        : 0.36
+                    effectInteraction?.kind === "steal" ? stealLayout.scale : mobile ? 0.32 : 0.36
                   }
                   selectedLift={0.42}
                   selectedDepth={-0.3}
@@ -689,6 +684,16 @@ export function nearestGiveTarget(
     if (!nearest || distance < nearest.distance) nearest = { id: player.id, distance };
   }
   return nearest && nearest.distance <= threshold ? nearest.id : undefined;
+}
+
+export function stealCardInteractionLayout(mobile: boolean): {
+  spacing: number;
+  scale: number;
+  hitAreaWidth: number;
+} {
+  return mobile
+    ? { spacing: 0.27, scale: 0.4, hitAreaWidth: 1.22 }
+    : { spacing: 0.31, scale: 0.44, hitAreaWidth: 1.22 };
 }
 
 function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {

@@ -1,7 +1,12 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../app/model";
-import { containFreeRoamCamera, nearestGiveTarget, playersAtTable } from "../game-3d/SalonScene";
+import {
+  containFreeRoamCamera,
+  nearestGiveTarget,
+  playersAtTable,
+  stealCardInteractionLayout,
+} from "../game-3d/SalonScene";
 
 const players: PlayerView[] = ["self", "right", "opposite", "left"].map((id) => ({
   id,
@@ -21,6 +26,17 @@ describe("7-give drag target", () => {
     expect(nearestGiveTarget(players, eligible, [5.4, 1.2, 0])).toBeUndefined();
     expect(nearestGiveTarget(players, eligible, [0, 1.2, 0])).toBeUndefined();
   });
+});
+
+describe("A-steal card hit areas", () => {
+  it.each([false, true])(
+    "keeps adjacent card centers outside each hit area (mobile=%s)",
+    (mobile) => {
+      const layout = stealCardInteractionLayout(mobile);
+
+      expect((layout.hitAreaWidth * layout.scale) / 2).toBeLessThan(layout.spacing);
+    },
+  );
 });
 
 describe("free-roam camera bounds", () => {
