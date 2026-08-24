@@ -187,6 +187,47 @@ function normalizeDirectory(directory: DirectoryDocument): DirectoryDocument {
   };
 }
 
+export function sparkCoordinatorLeaseCanBeClaimed(
+  directory: {
+    coordinatorUid: string;
+    coordinatorPeerId: string;
+    heartbeatAtMs: number;
+  },
+  uid: string,
+  peerId: string,
+  now: number,
+): boolean {
+  if (directory.coordinatorUid !== uid) return false;
+  if (!directory.coordinatorPeerId || directory.coordinatorPeerId === peerId) return true;
+  return now > directory.heartbeatAtMs + COORDINATOR_STALE_MS;
+}
+
+async function claimSameUidCoordinatorLease(
+  db: Firestore,
+  roomId: string,
+  uid: string,
+  previousPeerId: string,
+  nextPeerId: string,
+  now: number,
+): Promise<boolean> {
+  const directoryRef = doc(db, "sparkRoomDirectory", roomId);
+  return runTransaction(db, async (transaction) => {
+    const current = await transaction.get(directoryRef);
+    if (!current.exists()) return false;
+    const directory = normalizeDirectory(current.data() as DirectoryDocument);
+    if (directory.coordinatorPeerId !== previousPeerId) return false;
+    if (!sparkCoordinatorLeaseCanBeClaimed(directory, uid, nextPeerId, now)) return false;
+    transaction.update(directoryRef, {
+      coordinatorUid: uid,
+      coordinatorPeerId: nextPeerId,
+      heartbeatAtMs: now,
+      heartbeatAt: serverTimestamp(),
+      updatedAtMs: now,
+    });
+    return true;
+  }).catch(() => false);
+}
+
 /**
  * Best-effort Spark-plan garbage collection. Client time is used only to find
  * candidates; Firestore Rules compare the current directory heartbeat against
@@ -479,14 +520,40 @@ export class SparkP2PSession {
       if (isValidSparkPeerId(recoveryPeerId)) directory.coordinatorPeerId = recoveryPeerId;
     }
     const session = new SparkP2PSession({ db, user, roomId: normalized });
+    const observedAtMs = Date.now();
     session.directory = directory;
-    session.directoryObservedAtMs = Date.now();
+    session.directoryObservedAtMs = observedAtMs;
     session.coordinatorUid = directory.coordinatorUid;
     session.coordinatorPeerId = directory.coordinatorPeerId;
 
+    if (directory.coordinatorUid === user.uid) {
+      recoverySnapshot ??= (await getDoc(doc(db, "sparkRoomSnapshots", normalized))).data() as
+        SparkRoomSnapshot | undefined;
+      if (!recoverySnapshot) throw new Error("not-found: 部屋状態がありません");
+      if (directory.coordinatorPeerId !== session.peerId) {
+        if (!sparkCoordinatorLeaseCanBeClaimed(directory, user.uid, session.peerId, observedAtMs)) {
+          throw new Error("already-exists: この部屋は同じアカウントの別タブで開かれています");
+        }
+        const claimed = await claimSameUidCoordinatorLease(
+          db,
+          normalized,
+          user.uid,
+          directory.coordinatorPeerId,
+          session.peerId,
+          observedAtMs,
+        );
+        if (!claimed) {
+          throw new Error("already-exists: この部屋は同じアカウントの別タブで開かれています");
+        }
+        directory.coordinatorPeerId = session.peerId;
+        directory.heartbeatAtMs = observedAtMs;
+        session.coordinatorPeerId = session.peerId;
+      }
+    }
+
     let resolvedProfile = profile;
     let resolvedRole = role;
-    if (!resolvedProfile) {
+    if (!resolvedProfile || directory.coordinatorUid === user.uid) {
       const snapshot =
         recoverySnapshot ??
         ((await getDoc(doc(db, "sparkRoomSnapshots", normalized))).data() as
@@ -500,10 +567,7 @@ export class SparkP2PSession {
     session.profile = plain(resolvedProfile);
 
     if (directory.coordinatorUid === user.uid) {
-      const snapshot =
-        recoverySnapshot ??
-        ((await getDoc(doc(db, "sparkRoomSnapshots", normalized))).data() as
-          SparkRoomSnapshot | undefined);
+      const snapshot = recoverySnapshot;
       if (!snapshot) throw new Error("not-found: 部屋状態がありません");
       session.authority = SparkAuthority.restore(snapshot);
       session.authority.setCoordinator(user.uid, session.peerId);
@@ -648,16 +712,22 @@ export class SparkP2PSession {
           this.directory = next;
           this.coordinatorUid = next.coordinatorUid;
           this.coordinatorPeerId = next.coordinatorPeerId;
-          if (next.coordinatorUid === this.uid && !this.authority) {
+          const ownsCoordinatorLease =
+            next.coordinatorUid === this.uid && next.coordinatorPeerId === this.peerId;
+          if (ownsCoordinatorLease && !this.authority) {
             void this.promoteToCoordinator().catch(() =>
               this.setMode(navigator.onLine ? "firebase" : "offline"),
             );
-          } else if (next.coordinatorUid !== this.uid && this.authority) {
+          } else if (!ownsCoordinatorLease && this.authority) {
             // A stale coordinator can come back after another peer won the
             // election. Demote only after any in-flight authority write so an
             // explicit host transfer can finish its snapshot/directory pair.
             void this.enqueueCoordinator(async () => {
-              if (!this.authority || this.coordinatorUid === this.uid) return;
+              if (
+                !this.authority ||
+                (this.coordinatorUid === this.uid && this.coordinatorPeerId === this.peerId)
+              )
+                return;
               delete this.authority;
               this.peers.forEach((peer) => peer.connection.close());
               this.peers.clear();

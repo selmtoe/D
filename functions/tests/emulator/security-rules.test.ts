@@ -127,6 +127,10 @@ describe("Spark-plan P2P storage boundary", () => {
       roomId: "P2P22",
       coordinatorUid: "alice",
       revision: 1,
+      members: {
+        alice: { peerId: "alice_peer" },
+        bob: { peerId: "bob_peer" },
+      },
     };
     // This is the production regression: snapshot-first bootstrap has no lease
     // document for Rules to authorize against and must fail.
@@ -147,6 +151,19 @@ describe("Spark-plan P2P storage boundary", () => {
       }),
     );
     await assertSucceeds(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
+    await assertFails(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        coordinatorPeerId: "alice_peer_2",
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 2_000,
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
+        ...snapshot,
+        members: { ...snapshot.members, alice: { peerId: "alice_peer_2" } },
+      }),
+    );
     await assertFails(
       updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
         heartbeatAt: serverTimestamp(),
@@ -244,6 +261,7 @@ describe("Spark-plan P2P storage boundary", () => {
         roomId: "P2P22",
         coordinatorUid: "alice",
         revision: 1,
+        members: { alice: { peerId: "alice_peer" } },
       }),
     );
     await assertSucceeds(
@@ -263,11 +281,68 @@ describe("Spark-plan P2P storage boundary", () => {
         roomId: "P2P22",
         coordinatorUid: "alice",
         revision: 1,
+        members: { alice: { peerId: "alice_peer" } },
       }),
     );
     const bob = environment.authenticatedContext("bob").firestore();
     await assertFails(deleteDoc(doc(bob, "sparkRoomSnapshots/P2P22")));
     await assertFails(deleteDoc(doc(bob, "sparkRoomDirectory/P2P22")));
+  });
+
+  test("coordinator peer fencing permits handoff and only stale same-uid recovery", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    const bob = environment.authenticatedContext("bob").firestore();
+    const snapshot = {
+      schemaVersion: 1,
+      roomId: "P2P22",
+      coordinatorUid: "alice",
+      revision: 1,
+      members: {
+        alice: { peerId: "alice_peer" },
+        bob: { peerId: "bob_peer" },
+      },
+    };
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomDirectory/P2P22"), directory));
+    await assertSucceeds(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
+    await assertSucceeds(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        coordinatorUid: "bob",
+        coordinatorPeerId: "bob_peer",
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 2_000,
+      }),
+    );
+    await assertSucceeds(
+      setDoc(doc(bob, "sparkRoomSnapshots/P2P22"), {
+        ...snapshot,
+        coordinatorUid: "bob",
+        revision: 2,
+      }),
+    );
+
+    const oldHeartbeat = Timestamp.fromMillis(Date.now() - 76_000);
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "sparkRoomDirectory/P2P22"), {
+        ...directory,
+        heartbeatAt: oldHeartbeat,
+      });
+      await setDoc(doc(context.firestore(), "sparkRoomSnapshots/P2P22"), snapshot);
+    });
+    await assertSucceeds(
+      updateDoc(doc(alice, "sparkRoomDirectory/P2P22"), {
+        coordinatorPeerId: "alice_peer_2",
+        heartbeatAt: serverTimestamp(),
+        heartbeatAtMs: 3_000,
+      }),
+    );
+    await assertFails(setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), snapshot));
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkRoomSnapshots/P2P22"), {
+        ...snapshot,
+        revision: 2,
+        members: { ...snapshot.members, alice: { peerId: "alice_peer_2" } },
+      }),
+    );
   });
 
   test("presence is writable only by the addressed anonymous Auth UID", async () => {

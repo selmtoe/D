@@ -29,6 +29,7 @@ vi.mock("firebase/firestore", () => ({
 
 import {
   SparkP2PSession,
+  sparkCoordinatorLeaseCanBeClaimed,
   sparkEstimatedServerNowMs,
   sparkRelayExpiresAtMs,
 } from "../network/sparkP2P";
@@ -93,6 +94,97 @@ describe("Spark P2P startup cleanup", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  test("claims a same-uid coordinator lease only after it becomes stale", () => {
+    const directory = {
+      coordinatorUid: "host",
+      coordinatorPeerId: "old-peer",
+      heartbeatAtMs: 1_000,
+    };
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 75_999)).toBe(false);
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 76_001)).toBe(true);
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "guest", "new-peer", 100_000)).toBe(false);
+  });
+
+  test("rejects a fresh same-uid coordinator tab before it can restore authority", async () => {
+    const authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    firestore.getDoc
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          coordinatorUid: "host",
+          coordinatorPeerId: "host-peer",
+          heartbeatAtMs: 90_000,
+        }),
+      })
+      .mockResolvedValueOnce({ exists: () => true, data: () => authority.exportSnapshot() });
+    vi.spyOn(Date, "now").mockReturnValue(100_000);
+
+    await expect(
+      SparkP2PSession.connect({} as never, { uid: "host" } as never, "ABCDE", "spectator", {
+        name: "second tab",
+        avatar: structuredClone(defaultAvatar),
+      }),
+    ).rejects.toThrow("already-exists: この部屋は同じアカウントの別タブで開かれています");
+
+    expect(firestore.runTransaction).not.toHaveBeenCalled();
+  });
+
+  test("restores a same-uid coordinator only after atomically claiming a stale lease", async () => {
+    const authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    const staleDirectory = {
+      coordinatorUid: "host",
+      coordinatorPeerId: "host-peer",
+      heartbeatAtMs: 1_000,
+    };
+    firestore.getDoc
+      .mockResolvedValueOnce({ exists: () => true, data: () => staleDirectory })
+      .mockResolvedValueOnce({ exists: () => true, data: () => authority.exportSnapshot() });
+    const update = vi.fn();
+    firestore.runTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const operation = args[1] as (transaction: {
+        get: () => Promise<{ exists: () => boolean; data: () => typeof staleDirectory }>;
+        update: typeof update;
+      }) => Promise<boolean>;
+      return operation({
+        get: async () => ({ exists: () => true, data: () => staleDirectory }),
+        update,
+      });
+    });
+    const prototype = SparkP2PSession.prototype as unknown as StartupInternals;
+    vi.spyOn(prototype, "startCommon").mockResolvedValue();
+    vi.spyOn(prototype, "persistAndBroadcast").mockResolvedValue();
+    vi.spyOn(Date, "now").mockReturnValue(100_000);
+
+    const session = await SparkP2PSession.connect(
+      {} as never,
+      { uid: "host" } as never,
+      "ABCDE",
+      "spectator",
+      { name: "replacement tab", avatar: structuredClone(defaultAvatar) },
+    );
+
+    expect((session as unknown as StartupInternals).authority).toBeDefined();
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0]?.[1]).toMatchObject({
+      coordinatorUid: "host",
+      coordinatorPeerId: expect.not.stringContaining("host-peer"),
+      heartbeatAtMs: 100_000,
+    });
+    await session.stop(false);
   });
 
   test("stops a partially started session when its handshake fails", async () => {
@@ -885,6 +977,44 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(internals.coordinatorUid).toBe("successor");
     expect(internals.coordinatorPeerId).toBe("successor-peer");
+    await session.stop(false);
+  });
+
+  test("demotes an old coordinator when the same uid claims the lease with a new peer", async () => {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+
+    await internals.startCommon();
+    const snapshotCalls = firestore.onSnapshot.mock.calls as unknown as Array<
+      [unknown, (snapshot: unknown) => void, (() => void)?]
+    >;
+    const directorySnapshot = snapshotCalls.at(-2)?.[1];
+    directorySnapshot?.({
+      exists: () => true,
+      data: () => ({
+        coordinatorUid: "host",
+        coordinatorPeerId: "host-peer-2",
+        heartbeatAtMs: Date.now(),
+      }),
+    });
+    await vi.waitFor(() => expect(internals.authority).toBeUndefined());
+
+    expect(internals.coordinatorUid).toBe("host");
+    expect(internals.coordinatorPeerId).toBe("host-peer-2");
     await session.stop(false);
   });
 
