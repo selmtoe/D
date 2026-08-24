@@ -11,6 +11,7 @@ import {
   nearestGiveTarget,
   playersAtTable,
   resetFreeRoamInput,
+  sceneFrameRate,
   shouldExitFreeRoam,
   shouldIgnoreFreeRoamKeyboardTarget,
   shouldResetFreeRoamInput,
@@ -125,6 +126,17 @@ describe("free-roam camera bounds", () => {
 
     expect(behindLeftWall).toEqual({ x: -6.62, z: 3 });
     expect(behindRightAndRearWalls).toEqual({ x: 6.62, z: -7.62 });
+  });
+});
+
+describe("3D frame scheduling", () => {
+  it("keeps full frame rates only for active scene motion", () => {
+    expect(sceneFrameRate(false, true, false)).toBe(60);
+    expect(sceneFrameRate(true, true, false)).toBe(30);
+    expect(sceneFrameRate(false, false, true)).toBe(30);
+    expect(sceneFrameRate(true, false, true)).toBe(24);
+    expect(sceneFrameRate(false, false, false)).toBe(8);
+    expect(sceneFrameRate(true, false, false)).toBe(1);
   });
 });
 

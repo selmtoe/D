@@ -822,6 +822,40 @@ export function GameScreen({
     void resolveEffect(directEffect, payload);
   };
   const focusedSpectator = room.players.find((player) => player.id === spectatorFocusId);
+  const emoteControls = (
+    <section className="emote-controls" aria-label="エモート">
+      <span>
+        {peerCues.mode === "webrtc"
+          ? "低遅延"
+          : peerCues.mode === "firebase"
+            ? "Firebase"
+            : peerCues.mode === "offline"
+              ? "エモート停止"
+              : "接続中"}
+      </span>
+      <button
+        type="button"
+        onClick={() => void peerCues.send(emoteCue("applause"))}
+        aria-label="拍手を送る"
+      >
+        👏
+      </button>
+      <button
+        type="button"
+        onClick={() => void peerCues.send(emoteCue("surprise"))}
+        aria-label="驚きを送る"
+      >
+        !
+      </button>
+      <button
+        type="button"
+        onClick={() => void peerCues.send(emoteCue("thinking"))}
+        aria-label="思案を送る"
+      >
+        …
+      </button>
+    </section>
+  );
   return (
     <main
       id="main"
@@ -1018,46 +1052,16 @@ export function GameScreen({
                 </button>
               ))}
           </div>
+          {emoteControls}
         </section>
       )}
-      <section className="emote-controls" aria-label="エモート">
-        <span>
-          {peerCues.mode === "webrtc"
-            ? "低遅延"
-            : peerCues.mode === "firebase"
-              ? "Firebase"
-              : peerCues.mode === "offline"
-                ? "エモート停止"
-                : "接続中"}
-        </span>
-        <button
-          type="button"
-          onClick={() => void peerCues.send(emoteCue("applause"))}
-          aria-label="拍手を送る"
-        >
-          👏
-        </button>
-        <button
-          type="button"
-          onClick={() => void peerCues.send(emoteCue("surprise"))}
-          aria-label="驚きを送る"
-        >
-          !
-        </button>
-        <button
-          type="button"
-          onClick={() => void peerCues.send(emoteCue("thinking"))}
-          aria-label="思案を送る"
-        >
-          …
-        </button>
-      </section>
+      {room.role !== "spectator" && emoteControls}
       <CommentDanmaku
         comments={room.chat ?? []}
         lowPower={lowPower}
         reducedMotion={reducedMotion}
       />
-      {dealing && (
+      {dealing && !(room.role === "spectator" && spectatorMode === "free") && (
         <section className="dealing-overlay" aria-live="polite">
           <p className="eyebrow">DEALING</p>
           <h2>カードを配っています</h2>

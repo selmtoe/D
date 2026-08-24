@@ -284,6 +284,24 @@ describe("Spark browser authority", () => {
     expect(authority.isEmpty).toBe(true);
   });
 
+  it("allows a normally departed member to join the room again", () => {
+    const authority = waitingRoom();
+    authority.handleCommand("p2", "leaveRoom", { clientActionId: "p2-normal-leave" }, 2_000);
+
+    expect(authority.exportSnapshot().evictedUids).not.toContain("p2");
+    expect(() =>
+      authority.join(
+        {
+          uid: "p2",
+          peerId: "peer-2-returned",
+          profile: profile("二郎"),
+          role: "player",
+        },
+        2_001,
+      ),
+    ).not.toThrow();
+  });
+
   it("hands the waiting-room host role to a connected player", () => {
     const authority = waitingRoom();
     authority.setMemberOnline("p2", false, undefined, 1_100);
@@ -619,7 +637,71 @@ describe("Spark browser authority", () => {
     expect(authority.project("p1").players.map((player) => player.id)).not.toContain("p3");
   });
 
-  it("disqualifies an active player before removing their room membership", () => {
+  it("persists a moderation ban when an offline spectator misses the eviction message", () => {
+    const authority = waitingRoom();
+    authority.join({
+      uid: "watcher",
+      peerId: "watcher-old-peer",
+      profile: profile("観戦者"),
+      role: "spectator",
+    });
+    authority.setMemberOnline("watcher", false, undefined, 2_000);
+    authority.handleCommand(
+      "p1",
+      "kickMember",
+      {
+        clientActionId: "kick-offline-watcher",
+        expectedRevision: authority.exportSnapshot().revision,
+        targetUid: "watcher",
+      },
+      2_001,
+    );
+
+    const snapshot = authority.exportSnapshot();
+    expect(snapshot.members.watcher).toBeUndefined();
+    expect(snapshot.evictedUids).toContain("watcher");
+    const restored = SparkAuthority.restore(snapshot);
+    expect(() =>
+      restored.join(
+        {
+          uid: "watcher",
+          peerId: "watcher-new-peer",
+          profile: profile("再入室する観戦者"),
+          role: "spectator",
+        },
+        2_002,
+      ),
+    ).toThrow(/キックされています/);
+  });
+
+  it("refuses a new moderation ban before its persisted list can grow without bound", () => {
+    const snapshot = waitingRoom().exportSnapshot();
+    snapshot.evictedUids = Array.from({ length: 256 }, (_, index) => `banned-${index}`);
+    const authority = SparkAuthority.restore(snapshot);
+
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "kickMember",
+        {
+          clientActionId: "kick-after-ban-cap",
+          expectedRevision: authority.exportSnapshot().revision,
+          targetUid: "p3",
+        },
+        2_010,
+      ),
+    ).toThrow(/キック履歴が上限/);
+    expect(authority.member("p3")).toBeDefined();
+  });
+
+  it("rejects an oversized recovered ban list instead of silently forgetting old bans", () => {
+    const snapshot = waitingRoom().exportSnapshot();
+    snapshot.evictedUids = Array.from({ length: 257 }, (_, index) => `banned-${index}`);
+
+    expect(() => SparkAuthority.restore(snapshot)).toThrow(/キック履歴が上限/);
+  });
+
+  it("disqualifies and bans an active player before removing their room membership", () => {
     const authority = waitingRoom();
     authority.handleCommand(
       "p1",
@@ -653,22 +735,18 @@ describe("Spark browser authority", () => {
       name: "二郎",
       avatar: defaultAvatar,
     });
-
-    authority.join(
-      {
-        uid: "p2",
-        peerId: "peer-2-spectator",
-        profile: profile("観戦二郎"),
-        role: "spectator",
-      },
-      2_002,
-    );
-    expect(authority.project("p1").players.find((player) => player.id === "p2")).toMatchObject({
-      name: "二郎",
-      avatar: defaultAvatar,
-      present: false,
-    });
-    expect(authority.project("p1").spectators).toContainEqual({ id: "p2", name: "観戦二郎" });
+    expect(snapshot.evictedUids).toContain("p2");
+    expect(() =>
+      authority.join(
+        {
+          uid: "p2",
+          peerId: "peer-2-spectator",
+          profile: profile("観戦二郎"),
+          role: "spectator",
+        },
+        2_002,
+      ),
+    ).toThrow(/キックされています/);
   });
 
   it("expels a disconnected waiting member after the grace deadline", () => {

@@ -45,6 +45,16 @@ function FrameScheduler({ fps }: { fps: number }) {
   return null;
 }
 
+export function sceneFrameRate(
+  lowPower: boolean,
+  freeRoamActive: boolean,
+  continuousMotion: boolean,
+): number {
+  if (freeRoamActive) return lowPower ? 30 : 60;
+  if (continuousMotion) return lowPower ? 24 : 30;
+  return lowPower ? 1 : 8;
+}
+
 function CameraRig({
   spectator,
   mobile,
@@ -419,9 +429,11 @@ function FreeRoamAvatar({
       verticalVelocity.current = 5.2;
     }
     jumpRequested.current = false;
-    verticalVelocity.current -= 12.8 * physicsDelta;
-    const nextY = Math.max(0.05, position.current.y + verticalVelocity.current * physicsDelta);
-    if (nextY <= 0.05) verticalVelocity.current = 0;
+    if (!controlsPaused) verticalVelocity.current -= 12.8 * physicsDelta;
+    const nextY = controlsPaused
+      ? position.current.y
+      : Math.max(0.05, position.current.y + verticalVelocity.current * physicsDelta);
+    if (!controlsPaused && nextY <= 0.05) verticalVelocity.current = 0;
     position.current.set(nextX, nextY, nextZ);
     if (avatar.current) {
       avatar.current.position.copy(position.current);
@@ -1068,12 +1080,37 @@ export function SalonScene({
     import.meta.env.DEV &&
     Boolean((window as unknown as { __DAIFUGO_E2E__?: unknown }).__DAIFUGO_E2E__);
   const keyboardOpen = viewport.keyboardInset > 80;
+  const freeRoamActive =
+    room?.role === "spectator" && spectatorMode === "free" && !freeRoamControlsPaused;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
+  const [cameraTransitionActive, setCameraTransitionActive] = useState(false);
   const sceneRoom = useMemo(
     () => (room ? { ...room, players: playersAtTable(room.players) } : undefined),
     [room],
   );
+  const cameraTransitionKey = [
+    room?.role ?? "",
+    spectatorMode,
+    room?.focusedPlayerId ?? "",
+    sceneRoom?.players.map((player) => player.id).join(",") ?? "",
+    mobile ? "mobile" : "desktop",
+    keyboardOpen ? "keyboard" : "plain",
+    effectInteraction?.kind ?? "",
+    stealVisual?.actorId ?? "",
+    stealVisual?.perspective ?? "",
+  ].join("|");
+  useEffect(() => {
+    if (!pageVisible || reducedMotion) {
+      setCameraTransitionActive(false);
+      return;
+    }
+    setCameraTransitionActive(true);
+    const timer = window.setTimeout(() => setCameraTransitionActive(false), 650);
+    return () => window.clearTimeout(timer);
+  }, [cameraTransitionKey, pageVisible, reducedMotion]);
+  const continuousSceneMotion =
+    cameraTransitionActive || dealing || cardMotions.length > 0 || Boolean(stealVisual);
   const [freeRoamInput, setFreeRoamInput] = useState<FreeRoamInput>({
     forward: 0,
     strafe: 0,
@@ -1194,9 +1231,7 @@ export function SalonScene({
         }}
       >
         {pageVisible && (
-          <FrameScheduler
-            fps={spectatorMode === "free" ? (lowPower ? 30 : 60) : lowPower ? 24 : 30}
-          />
+          <FrameScheduler fps={sceneFrameRate(lowPower, freeRoamActive, continuousSceneMotion)} />
         )}
         <color attach="background" args={["#06100f"]} />
         <fog attach="fog" args={["#06100f", 14, 28]} />

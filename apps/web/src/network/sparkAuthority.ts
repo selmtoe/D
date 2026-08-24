@@ -53,6 +53,7 @@ export interface SparkRoomSnapshot {
   settings: { mode: "normal" | "blind"; blindCount: number };
   members: Record<string, SparkMember>;
   departedProfiles?: Record<string, { name: string; avatar: AvatarProfileV1 }>;
+  evictedUids?: string[];
   game?: GameState;
   pendingMimic?: SparkPendingMimic;
   turnDeadlineMs?: number;
@@ -78,6 +79,7 @@ export interface JoinRequest {
 
 const MAX_PLAYERS = 6;
 const MAX_SPECTATORS = 32;
+const MAX_EVICTED_UIDS = 256;
 const TURN_MS = 60_000;
 
 function commandError(code: string, message: string): never {
@@ -291,6 +293,7 @@ export class SparkAuthority {
       settings: { mode: "normal", blindCount: 0 },
       members: { [uid]: member },
       departedProfiles: {},
+      evictedUids: [],
       createdAtMs: now,
       updatedAtMs: now,
       chat: [],
@@ -318,9 +321,20 @@ export class SparkAuthority {
     for (const profile of Object.values(restored.departedProfiles ?? {})) {
       profile.avatar = migrateAvatar(profile.avatar);
     }
+    const evictedUids = [
+      ...new Set(
+        (Array.isArray(restored.evictedUids) ? restored.evictedUids : []).filter(
+          (uid): uid is string => typeof uid === "string" && uid.length > 0,
+        ),
+      ),
+    ];
+    if (evictedUids.length > MAX_EVICTED_UIDS) {
+      commandError("resource-exhausted", "この部屋のキック履歴が上限を超えています");
+    }
     return new SparkAuthority({
       ...restored,
       departedProfiles: clone(restored.departedProfiles ?? {}),
+      evictedUids,
       appliedRoomActionResults: clone(restored.appliedRoomActionResults ?? {}),
     });
   }
@@ -375,6 +389,9 @@ export class SparkAuthority {
   }
 
   join(request: JoinRequest, now = Date.now()): void {
+    if (this.snapshot.evictedUids?.includes(request.uid)) {
+      commandError("permission-denied", "この部屋からキックされています");
+    }
     const existing = this.snapshot.members[request.uid];
     if (!existing) {
       if (request.role === "player") {
@@ -591,6 +608,12 @@ export class SparkAuthority {
         }
         if (!this.snapshot.members[targetUid]) {
           commandError("failed-precondition", "対象の参加者が見つかりません");
+        }
+        if (
+          !this.snapshot.evictedUids?.includes(targetUid) &&
+          (this.snapshot.evictedUids?.length ?? 0) >= MAX_EVICTED_UIDS
+        ) {
+          commandError("resource-exhausted", "この部屋のキック履歴が上限に達しました");
         }
         this.leave(targetUid, actionId, now, "moderation");
         return response;
@@ -843,7 +866,11 @@ export class SparkAuthority {
         this.afterGameMutation(now);
       }
     }
-    if (reason === "moderation") this.evictions.push({ uid, peerId: member.peerId });
+    if (reason === "moderation") {
+      this.snapshot.evictedUids ??= [];
+      if (!this.snapshot.evictedUids.includes(uid)) this.snapshot.evictedUids.push(uid);
+      this.evictions.push({ uid, peerId: member.peerId });
+    }
     this.removeMember(
       uid,
       now,

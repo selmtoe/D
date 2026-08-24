@@ -815,6 +815,8 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
+  max-height: calc(var(--visual-viewport-height) - 100px);
+  overflow-y: auto;
 }
 .spectator-controls > div {
   display: flex;
@@ -907,6 +909,11 @@ h2 {
 .emote-controls button {
   width: 44px;
   padding: 0;
+}
+.spectator-controls > .emote-controls {
+  position: static;
+  z-index: auto;
+  flex: 0 0 auto;
 }
 .comment-danmaku {
   position: absolute;
@@ -1051,6 +1058,7 @@ h2 {
 .game-error {
   position: absolute;
   z-index: 12;
+  pointer-events: none;
   top: 82px;
   left: 50%;
   transform: translateX(-50%);
@@ -2001,12 +2009,6 @@ h2 {
   }
   .spectator-controls button {
     padding-inline: 0.65rem;
-  }
-  .game-screen.spectator .emote-controls {
-    z-index: 6;
-    /* Six players make the focus picker two rows tall. Keep emotes below it so
-       the second row remains visible and receives pointer input. */
-    top: 300px;
   }
   .game-screen.spectator .emote-controls span {
     display: none;
