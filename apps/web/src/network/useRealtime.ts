@@ -23,6 +23,7 @@ export function usePublicRoomSubscription(enabled: boolean): void {
   const setPublicRooms = useUiStore((state) => state.setPublicRooms);
   const dispatch = useUiStore((state) => state.dispatch);
   useEffect(() => {
+    setPublicRooms([]);
     if (!enabled) return;
     let alive = true;
     let unsubscribe: (() => void) | undefined;

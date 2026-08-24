@@ -10,6 +10,7 @@ import {
   firebaseMode,
   getActiveSparkSession,
   getStoredRoomReconnect,
+  isTerminalRoomReconnectError,
   joinRoom,
   reconnectWithToken,
   sendCommand,
@@ -140,7 +141,7 @@ export default function App() {
     if (app.phase !== "ENTRANCE" || !reconnectRoomId || activeRoomId) return;
     const storedReconnect = getStoredRoomReconnect(reconnectRoomId);
     const reconnectToken =
-      getStoredValue("session", `daifugo-reconnect-${reconnectRoomId}`) ?? storedReconnect?.token;
+      storedReconnect?.token ?? getStoredValue("session", `daifugo-reconnect-${reconnectRoomId}`);
     if (!reconnectToken) return;
     setBusy(true);
     reconnectWithToken(reconnectRoomId, reconnectToken)
@@ -157,7 +158,13 @@ export default function App() {
         }
         setActiveRoomId(reconnectRoomId);
       })
-      .catch((cause) => dispatch({ type: "ERROR", message: firebaseErrorMessage(cause) }))
+      .catch((cause) => {
+        if (isTerminalRoomReconnectError(cause)) {
+          clearRoomReconnect(reconnectRoomId);
+          history.replaceState(null, "", location.pathname);
+        }
+        dispatch({ type: "ERROR", message: firebaseErrorMessage(cause) });
+      })
       .finally(() => setBusy(false));
   }, [activeRoomId, app.phase, app.profile, avatar, dispatch, reconnectRoomId]);
 

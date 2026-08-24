@@ -346,9 +346,6 @@ export async function reconnectWithToken(
     }) as Promise<{ reconnectToken: string; reconnectOutcome: "restored" | "expired" }>;
   }
   const saved = loadReconnect(roomId);
-  if (saved && saved.token !== reconnectToken) {
-    throw new Error("permission-denied: 再接続情報が更新されています");
-  }
   const { db, user } = await getFirebase();
   const session = await SparkP2PSession.connect(
     db,
@@ -442,6 +439,16 @@ export async function subscribePublicRooms(
   );
 }
 
+export function isTerminalRoomReconnectError(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause ?? "");
+  if (message.includes("not-found")) return true;
+  return (
+    message.includes("permission-denied") &&
+    !message.includes("再接続情報が更新") &&
+    !message.includes("新しいセッションに置き換え")
+  );
+}
+
 export function firebaseErrorMessage(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : "不明な通信エラーです";
   if (message.includes("evicted") || message.includes("キック")) {
@@ -449,6 +456,12 @@ export function firebaseErrorMessage(cause: unknown): string {
   }
   if (message.includes("auth/configuration-not-found")) {
     return "Firebase匿名認証が未設定です。Authenticationで匿名ログインを有効にしてください。";
+  }
+  if (message.includes("already-exists") || message.includes("新しいセッションに置き換え")) {
+    return "この部屋は同じアカウントの別タブで開かれています。別タブを閉じ、少し待ってから再接続してください。";
+  }
+  if (message.includes("再接続情報が更新")) {
+    return "再接続情報が更新されています。最新の接続情報で再接続してください。";
   }
   if (message.includes("resource-exhausted")) return message.split(":").slice(1).join(":").trim();
   if (message.includes("stale revision") || message.includes("aborted")) {

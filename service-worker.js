@@ -3,13 +3,17 @@
 // control of the current client.
 self.addEventListener("install", () => self.skipWaiting());
 
+function isLegacyCacheName(key) {
+  return key === "daifugo-v1" || key === "yugigoten-v3" || key.startsWith("daifugo-luxe-");
+}
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
       caches
         .keys()
         .then((keys) =>
-          Promise.all(keys.filter((key) => key.startsWith("daifugo-luxe-")).map((key) => caches.delete(key))),
+          Promise.all(keys.filter(isLegacyCacheName).map((key) => caches.delete(key))),
         ),
       self.registration.unregister(),
     ]),

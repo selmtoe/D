@@ -1,12 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
   clearRoomReconnect,
+  firebaseErrorMessage,
   getStoredRoomReconnect,
+  isTerminalRoomReconnectError,
   presenceRecord,
 } from "../network/firebaseClient";
 import { defaultAvatar } from "@daifugo/avatar-schema";
 
 describe("presence payload helper", () => {
+  it("distinguishes terminal reconnect failures from temporary transport errors", () => {
+    expect(isTerminalRoomReconnectError(new Error("permission-denied: old uid"))).toBe(true);
+    expect(isTerminalRoomReconnectError(new Error("not-found: expired room"))).toBe(true);
+    expect(
+      isTerminalRoomReconnectError(new Error("permission-denied: 再接続情報が更新されています")),
+    ).toBe(false);
+    expect(
+      isTerminalRoomReconnectError(
+        new Error("permission-denied: この接続は新しいセッションに置き換えられました"),
+      ),
+    ).toBe(false);
+    expect(isTerminalRoomReconnectError(new Error("unavailable: host handoff"))).toBe(false);
+    expect(isTerminalRoomReconnectError(new Error("network: offline"))).toBe(false);
+    expect(firebaseErrorMessage(new Error("already-exists: duplicate coordinator"))).toContain(
+      "別タブ",
+    );
+  });
+
   it("keeps the connection marker independent from gameplay state", () =>
     expect(presenceRecord(true, "connection-id", 123)).toEqual({
       online: true,
