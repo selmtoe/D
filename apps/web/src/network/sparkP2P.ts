@@ -622,10 +622,11 @@ export class SparkP2PSession {
     const snapshotDocument = await getDoc(doc(this.db, "sparkRoomSnapshots", this.roomId));
     if (!snapshotDocument.exists()) return;
     const snapshot = snapshotDocument.data() as SparkRoomSnapshot;
-    const successor = Object.values(snapshot.members)
-      .filter((member) => member.online && member.uid !== snapshot.coordinatorUid)
-      .sort((left, right) => left.joinedAtMs - right.joinedAtMs)[0];
-    if (successor?.uid !== this.uid) return;
+    // Every locally active room member may contend for the stale lease. Selecting one successor
+    // from the recovery snapshot can deadlock the room when that peer disappeared alongside the
+    // coordinator but was still marked online in the coordinator's final snapshot. The Firestore
+    // transaction below serializes contenders and lets only the first live peer win.
+    if (!snapshot.members[this.uid] || snapshot.coordinatorUid === this.uid) return;
     const directoryRef = doc(this.db, "sparkRoomDirectory", this.roomId);
     const elected = await runTransaction(this.db, async (transaction) => {
       const current = await transaction.get(directoryRef);

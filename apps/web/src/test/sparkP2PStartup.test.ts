@@ -6,6 +6,7 @@ const firestore = vi.hoisted(() => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(async () => ({ docs: [] })),
   onSnapshot: vi.fn(() => vi.fn()),
+  runTransaction: vi.fn(),
   setDoc: vi.fn(),
 }));
 
@@ -19,7 +20,7 @@ vi.mock("firebase/firestore", () => ({
   limit: vi.fn((value: unknown) => value),
   onSnapshot: firestore.onSnapshot,
   query: vi.fn((...parts: unknown[]) => ({ parts })),
-  runTransaction: vi.fn(),
+  runTransaction: firestore.runTransaction,
   serverTimestamp: vi.fn(() => "server-time"),
   setDoc: firestore.setDoc,
   Timestamp: { fromMillis: vi.fn((value: number) => value) },
@@ -34,6 +35,7 @@ type StartupInternals = {
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
   tick(): Promise<void>;
+  tryCoordinatorElection(now: number): Promise<void>;
   reconcilePresence(now: number): Promise<void>;
   enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
   persistAndBroadcast(): Promise<void>;
@@ -343,6 +345,52 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(internals.coordinatorUid).toBe("successor");
     expect(internals.coordinatorPeerId).toBe("successor-peer");
+    await session.stop(false);
+  });
+
+  test("lets a later live member contend when the oldest successor is absent", async () => {
+    const authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    authority.join(
+      {
+        uid: "absent",
+        peerId: "absent-peer",
+        profile: { name: "absent", avatar: structuredClone(defaultAvatar) },
+        role: "player",
+      },
+      1_100,
+    );
+    authority.join(
+      {
+        uid: "successor",
+        peerId: "successor-peer",
+        profile: { name: "successor", avatar: structuredClone(defaultAvatar) },
+        role: "player",
+      },
+      1_200,
+    );
+    firestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => authority.exportSnapshot(),
+    });
+    firestore.runTransaction.mockResolvedValueOnce(false);
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "successor" },
+      roomId: "ABCDE",
+      peerId: "successor-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+
+    await internals.tryCoordinatorElection(100_000);
+
+    expect(firestore.runTransaction).toHaveBeenCalledOnce();
     await session.stop(false);
   });
 
