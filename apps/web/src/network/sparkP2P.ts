@@ -1127,6 +1127,10 @@ export class SparkP2PSession {
     return () => this.modeListeners.delete(listener);
   }
 
+  currentMode(): "webrtc" | "firebase" | "offline" {
+    return this.mode;
+  }
+
   private setMode(mode: "webrtc" | "firebase" | "offline"): void {
     if (this.mode === mode) return;
     this.mode = mode;

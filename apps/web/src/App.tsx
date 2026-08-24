@@ -8,6 +8,7 @@ import {
   createRoom,
   firebaseErrorMessage,
   firebaseMode,
+  getActiveSparkSession,
   getStoredRoomReconnect,
   joinRoom,
   reconnectWithToken,
@@ -27,6 +28,7 @@ import { ResultScreen } from "./screens/ResultScreen";
 import { WaitingRoomScreen } from "./screens/WaitingRoomScreen";
 import { feedback, primeFeedback } from "./components/feedback";
 import { getStoredValue, setStoredValue } from "./app/browserStorage";
+import { connectionStateOnBrowserOnline } from "./app/connectionState";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -105,9 +107,12 @@ export default function App() {
 
   useEffect(() => {
     const online = () => {
+      const session = getActiveSparkSession();
+      const transportMode =
+        session && session.roomId === activeRoomId ? session.currentMode() : undefined;
       dispatch({
         type: "CONNECTION",
-        connection: activeRoomId ? "reconnecting" : "connected",
+        connection: connectionStateOnBrowserOnline(Boolean(activeRoomId), transportMode),
       });
     };
     const offline = () =>
