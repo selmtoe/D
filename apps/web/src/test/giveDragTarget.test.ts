@@ -4,6 +4,7 @@ import type { PlayerView } from "../app/model";
 import {
   containFreeRoamCamera,
   collectCardInteractionLayout,
+  handCardHitArea,
   handCardInteractionLayout,
   isFreeRoamControlActivationKey,
   nearestGiveTarget,
@@ -54,6 +55,29 @@ describe("hand card hit areas", () => {
     const layout = handCardInteractionLayout(cardCount, mobile as boolean);
 
     expect(layout.hitAreaWidth * layout.scale).toBeLessThan(layout.spacing);
+  });
+
+  it.each([
+    [false, 2],
+    [false, 20],
+    [true, 2],
+    [true, 20],
+  ])("adds only the visible outer wing to edge cards (mobile=%s, cards=%s)", (mobile, count) => {
+    const cardCount = count as number;
+    const layout = handCardInteractionLayout(cardCount, mobile as boolean);
+    const first = handCardHitArea(0, cardCount, mobile as boolean);
+    const last = handCardHitArea(cardCount - 1, cardCount, mobile as boolean);
+    const centerHalfWorld = (layout.hitAreaWidth * layout.scale) / 2;
+    const cardHalfWorld = (1.22 * layout.scale) / 2;
+
+    expect((first.offsetX - first.width / 2) * layout.scale).toBeCloseTo(-cardHalfWorld);
+    expect((first.offsetX + first.width / 2) * layout.scale).toBeCloseTo(centerHalfWorld);
+    expect((last.offsetX - last.width / 2) * layout.scale).toBeCloseTo(-centerHalfWorld);
+    expect((last.offsetX + last.width / 2) * layout.scale).toBeCloseTo(cardHalfWorld);
+  });
+
+  it("uses the whole visible card when the hand has one card", () => {
+    expect(handCardHitArea(0, 1, true)).toEqual({ width: 1.22, offsetX: 0 });
   });
 });
 

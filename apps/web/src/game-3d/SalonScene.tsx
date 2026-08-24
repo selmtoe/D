@@ -638,6 +638,7 @@ function handCards(
   const layout = handCardInteractionLayout(cards.length, mobile);
   return cards.map((card, index) => {
     const centered = index - (cards.length - 1) / 2;
+    const hitArea = handCardHitArea(index, cards.length, mobile);
     return (
       <Card3D
         key={card.id}
@@ -666,7 +667,8 @@ function handCards(
         ]}
         rotation={[-0.42, 0, -centered * 0.035]}
         scale={layout.scale}
-        hitAreaWidth={layout.hitAreaWidth}
+        hitAreaWidth={hitArea.width}
+        hitAreaOffsetX={hitArea.offsetX}
         renderOrder={100 + index}
         selectedLift={mobile ? 1.22 : 1.55}
         selectedDepth={mobile ? -0.64 : -0.84}
@@ -712,6 +714,25 @@ export function handCardInteractionLayout(
   const scale = mobile ? 0.78 : 0.92;
   const spacing = Math.min(mobile ? 0.44 : 0.62, (mobile ? 6.8 : 8.8) / Math.max(cardCount, 1));
   return { spacing, scale, hitAreaWidth: nonOverlappingHitAreaWidth(spacing, scale) };
+}
+
+export function handCardHitArea(
+  cardIndex: number,
+  cardCount: number,
+  mobile: boolean,
+): { width: number; offsetX: number } {
+  if (cardCount <= 1) return { width: 1.22, offsetX: 0 };
+  const layout = handCardInteractionLayout(cardCount, mobile);
+  const centerHitWorld = layout.hitAreaWidth * layout.scale;
+  const cardWorld = 1.22 * layout.scale;
+  const outerWingWorld = Math.max(0, (cardWorld - centerHitWorld) / 2);
+  if (cardIndex !== 0 && cardIndex !== cardCount - 1) {
+    return { width: layout.hitAreaWidth, offsetX: 0 };
+  }
+  return {
+    width: (centerHitWorld + outerWingWorld) / layout.scale,
+    offsetX: ((cardIndex === 0 ? -1 : 1) * outerWingWorld) / (2 * layout.scale),
+  };
 }
 
 function nonOverlappingHitAreaWidth(spacing: number, scale: number): number {

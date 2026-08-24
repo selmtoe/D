@@ -139,6 +139,7 @@ export function Card3D({
   onDragEnd,
   hitAreaWidth,
   hitAreaHeight,
+  hitAreaOffsetX = 0,
   e2eProjectionAttribute,
 }: {
   card: CardView;
@@ -157,6 +158,7 @@ export function Card3D({
   onDragEnd?: ((point: [number, number, number]) => void) | undefined;
   hitAreaWidth?: number | undefined;
   hitAreaHeight?: number | undefined;
+  hitAreaOffsetX?: number | undefined;
   e2eProjectionAttribute?: string | undefined;
 }) {
   const dragging = useRef(false);
@@ -256,7 +258,7 @@ export function Card3D({
     >
       {e2eProjectionAttribute && <CardProjectionProbe dataAttribute={e2eProjectionAttribute} />}
       {(onDragEnd || onSelect) && (
-        <mesh position={[0, 0, 0.065]} renderOrder={renderOrder + 1}>
+        <mesh position={[hitAreaOffsetX, 0, 0.065]} renderOrder={renderOrder + 1}>
           <planeGeometry
             args={[
               hitAreaWidth ?? (onDragEnd ? 1.72 : 1.22),
