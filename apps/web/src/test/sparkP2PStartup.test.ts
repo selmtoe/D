@@ -442,6 +442,9 @@ describe("Spark P2P startup cleanup", () => {
 
     internals.coordinatorUid = "new-host";
     internals.coordinatorPeerId = "new-host-peer";
+    const handoffRetry = internals.request(wire);
+    expect(handoffRetry).toBe(first);
+    expect(sendWire).toHaveBeenCalledTimes(2);
     internals.handleWire(
       { type: "response", requestId: "same-action", ok: true, result: { saved: true } },
       "old-host",
@@ -450,6 +453,7 @@ describe("Spark P2P startup cleanup", () => {
 
     await expect(first).resolves.toEqual({ saved: true });
     await expect(duplicate).resolves.toEqual({ saved: true });
+    await expect(handoffRetry).resolves.toEqual({ saved: true });
     expect(internals.pendingRequests.size).toBe(0);
     await session.stop(false);
   });
@@ -560,9 +564,25 @@ describe("Spark P2P startup cleanup", () => {
       createdAtMs: Date.now(),
       expiresAtMs: Date.now() + 60_000,
     });
+    internals.presenceSeen.set("attacker", {
+      online: true,
+      peerId: "victim-old-peer",
+      atMs: Date.now(),
+    });
+    await internals.handleSignal({
+      senderUid: "attacker",
+      senderPeerId: "victim-old-peer",
+      targetUid: "host",
+      targetPeerId: "host-peer",
+      kind: "offer",
+      payload: JSON.stringify({ sdp: "valid-sdp" }),
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+    });
 
     expect(close).not.toHaveBeenCalled();
     expect(internals.peers.get("victim-new-peer")?.uid).toBe("victim");
+    expect(internals.pendingPeerHandshakes.has("victim-old-peer")).toBe(false);
     await session.stop(false);
   });
 

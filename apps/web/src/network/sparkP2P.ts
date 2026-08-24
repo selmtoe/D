@@ -89,8 +89,7 @@ type PendingRequest = {
   resolve: (result: Record<string, unknown>) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
-  targetUid: string;
-  targetPeerId: string;
+  responseSources: Set<string>;
   fingerprint: string;
 };
 
@@ -236,6 +235,10 @@ export async function cleanupStaleSparkRooms(db: Firestore): Promise<number> {
 
 function safeJson(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function responseSource(uid: string, peerId: string): string {
+  return safeJson([uid, peerId]);
 }
 
 function plain<T>(value: T): T {
@@ -1082,6 +1085,8 @@ export class SparkP2PSession {
       if (!this.authority) return;
       const existingPeer = this.peers.get(relay.senderPeerId);
       if (existingPeer && existingPeer.uid !== relay.senderUid) return;
+      const reservedPeerOwner = this.authority.peerOwner(relay.senderPeerId);
+      if (reservedPeerOwner && reservedPeerOwner.uid !== relay.senderUid) return;
       const authorityPeerId = this.authority.member(relay.senderUid)?.peerId;
       const presence = this.presenceSeen.get(relay.senderUid);
       const livePresence = Boolean(
@@ -1134,9 +1139,7 @@ export class SparkP2PSession {
     const pendingResponse =
       wire.type === "response" ? this.pendingRequests.get(wire.requestId) : undefined;
     const expectedResponseSender = Boolean(
-      pendingResponse &&
-      pendingResponse.targetUid === senderUid &&
-      pendingResponse.targetPeerId === senderPeerId,
+      pendingResponse?.responseSources.has(responseSource(senderUid, senderPeerId)),
     );
     if (
       !this.authority &&
@@ -1279,10 +1282,19 @@ export class SparkP2PSession {
   ): Promise<Record<string, unknown>> {
     const targetUid = this.coordinatorUid;
     const targetPeerId = this.coordinatorPeerId;
-    const fingerprint = safeJson({ wire, targetUid, targetPeerId });
+    const fingerprint = safeJson(wire);
+    const source = responseSource(targetUid, targetPeerId);
     const existing = this.pendingRequests.get(wire.requestId);
     if (existing) {
-      if (existing.fingerprint === fingerprint) return existing.promise;
+      if (existing.fingerprint === fingerprint) {
+        if (!existing.responseSources.has(source)) {
+          existing.responseSources.add(source);
+          void this.sendWire(targetUid, targetPeerId, wire).catch(() => {
+            existing.responseSources.delete(source);
+          });
+        }
+        return existing.promise;
+      }
       return Promise.reject(new Error("invalid-argument: 同じ操作IDに異なる操作が指定されました"));
     }
     let resolveRequest!: (result: Record<string, unknown>) => void;
@@ -1300,8 +1312,7 @@ export class SparkP2PSession {
         this.pendingRequests.delete(wire.requestId);
         rejectRequest(new Error("unavailable: ホストから応答がありません"));
       }, 15_000),
-      targetUid,
-      targetPeerId,
+      responseSources: new Set([source]),
       fingerprint,
     };
     this.pendingRequests.set(wire.requestId, pending);

@@ -425,6 +425,13 @@ export class SparkAuthority {
     return member ? clone(member) : undefined;
   }
 
+  peerOwner(peerId: string): SparkMember | undefined {
+    const member = Object.values(this.snapshot.members).find(
+      (candidate) => candidate.peerId === peerId,
+    );
+    return member ? clone(member) : undefined;
+  }
+
   join(request: JoinRequest, now = Date.now()): void {
     if (!isValidSparkPeerId(request.peerId)) {
       commandError("invalid-argument", "接続IDが不正です");
