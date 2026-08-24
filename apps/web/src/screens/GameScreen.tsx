@@ -593,9 +593,9 @@ export function GameScreen({
           ? room.players
               .filter((player) => player.id !== room.viewerId)
               .flatMap((player) => player.cards ?? [])
-          : room.hand;
+          : sortedHand;
     return source.filter((card) => effectSelectableIds.has(card.id));
-  }, [directEffect, effectSelectableIds, room.discard, room.hand, room.players, room.viewerId]);
+  }, [directEffect, effectSelectableIds, room.discard, room.players, room.viewerId, sortedHand]);
   const payloadBase = useMemo(
     () => ({ roomId: room.roomId, gameId: room.gameId, expectedRevision: room.revision }),
     [room.gameId, room.revision, room.roomId],

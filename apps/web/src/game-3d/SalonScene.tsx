@@ -549,6 +549,7 @@ function seats(
   effectInteraction?: TableEffectInteraction,
   onEffectCardSelect: (card: CardView, ownerId: string) => void = () => undefined,
   onEffectPlayerSelect: (playerId: string) => void = () => undefined,
+  interactionReadOnly = false,
 ) {
   const stealLayout = stealCardInteractionLayout(mobile);
   return players.map((player, index) => {
@@ -572,6 +573,7 @@ function seats(
         rotation={[0, -angle - Math.PI / 2, 0]}
         onPointerDown={(event) => {
           if (
+            !interactionReadOnly &&
             effectInteraction?.kind === "give" &&
             effectInteraction.pendingGiveCardId &&
             effectInteraction.targetPlayerIds.has(player.id)
@@ -607,7 +609,8 @@ function seats(
                     !effectInteraction.selectableIds.has(card.id)
                   }
                   hidden={movingToSeats.get(player.id)?.has(card.id) ?? false}
-                  {...(effectInteraction?.kind === "steal" &&
+                  {...(!interactionReadOnly &&
+                  effectInteraction?.kind === "steal" &&
                   effectInteraction.selectableIds.has(card.id)
                     ? {
                         onSelect: () => onEffectCardSelect(card, player.id),
@@ -842,6 +845,7 @@ function discardStack(
   effectInteraction?: TableEffectInteraction,
   onEffectCardSelect: (card: CardView) => void = () => undefined,
   mobile = false,
+  interactionReadOnly = false,
 ) {
   const collecting = effectInteraction?.kind === "collect";
   const collectLayout = collectCardInteractionLayout(mobile);
@@ -856,7 +860,7 @@ function discardStack(
         card={card}
         selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
         dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
-        {...(collecting && effectInteraction.selectableIds.has(card.id)
+        {...(!interactionReadOnly && collecting && effectInteraction.selectableIds.has(card.id)
           ? {
               onSelect: () => onEffectCardSelect(card),
               hitAreaHeight: collectLayout.hitAreaHeight,
@@ -1271,6 +1275,7 @@ export function SalonScene({
                 effectInteraction,
                 onEffectCardSelect,
                 onEffectPlayerSelect,
+                handReadOnly,
               )
             : previewAvatar && (
                 <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
@@ -1289,6 +1294,7 @@ export function SalonScene({
               effectInteraction,
               (card) => onEffectCardSelect(card),
               mobile,
+              handReadOnly,
             )}
           {sceneRoom &&
             !dealing &&
