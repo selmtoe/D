@@ -752,6 +752,7 @@ function discardStack(
   mobile = false,
 ) {
   const collecting = effectInteraction?.kind === "collect";
+  const collectLayout = collectCardInteractionLayout(mobile);
   const visibleStack = collecting
     ? cards.filter((card) => !movingToDiscard.has(card.id))
     : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
@@ -768,13 +769,16 @@ function discardStack(
         selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
         dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
         {...(collecting && effectInteraction.selectableIds.has(card.id)
-          ? { onSelect: () => onEffectCardSelect(card) }
+          ? {
+              onSelect: () => onEffectCardSelect(card),
+              hitAreaHeight: collectLayout.hitAreaHeight,
+            }
           : {})}
         position={
           collecting
             ? [
                 centeredColumn * (mobile ? 0.46 : 0.48),
-                (mobile ? 0.72 : 0.88) + row * (mobile ? 0.52 : 0.76),
+                (mobile ? 0.72 : 0.88) + row * collectLayout.rowSpacing,
                 1.48 - row * (mobile ? 0.035 : 0.06),
               ]
             : [2.9, 0.15 + index * 0.012, -1.45]
@@ -782,13 +786,23 @@ function discardStack(
         rotation={
           collecting ? [0, 0, centeredColumn * 0.012] : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
         }
-        scale={collecting ? (mobile ? 0.31 : 0.39) : 0.62}
+        scale={collecting ? collectLayout.scale : 0.62}
         renderOrder={(collecting ? 700 : 500) + index}
         selectedLift={collecting ? 0.22 : 0.5}
         selectedDepth={collecting ? -0.24 : 0}
       />
     );
   });
+}
+
+export function collectCardInteractionLayout(mobile: boolean): {
+  rowSpacing: number;
+  scale: number;
+  hitAreaHeight: number;
+} {
+  const rowSpacing = mobile ? 0.52 : 0.76;
+  const scale = mobile ? 0.31 : 0.39;
+  return { rowSpacing, scale, hitAreaHeight: (rowSpacing * 0.92) / scale };
 }
 
 function EffectProjectionProbe({
@@ -839,6 +853,7 @@ function EffectProjectionProbe({
     if (effectInteraction?.kind === "collect") {
       const cards = room.discard.filter((card) => effectInteraction.selectableIds.has(card.id));
       const columns = Math.min(mobile ? 7 : 14, Math.max(1, cards.length));
+      const collectLayout = collectCardInteractionLayout(mobile);
       canvas.dataset.effectCardPoints = cards
         .map((_, index) => {
           const column = index % columns;
@@ -847,7 +862,7 @@ function EffectProjectionProbe({
           return project(
             new Vector3(
               centeredColumn * (mobile ? 0.46 : 0.48),
-              (mobile ? 0.72 : 0.88) + row * (mobile ? 0.52 : 0.76),
+              (mobile ? 0.72 : 0.88) + row * collectLayout.rowSpacing,
               1.48 - row * (mobile ? 0.035 : 0.06),
             ),
           ).join(":");

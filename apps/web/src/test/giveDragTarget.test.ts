@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../app/model";
 import {
   containFreeRoamCamera,
+  collectCardInteractionLayout,
   handCardInteractionLayout,
   nearestGiveTarget,
   playersAtTable,
@@ -51,6 +52,14 @@ describe("hand card hit areas", () => {
     const layout = handCardInteractionLayout(cardCount, mobile as boolean);
 
     expect(layout.hitAreaWidth * layout.scale).toBeLessThan(layout.spacing);
+  });
+});
+
+describe("K-collect card hit areas", () => {
+  it.each([false, true])("keeps neighboring rack rows separate (mobile=%s)", (mobile) => {
+    const layout = collectCardInteractionLayout(mobile);
+
+    expect(layout.hitAreaHeight * layout.scale).toBeLessThan(layout.rowSpacing);
   });
 });
 
