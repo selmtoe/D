@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CardView, Suit } from "../app/model";
-import { canOpenPlayConfirmation, canShowPlayControls, PlayDialog } from "../screens/GameScreen";
+import {
+  canOpenPlayConfirmation,
+  canRequestSpectatorFocus,
+  canShowPlayControls,
+  PlayDialog,
+} from "../screens/GameScreen";
 
 afterEach(cleanup);
 
@@ -16,6 +21,12 @@ describe("play confirmation dialog", () => {
   it("hides the play controls while the log panel is open", () => {
     expect(canShowPlayControls(false, false, false, false)).toBe(true);
     expect(canShowPlayControls(false, false, false, true)).toBe(false);
+  });
+
+  it("serializes spectator focus changes and skips the current player", () => {
+    expect(canRequestSpectatorFocus(false, "player-1", "player-2")).toBe(true);
+    expect(canRequestSpectatorFocus(true, "player-1", "player-2")).toBe(false);
+    expect(canRequestSpectatorFocus(false, "player-1", "player-1")).toBe(false);
   });
 
   it("keeps a complete legal Joker candidate selectable across parent rerenders", () => {

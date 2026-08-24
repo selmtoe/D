@@ -72,6 +72,14 @@ export function canShowPlayControls(
   return !readOnly && !dealing && !hasDirectEffect && !logOpen;
 }
 
+export function canRequestSpectatorFocus(
+  busy: boolean,
+  currentPlayerId: string | undefined,
+  targetPlayerId: string,
+): boolean {
+  return !busy && currentPlayerId !== targetPlayerId;
+}
+
 export function PlayDialog({
   cards,
   candidates,
@@ -898,9 +906,14 @@ export function GameScreen({
                   type="button"
                   key={player.id}
                   aria-pressed={spectatorFocusId === player.id}
-                  onClick={() =>
-                    command("changeSpectatorFocus", { ...payloadBase, focusPlayerId: player.id })
-                  }
+                  disabled={!canRequestSpectatorFocus(busy, spectatorFocusId, player.id)}
+                  onClick={() => {
+                    if (!canRequestSpectatorFocus(busy, spectatorFocusId, player.id)) return;
+                    void command("changeSpectatorFocus", {
+                      ...payloadBase,
+                      focusPlayerId: player.id,
+                    });
+                  }}
                 >
                   {player.name}
                 </button>
