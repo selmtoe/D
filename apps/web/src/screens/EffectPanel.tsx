@@ -81,6 +81,7 @@ export function EffectPanel({
             <button
               type="button"
               key={rank}
+              disabled={busy}
               aria-pressed={selectedRanks.includes(rank as Rank)}
               onClick={() => toggleRank(rank as Rank)}
             >

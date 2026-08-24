@@ -2,6 +2,7 @@ import { defaultAvatar } from "@daifugo/avatar-schema";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingEffectView, RoomView } from "../app/model";
+import { EffectPanel } from "../screens/EffectPanel";
 import { DirectEffectControls, eligibleEffectTargetPlayerIds } from "../screens/GameScreen";
 
 afterEach(cleanup);
@@ -167,5 +168,31 @@ describe("direct table effect controls", () => {
     expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("Q bomber controls", () => {
+  it("keeps the submitted ranks fixed while resolution is busy", () => {
+    const bomber: PendingEffectView = {
+      id: "bomber",
+      kind: "bomber",
+      actorId: "actor",
+      requiredCount: 1,
+      message: "bomber",
+    };
+    const resolve = vi.fn();
+    const view = render(<EffectPanel effect={bomber} room={room} busy={false} resolve={resolve} />);
+    const ace = screen.getByRole("button", { name: "A" });
+    fireEvent.click(ace);
+    fireEvent.click(screen.getByRole("button", { name: "効果を確定する" }));
+    expect(resolve).toHaveBeenCalledWith(bomber, { ranks: ["A"] });
+
+    view.rerender(<EffectPanel effect={bomber} room={room} busy resolve={resolve} />);
+    const king = screen.getByRole("button", { name: "K" });
+    expect(ace).toBeDisabled();
+    expect(king).toBeDisabled();
+    fireEvent.click(king);
+    expect(ace).toHaveAttribute("aria-pressed", "true");
+    expect(king).toHaveAttribute("aria-pressed", "false");
   });
 });

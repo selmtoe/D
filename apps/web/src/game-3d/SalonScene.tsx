@@ -548,6 +548,7 @@ function seats(
           <Billboard position={[0, 1.14, 1.35]} follow lockX={false} lockY={false} lockZ={false}>
             {(player.cards ?? []).map((card, cardIndex) => {
               const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
+              const stealHitArea = stealCardHitArea(cardIndex, player.cards?.length ?? 0, mobile);
               const spacing = Math.min(
                 mobile ? 0.19 : 0.24,
                 (mobile ? 2.55 : 3.2) / Math.max(player.cards?.length ?? 1, 1),
@@ -566,7 +567,8 @@ function seats(
                   effectInteraction.selectableIds.has(card.id)
                     ? {
                         onSelect: () => onEffectCardSelect(card, player.id),
-                        hitAreaWidth: stealLayout.hitAreaWidth,
+                        hitAreaWidth: stealHitArea.width,
+                        hitAreaOffsetX: stealHitArea.offsetX,
                         ...(e2eProjectionProbe
                           ? { e2eProjectionAttribute: "data-effect-steal-card" }
                           : {}),
@@ -721,17 +723,35 @@ export function handCardHitArea(
   cardCount: number,
   mobile: boolean,
 ): { width: number; offsetX: number } {
-  if (cardCount <= 1) return { width: 1.22, offsetX: 0 };
   const layout = handCardInteractionLayout(cardCount, mobile);
-  const centerHitWorld = layout.hitAreaWidth * layout.scale;
-  const cardWorld = 1.22 * layout.scale;
+  return horizontalCardHitArea(cardIndex, cardCount, layout.scale, layout.hitAreaWidth);
+}
+
+export function stealCardHitArea(
+  cardIndex: number,
+  cardCount: number,
+  mobile: boolean,
+): { width: number; offsetX: number } {
+  const layout = stealCardInteractionLayout(mobile);
+  return horizontalCardHitArea(cardIndex, cardCount, layout.scale, layout.hitAreaWidth);
+}
+
+function horizontalCardHitArea(
+  cardIndex: number,
+  cardCount: number,
+  scale: number,
+  centerHitWidth: number,
+): { width: number; offsetX: number } {
+  if (cardCount <= 1) return { width: 1.22, offsetX: 0 };
+  const centerHitWorld = centerHitWidth * scale;
+  const cardWorld = 1.22 * scale;
   const outerWingWorld = Math.max(0, (cardWorld - centerHitWorld) / 2);
   if (cardIndex !== 0 && cardIndex !== cardCount - 1) {
-    return { width: layout.hitAreaWidth, offsetX: 0 };
+    return { width: centerHitWidth, offsetX: 0 };
   }
   return {
-    width: (centerHitWorld + outerWingWorld) / layout.scale,
-    offsetX: ((cardIndex === 0 ? -1 : 1) * outerWingWorld) / (2 * layout.scale),
+    width: (centerHitWorld + outerWingWorld) / scale,
+    offsetX: ((cardIndex === 0 ? -1 : 1) * outerWingWorld) / (2 * scale),
   };
 }
 
@@ -822,8 +842,8 @@ export function collectCardInteractionLayout(mobile: boolean): {
   hitAreaHeight: number;
 } {
   const rowSpacing = mobile ? 0.52 : 0.76;
-  const scale = mobile ? 0.31 : 0.39;
-  return { rowSpacing, scale, hitAreaHeight: (rowSpacing * 0.92) / scale };
+  const scale = mobile ? 0.29 : 0.39;
+  return { rowSpacing, scale, hitAreaHeight: 1.78 };
 }
 
 function EffectProjectionProbe({

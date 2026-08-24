@@ -36,4 +36,20 @@ describe("blind Joker declaration", () => {
     fireEvent.click(screen.getByRole("button", { name: "擬態を確定する" }));
     expect(confirm).toHaveBeenCalledWith([{ cardId: "joker-1", suit: "club", rank: "7" }]);
   });
+
+  it("does not change the submitted candidate while confirmation is busy", () => {
+    const confirm = vi.fn();
+    const view = render(<JokerDeclarationPanel pending={pending} busy={false} confirm={confirm} />);
+    fireEvent.click(screen.getByRole("button", { name: "擬態を確定する" }));
+    expect(confirm).toHaveBeenCalledWith([{ cardId: "joker-1", suit: "spade", rank: "7" }]);
+
+    view.rerender(<JokerDeclarationPanel pending={pending} busy confirm={confirm} />);
+    const spade = screen.getByRole("radio", { name: "JOKERⅠ: スペード 7" });
+    const club = screen.getByRole("radio", { name: "JOKERⅠ: クラブ 7" });
+    expect(spade).toBeDisabled();
+    expect(club).toBeDisabled();
+    club.click();
+    expect(spade).toBeChecked();
+    expect(club).not.toBeChecked();
+  });
 });

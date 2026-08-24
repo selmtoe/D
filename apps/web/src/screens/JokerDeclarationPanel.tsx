@@ -44,6 +44,7 @@ export function JokerDeclarationPanel({
             <input
               type="radio"
               name="pending-joker-candidate"
+              disabled={busy}
               checked={candidateKey(chosen ?? []) === candidateKey(candidateSet)}
               onChange={() => setSelectedKey(candidateKey(candidateSet))}
             />

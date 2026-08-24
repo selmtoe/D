@@ -11,6 +11,7 @@ import {
   playersAtTable,
   resetFreeRoamInput,
   shouldIgnoreFreeRoamKeyboardTarget,
+  stealCardHitArea,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
 
@@ -43,6 +44,23 @@ describe("A-steal card hit areas", () => {
       expect(layout.hitAreaWidth * layout.scale).toBeLessThan(layout.spacing);
     },
   );
+
+  it.each([false, true])("covers one whole opponent card (mobile=%s)", (mobile) => {
+    expect(stealCardHitArea(0, 1, mobile)).toEqual({ width: 1.22, offsetX: 0 });
+  });
+
+  it.each([false, true])("adds only the outer wings for a card row (mobile=%s)", (mobile) => {
+    const layout = stealCardInteractionLayout(mobile);
+    const first = stealCardHitArea(0, 8, mobile);
+    const last = stealCardHitArea(7, 8, mobile);
+    const centerHalfWorld = (layout.hitAreaWidth * layout.scale) / 2;
+    const cardHalfWorld = (1.22 * layout.scale) / 2;
+
+    expect((first.offsetX - first.width / 2) * layout.scale).toBeCloseTo(-cardHalfWorld);
+    expect((first.offsetX + first.width / 2) * layout.scale).toBeCloseTo(centerHalfWorld);
+    expect((last.offsetX - last.width / 2) * layout.scale).toBeCloseTo(-centerHalfWorld);
+    expect((last.offsetX + last.width / 2) * layout.scale).toBeCloseTo(cardHalfWorld);
+  });
 });
 
 describe("hand card hit areas", () => {
@@ -82,11 +100,15 @@ describe("hand card hit areas", () => {
 });
 
 describe("K-collect card hit areas", () => {
-  it.each([false, true])("keeps neighboring rack rows separate (mobile=%s)", (mobile) => {
-    const layout = collectCardInteractionLayout(mobile);
+  it.each([false, true])(
+    "covers each visible card while keeping neighboring rack rows separate (mobile=%s)",
+    (mobile) => {
+      const layout = collectCardInteractionLayout(mobile);
 
-    expect(layout.hitAreaHeight * layout.scale).toBeLessThan(layout.rowSpacing);
-  });
+      expect(layout.hitAreaHeight).toBe(1.78);
+      expect(layout.hitAreaHeight * layout.scale).toBeLessThan(layout.rowSpacing);
+    },
+  );
 });
 
 describe("free-roam camera bounds", () => {
