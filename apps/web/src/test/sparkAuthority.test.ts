@@ -513,6 +513,26 @@ describe("Spark browser authority", () => {
     expect(authority.project("p1").players.find((player) => player.id === "p2")?.present).toBe(
       false,
     );
+    expect(authority.project("p1").players.find((player) => player.id === "p2")).toMatchObject({
+      name: "二郎",
+      avatar: defaultAvatar,
+    });
+
+    authority.join(
+      {
+        uid: "p2",
+        peerId: "peer-2-spectator",
+        profile: profile("観戦二郎"),
+        role: "spectator",
+      },
+      2_002,
+    );
+    expect(authority.project("p1").players.find((player) => player.id === "p2")).toMatchObject({
+      name: "二郎",
+      avatar: defaultAvatar,
+      present: false,
+    });
+    expect(authority.project("p1").spectators).toContainEqual({ id: "p2", name: "観戦二郎" });
   });
 
   it("expels a disconnected waiting member after the grace deadline", () => {

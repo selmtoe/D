@@ -52,6 +52,7 @@ export interface SparkRoomSnapshot {
   hostUid: string;
   settings: { mode: "normal" | "blind"; blindCount: number };
   members: Record<string, SparkMember>;
+  departedProfiles?: Record<string, { name: string; avatar: AvatarProfileV1 }>;
   game?: GameState;
   pendingMimic?: SparkPendingMimic;
   turnDeadlineMs?: number;
@@ -289,6 +290,7 @@ export class SparkAuthority {
       hostUid: uid,
       settings: { mode: "normal", blindCount: 0 },
       members: { [uid]: member },
+      departedProfiles: {},
       createdAtMs: now,
       updatedAtMs: now,
       chat: [],
@@ -313,8 +315,12 @@ export class SparkAuthority {
       // old v1 profiles usable while dropping unknown or oversized paint data.
       member.avatar = migrateAvatar(member.avatar);
     }
+    for (const profile of Object.values(restored.departedProfiles ?? {})) {
+      profile.avatar = migrateAvatar(profile.avatar);
+    }
     return new SparkAuthority({
       ...restored,
+      departedProfiles: clone(restored.departedProfiles ?? {}),
       appliedRoomActionResults: clone(restored.appliedRoomActionResults ?? {}),
     });
   }
@@ -387,6 +393,12 @@ export class SparkAuthority {
       ) {
         commandError("resource-exhausted", "観戦席が満員です");
       }
+    }
+    if (
+      this.snapshot.departedProfiles &&
+      !this.snapshot.game?.players.some((player) => player.id === request.uid)
+    ) {
+      delete this.snapshot.departedProfiles[request.uid];
     }
     this.snapshot.members[request.uid] = {
       uid: request.uid,
@@ -616,6 +628,7 @@ export class SparkAuthority {
         delete this.snapshot.game;
         delete this.snapshot.pendingMimic;
         delete this.snapshot.turnDeadlineMs;
+        this.snapshot.departedProfiles = {};
         this.snapshot.generation += 1;
         this.finishRoomCommand(actionId, now);
         return response;
@@ -839,6 +852,17 @@ export class SparkAuthority {
     if (this.snapshot.pendingMimic?.actorUid === uid) {
       delete this.snapshot.pendingMimic;
     }
+    const departingMember = this.snapshot.members[uid];
+    if (
+      departingMember &&
+      this.snapshot.game?.players.some((player) => player.id === departingMember.uid)
+    ) {
+      this.snapshot.departedProfiles ??= {};
+      this.snapshot.departedProfiles[uid] = {
+        name: departingMember.name,
+        avatar: clone(departingMember.avatar),
+      };
+    }
     delete this.snapshot.members[uid];
     if (this.snapshot.hostUid === uid) {
       const remaining = Object.values(this.snapshot.members).sort(
@@ -1006,16 +1030,18 @@ export class SparkAuthority {
         ?.hand.map((card) => cardView(card, projectedJokerStyles)) ?? [];
     const players = game.players.map((player) => {
       const roomMember = this.snapshot.members[player.id];
+      const presentPlayerMember = roomMember?.role === "player" ? roomMember : undefined;
+      const departedProfile = this.snapshot.departedProfiles?.[player.id];
       const projectedPlayer = projectedById.get(player.id)!;
       return {
         id: player.id,
-        name: roomMember?.name ?? "退出者",
-        avatar: clone(roomMember?.avatar ?? member.avatar),
+        name: presentPlayerMember?.name ?? departedProfile?.name ?? "退出者",
+        avatar: clone(presentPlayerMember?.avatar ?? departedProfile?.avatar ?? member.avatar),
         cardCount: projectedPlayer.hand.length,
         cards: projectedPlayer.hand.map((card) => cardView(card, projectedJokerStyles)),
         connection: roomMember?.online ? ("online" as const) : ("offline" as const),
         status: player.status,
-        present: Boolean(roomMember),
+        present: Boolean(presentPlayerMember),
         ...(player.rank ? { rank: player.rank } : {}),
         host: player.id === this.snapshot.hostUid,
       };
