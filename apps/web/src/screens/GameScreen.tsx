@@ -17,7 +17,11 @@ import {
   sortHandWeakToStrong,
 } from "../gameplay/cardPresentation";
 import { CommentDanmaku } from "./CommentDanmaku";
-import { deriveCardMotions, type CardMotionEvent } from "../game-3d/cardMotion";
+import {
+  cardMotionPerspectiveChanged,
+  deriveCardMotions,
+  type CardMotionEvent,
+} from "../game-3d/cardMotion";
 
 const suitLabel = {
   spade: "スペード",
@@ -684,6 +688,10 @@ export function GameScreen({
     const previous = previousRoom.current;
     previousRoom.current = room;
     if (!previous) return;
+    if (cardMotionPerspectiveChanged(previous, room)) {
+      setCardMotions([]);
+      return;
+    }
     const next = deriveCardMotions(previous, room);
     if (next.length)
       setCardMotions((currentMotions) => {

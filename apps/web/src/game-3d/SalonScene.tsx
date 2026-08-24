@@ -14,7 +14,11 @@ import { useVisualViewport } from "../app/visualViewport";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import { Card3D } from "./Card3D";
 import { CardMotionLayer } from "./CardMotionLayer";
-import type { CardMotionEvent } from "./cardMotion";
+import {
+  collectCardRackGeometry,
+  collectCardRackPlacement,
+  type CardMotionEvent,
+} from "./cardMotion";
 import { StealVisualLayer } from "./StealVisualLayer";
 import type { StealVisualState } from "../screens/StealSequence";
 
@@ -797,12 +801,8 @@ function discardStack(
   const visibleStack = collecting
     ? cards.filter((card) => !movingToDiscard.has(card.id))
     : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
-  const columns = Math.min(mobile ? 7 : 14, Math.max(1, visibleStack.length));
   return visibleStack.map((card, index) => {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const centeredColumn =
-      column - (Math.min(columns, visibleStack.length - row * columns) - 1) / 2;
+    const rackPlacement = collectCardRackPlacement(index, visibleStack.length, mobile);
     return (
       <Card3D
         key={card.id}
@@ -815,17 +815,11 @@ function discardStack(
               hitAreaHeight: collectLayout.hitAreaHeight,
             }
           : {})}
-        position={
-          collecting
-            ? [
-                centeredColumn * (mobile ? 0.46 : 0.48),
-                (mobile ? 0.72 : 0.88) + row * collectLayout.rowSpacing,
-                1.48 - row * (mobile ? 0.035 : 0.06),
-              ]
-            : [2.9, 0.15 + index * 0.012, -1.45]
-        }
+        position={collecting ? rackPlacement.position : [2.9, 0.15 + index * 0.012, -1.45]}
         rotation={
-          collecting ? [0, 0, centeredColumn * 0.012] : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
+          collecting
+            ? [0, 0, rackPlacement.rotationZ]
+            : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
         }
         scale={collecting ? collectLayout.scale : 0.62}
         renderOrder={(collecting ? 700 : 500) + index}
@@ -841,9 +835,7 @@ export function collectCardInteractionLayout(mobile: boolean): {
   scale: number;
   hitAreaHeight: number;
 } {
-  const rowSpacing = mobile ? 0.52 : 0.76;
-  const scale = mobile ? 0.29 : 0.39;
-  return { rowSpacing, scale, hitAreaHeight: 1.78 };
+  return collectCardRackGeometry(mobile);
 }
 
 function EffectProjectionProbe({

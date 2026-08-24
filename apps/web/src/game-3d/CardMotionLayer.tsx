@@ -3,7 +3,12 @@ import { useMemo, useRef } from "react";
 import { MathUtils, type Group } from "three";
 import type { RoomView } from "../app/model";
 import { Card3D } from "./Card3D";
-import { cardMotionsForDisplay, type CardAnchor, type CardMotionEvent } from "./cardMotion";
+import {
+  cardMotionsForDisplay,
+  collectCardRackPlacement,
+  type CardAnchor,
+  type CardMotionEvent,
+} from "./cardMotion";
 
 export function cardAnchorPosition(
   anchor: CardAnchor,
@@ -14,6 +19,9 @@ export function cardAnchorPosition(
   if (anchor.kind === "field") return [0, 0.28, 0];
   if (anchor.kind === "discard") return [2.9, 0.23, -1.45];
   if (anchor.kind === "deck") return [-2.9, 0.28, -1.45];
+  if (anchor.kind === "discardRack") {
+    return collectCardRackPlacement(anchor.cardIndex, anchor.cardCount, mobile).position;
+  }
   const playerId = "playerId" in anchor ? anchor.playerId : room.viewerId;
   const index = Math.max(
     0,

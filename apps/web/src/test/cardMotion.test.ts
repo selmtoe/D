@@ -102,6 +102,22 @@ describe("card motion projection diff", () => {
     );
   });
 
+  it("collects a K-recovery card from its visible rack position", () => {
+    const firstDiscard = card("discard-1");
+    const recovered = card("discard-2");
+    const previous = view(4, [], [], [firstDiscard, recovered]);
+    const next = view(5, [recovered], [], [firstDiscard]);
+
+    expect(deriveCardMotions(previous, next)).toContainEqual(
+      expect.objectContaining({
+        kind: "collect",
+        card: recovered,
+        from: { kind: "discardRack", cardIndex: 1, cardCount: 2 },
+        to: { kind: "hand" },
+      }),
+    );
+  });
+
   it("does not treat revision-scoped opponent backs as newly acquired cards", () => {
     const previous = view(8, [card("mine")], []);
     previous.players[1] = {
@@ -113,6 +129,17 @@ describe("card motion projection diff", () => {
       ...next.players[1]!,
       cards: [{ id: "back_9_other_0", visibility: "hidden", blind: false }],
     };
+    expect(deriveCardMotions(previous, next)).toEqual([]);
+  });
+
+  it("does not animate a spectator focus change as a real card transfer", () => {
+    const previous = view(9, [card("p1-card")], []);
+    previous.role = "spectator";
+    previous.focusedPlayerId = "p1";
+    const next = view(10, [card("p2-card")], []);
+    next.role = "spectator";
+    next.focusedPlayerId = "p2";
+
     expect(deriveCardMotions(previous, next)).toEqual([]);
   });
 

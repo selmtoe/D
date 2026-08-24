@@ -1,7 +1,37 @@
 import type { CardView, RoomView } from "../app/model";
 
 export type CardAnchor =
-  { kind: "hand" | "field" | "discard" | "deck" } | { kind: "seat"; playerId: string };
+  | { kind: "hand" | "field" | "discard" | "deck" }
+  | { kind: "discardRack"; cardIndex: number; cardCount: number }
+  | { kind: "seat"; playerId: string };
+
+export function collectCardRackGeometry(mobile: boolean): {
+  rowSpacing: number;
+  scale: number;
+  hitAreaHeight: number;
+} {
+  return { rowSpacing: mobile ? 0.52 : 0.76, scale: mobile ? 0.29 : 0.39, hitAreaHeight: 1.78 };
+}
+
+export function collectCardRackPlacement(
+  cardIndex: number,
+  cardCount: number,
+  mobile: boolean,
+): { position: [number, number, number]; rotationZ: number } {
+  const columns = Math.min(mobile ? 7 : 14, Math.max(1, cardCount));
+  const column = cardIndex % columns;
+  const row = Math.floor(cardIndex / columns);
+  const centeredColumn =
+    column - (Math.min(columns, Math.max(0, cardCount - row * columns)) - 1) / 2;
+  return {
+    position: [
+      centeredColumn * (mobile ? 0.46 : 0.48),
+      (mobile ? 0.72 : 0.88) + row * collectCardRackGeometry(mobile).rowSpacing,
+      1.48 - row * (mobile ? 0.035 : 0.06),
+    ],
+    rotationZ: centeredColumn * 0.012,
+  };
+}
 
 export interface CardMotionEvent {
   id: string;
@@ -42,8 +72,20 @@ const cardsAtSeats = (room: RoomView) =>
 export const cardsOnTable = (room: RoomView): CardView[] =>
   (room.fieldPlays ?? (room.field.length > 0 ? [room.field] : [])).flat();
 
+export function cardMotionPerspectiveChanged(previous: RoomView, next: RoomView): boolean {
+  return (
+    previous.role !== next.role ||
+    (next.role === "spectator" && previous.focusedPlayerId !== next.focusedPlayerId)
+  );
+}
+
 export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotionEvent[] {
-  if (previous.gameId !== next.gameId || previous.phase === "dealing") return [];
+  if (
+    previous.gameId !== next.gameId ||
+    previous.phase === "dealing" ||
+    cardMotionPerspectiveChanged(previous, next)
+  )
+    return [];
   const motions: CardMotionEvent[] = [];
   const previousHand = new Map(previous.hand.map((card) => [card.id, card]));
   const nextHand = new Map(next.hand.map((card) => [card.id, card]));
@@ -140,7 +182,11 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
       from: seated
         ? { kind: "seat", playerId: seated.playerId }
         : previousDiscard.has(card.id)
-          ? { kind: "discard" }
+          ? {
+              kind: "discardRack",
+              cardIndex: previous.discard.findIndex((item) => item.id === card.id),
+              cardCount: previous.discard.length,
+            }
           : previousField.has(card.id)
             ? { kind: "field" }
             : { kind: "deck" },
