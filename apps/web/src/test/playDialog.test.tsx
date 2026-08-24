@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CardView, Suit } from "../app/model";
+import type { CardView, RoomView, Suit } from "../app/model";
 import {
   canOpenPlayConfirmation,
   canRequestSpectatorFocus,
   canShowLogControls,
   canShowPlayControls,
+  playersForDisplay,
   PlayDialog,
 } from "../screens/GameScreen";
 
@@ -95,5 +96,41 @@ describe("play confirmation dialog", () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     expect(submit).toHaveBeenCalledWith([{ cardId: "joker", suit: "spade", rank: "7" }]);
+  });
+
+  it("cannot close or change a Joker declaration while submission is pending", () => {
+    const close = vi.fn();
+    render(
+      <PlayDialog
+        cards={[{ id: "joker", visibility: "face", joker: "monochrome", blind: false }]}
+        candidates={[
+          [{ cardId: "joker", suit: "spade", rank: "A" }],
+          [{ cardId: "joker", suit: "club", rank: "A" }],
+        ]}
+        close={close}
+        submit={vi.fn()}
+        busy
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "選び直す" })).toBeDisabled();
+    expect(screen.getAllByRole("radio").every((radio) => radio.hasAttribute("disabled"))).toBe(
+      true,
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "選び直す" }));
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("keeps authoritative seat order stable in free spectator mode", () => {
+    const players = ["p1", "p2", "p3"].map((id) => ({ id })) as RoomView["players"];
+
+    expect(playersForDisplay(players, "spectator", "spectator", "p2", "follow")).toEqual([
+      players[1],
+      players[2],
+      players[0],
+    ]);
+    expect(playersForDisplay(players, "spectator", "spectator", "p2", "free")).toBe(players);
+    expect(playersForDisplay(players, "spectator", "spectator", "p3", "free")).toBe(players);
   });
 });

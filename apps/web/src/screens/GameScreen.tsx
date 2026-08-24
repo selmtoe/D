@@ -84,6 +84,22 @@ export function canShowLogControls(hasBlockingEffect: boolean): boolean {
   return !hasBlockingEffect;
 }
 
+export function playersForDisplay(
+  players: RoomView["players"],
+  role: RoomView["role"],
+  viewerId: string,
+  focusedPlayerId: string | undefined,
+  spectatorMode: "follow" | "free",
+): RoomView["players"] {
+  const viewpointId =
+    role === "spectator" ? (spectatorMode === "follow" ? focusedPlayerId : undefined) : viewerId;
+  if (!viewpointId) return players;
+  const viewerIndex = players.findIndex((player) => player.id === viewpointId);
+  return viewerIndex > 0
+    ? [...players.slice(viewerIndex), ...players.slice(0, viewerIndex)]
+    : players;
+}
+
 export function PlayDialog({
   cards,
   candidates,
@@ -105,6 +121,8 @@ export function PlayDialog({
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const closeRef = useRef(close);
   closeRef.current = close;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
   const needsDeclaration = candidates.some((candidate) => candidate.length > 0);
   const needsDeclarationChoice = needsDeclaration && candidates.length > 1;
   const chosenCandidate = needsDeclaration
@@ -126,7 +144,7 @@ export function PlayDialog({
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeRef.current();
+        if (!busyRef.current) closeRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
@@ -179,6 +197,7 @@ export function PlayDialog({
                   <input
                     type="radio"
                     name="play-joker-candidate"
+                    disabled={busy}
                     checked={
                       jokerCandidateKey(chosenCandidate ?? []) === jokerCandidateKey(candidate)
                     }
@@ -198,7 +217,7 @@ export function PlayDialog({
           </fieldset>
         )}
         <footer>
-          <button type="button" onClick={close}>
+          <button type="button" disabled={busy} onClick={close}>
             選び直す
           </button>
           <button
@@ -444,6 +463,7 @@ export function GameScreen({
   const [pendingGiveCardId, setPendingGiveCardId] = useState<string>();
   const [spectatorMode, setSpectatorMode] = useState<"follow" | "free">("follow");
   const autoJokerDeclaration = useRef<string | undefined>(undefined);
+  const playSubmissionPending = useRef(false);
   const previousRoom = useRef<RoomView | undefined>(undefined);
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
@@ -467,21 +487,22 @@ export function GameScreen({
     [readOnly, room, selectedIds],
   );
   const displayRoom = useMemo(() => {
-    const viewpointId = room.role === "spectator" ? spectatorFocusId : room.viewerId;
-    const viewerIndex = room.players.findIndex((player) => player.id === viewpointId);
-    const players =
-      viewerIndex > 0
-        ? [...room.players.slice(viewerIndex), ...room.players.slice(0, viewerIndex)]
-        : room.players;
+    const players = playersForDisplay(
+      room.players,
+      room.role,
+      room.viewerId,
+      spectatorFocusId,
+      spectatorMode,
+    );
     return {
       ...room,
       players,
       hand: sortedHand,
-      ...(room.role === "spectator" && spectatorFocusId
+      ...(room.role === "spectator" && spectatorMode === "follow" && spectatorFocusId
         ? { focusedPlayerId: spectatorFocusId }
         : {}),
     };
-  }, [room, sortedHand, spectatorFocusId]);
+  }, [room, sortedHand, spectatorFocusId, spectatorMode]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (!selection.completable) return "この組み合わせでは出せません。札を選び直してください";
@@ -602,16 +623,17 @@ export function GameScreen({
     })();
   }, [busy, command, payloadBase, room.pendingJokerMimic, room.revision]);
   const openPlay = () => {
-    if (!canOpenPlayConfirmation(selection.complete, myTurn, readOnly, playBlocked)) return;
+    if (busy || !canOpenPlayConfirmation(selection.complete, myTurn, readOnly, playBlocked)) return;
     setPlayDialog(true);
   };
   const selectCard = (card: CardView) => {
+    if (busy) return;
     primeFeedback(muted);
     toggleCard(card);
     feedback("select", muted);
   };
   const toggleEffectCard = (card: CardView, ownerId?: string) => {
-    if (!directEffect || !effectSelectableIds.has(card.id)) return;
+    if (busy || !directEffect || !effectSelectableIds.has(card.id)) return;
     primeFeedback(muted);
     if (effectCardIds.includes(card.id)) {
       setEffectCardIds((ids) => ids.filter((id) => id !== card.id));
@@ -631,7 +653,12 @@ export function GameScreen({
     feedback("select", muted);
   };
   const chooseEffectTarget = (playerId: string) => {
-    if (directEffect?.kind !== "give" || !pendingGiveCardId || !effectTargetPlayerIds.has(playerId))
+    if (
+      busy ||
+      directEffect?.kind !== "give" ||
+      !pendingGiveCardId ||
+      !effectTargetPlayerIds.has(playerId)
+    )
       return;
     setEffectTargets((targets) => ({ ...targets, [pendingGiveCardId]: playerId }));
     setPendingGiveCardId(undefined);
@@ -639,6 +666,7 @@ export function GameScreen({
   };
   const dropGiveCard = (card: CardView, playerId: string) => {
     if (
+      busy ||
       directEffect?.kind !== "give" ||
       !effectSelectableIds.has(card.id) ||
       !effectTargetPlayerIds.has(playerId) ||
@@ -681,16 +709,22 @@ export function GameScreen({
     return () => window.removeEventListener("keydown", cancelSelection);
   }, [clearSelection, playDialog, selectedIds.length]);
   const submit = async (mimics: { cardId: string; suit: Suit; rank: Rank }[]) => {
-    if (
-      await command("submitPlay", {
-        ...payloadBase,
-        cardIds: selectedIds,
-        mimics,
-        blindConfirmed: selectedCards.some((card) => card.visibility === "hidden"),
-      })
-    ) {
-      setPlayDialog(false);
-      clearSelection();
+    if (busy || playSubmissionPending.current) return;
+    playSubmissionPending.current = true;
+    try {
+      if (
+        await command("submitPlay", {
+          ...payloadBase,
+          cardIds: selectedIds,
+          mimics,
+          blindConfirmed: selectedCards.some((card) => card.visibility === "hidden"),
+        })
+      ) {
+        setPlayDialog(false);
+        clearSelection();
+      }
+    } finally {
+      playSubmissionPending.current = false;
     }
   };
   const pass = async () => {
@@ -1012,9 +1046,9 @@ export function GameScreen({
           cards={sortedHand}
           selectedIds={selectedIds}
           playableIds={playBlocked ? noPlayableCards : playableIds}
-          onToggle={readOnly ? () => undefined : selectCard}
+          onToggle={readOnly || busy ? () => undefined : selectCard}
           onSubmit={openPlay}
-          readOnly={readOnly}
+          readOnly={readOnly || busy}
           label={
             room.role === "spectator"
               ? `${focusedSpectator?.name ?? "プレイヤー"}を観戦中の手札 ${sortedHand.length}枚`
@@ -1028,6 +1062,7 @@ export function GameScreen({
           selectedIds={effectCardIds}
           playableIds={effectSelectableIds}
           onToggle={(card) => {
+            if (busy) return;
             const owner =
               directEffect.kind === "steal"
                 ? room.players.find((player) => player.cards?.some((item) => item.id === card.id))
@@ -1036,6 +1071,7 @@ export function GameScreen({
             toggleEffectCard(card, owner);
           }}
           onSubmit={confirmDirectEffect}
+          readOnly={busy}
         />
       )}
       {directEffect && (
