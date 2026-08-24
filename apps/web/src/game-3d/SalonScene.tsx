@@ -171,6 +171,15 @@ export function resetFreeRoamInput(input: FreeRoamInput): FreeRoamInput {
   return { ...input, forward: 0, strafe: 0, turn: 0, jump: 0 };
 }
 
+export function shouldIgnoreFreeRoamKeyboardTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(element?.matches("input, textarea, select") || element?.isContentEditable);
+}
+
+export function isFreeRoamControlActivationKey(code: string): boolean {
+  return code === "Enter" || code === "Space";
+}
+
 export function containFreeRoamCamera(target: { x: number; z: number }): void {
   // Keep the near plane just inside the solid side and rear walls. The front of
   // the salon is intentionally open, so positive Z does not need clamping.
@@ -235,8 +244,7 @@ function FreeRoamAvatar({
         exitRef.current();
         return;
       }
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, button") || target?.isContentEditable) return;
+      if (shouldIgnoreFreeRoamKeyboardTarget(event.target)) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
         event.preventDefault();
       }
@@ -1272,26 +1280,42 @@ export function SalonScene({
               ["←", { strafe: -1 }, "左へ移動"],
               ["↓", { forward: -1 }, "後ろへ進む"],
               ["→", { strafe: 1 }, "右へ移動"],
-            ].map(([label, value, ariaLabel]) => (
-              <button
-                type="button"
-                key={String(ariaLabel)}
-                aria-label={String(ariaLabel)}
-                onPointerDown={(event) => {
-                  try {
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                  } catch {
-                    // Synthetic test pointers are not registered by the browser's native pointer tracker.
-                  }
-                  pressFreeRoamControl(event.pointerId, value as Partial<FreeRoamInput>);
-                }}
-                onPointerUp={(event) => releaseFreeRoamControl(event.pointerId)}
-                onPointerCancel={(event) => releaseFreeRoamControl(event.pointerId)}
-                onLostPointerCapture={(event) => releaseFreeRoamControl(event.pointerId)}
-              >
-                {String(label)}
-              </button>
-            ))}
+            ].map(([label, value, ariaLabel], index) => {
+              const keyboardPointerId = -(index + 1);
+              return (
+                <button
+                  type="button"
+                  key={String(ariaLabel)}
+                  aria-label={String(ariaLabel)}
+                  onPointerDown={(event) => {
+                    try {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    } catch {
+                      // Synthetic test pointers are not registered by the browser's native pointer tracker.
+                    }
+                    pressFreeRoamControl(event.pointerId, value as Partial<FreeRoamInput>);
+                  }}
+                  onPointerUp={(event) => releaseFreeRoamControl(event.pointerId)}
+                  onPointerCancel={(event) => releaseFreeRoamControl(event.pointerId)}
+                  onLostPointerCapture={(event) => releaseFreeRoamControl(event.pointerId)}
+                  onKeyDown={(event) => {
+                    if (!isFreeRoamControlActivationKey(event.code)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    pressFreeRoamControl(keyboardPointerId, value as Partial<FreeRoamInput>);
+                  }}
+                  onKeyUp={(event) => {
+                    if (!isFreeRoamControlActivationKey(event.code)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    releaseFreeRoamControl(keyboardPointerId);
+                  }}
+                  onBlur={() => releaseFreeRoamControl(keyboardPointerId)}
+                >
+                  {String(label)}
+                </button>
+              );
+            })}
             <button
               type="button"
               className="free-roam-jump"
@@ -1299,6 +1323,14 @@ export function SalonScene({
               onPointerDown={() =>
                 setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }))
               }
+              onKeyDown={(event) => {
+                if (!isFreeRoamControlActivationKey(event.code)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (!event.repeat) {
+                  setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }));
+                }
+              }}
             >
               JUMP
             </button>

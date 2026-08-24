@@ -5,9 +5,11 @@ import {
   containFreeRoamCamera,
   collectCardInteractionLayout,
   handCardInteractionLayout,
+  isFreeRoamControlActivationKey,
   nearestGiveTarget,
   playersAtTable,
   resetFreeRoamInput,
+  shouldIgnoreFreeRoamKeyboardTarget,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
 
@@ -84,6 +86,17 @@ describe("free-roam input reset", () => {
       turn: 0,
       jump: 0,
     });
+  });
+
+  it("keeps movement keys active after focusing a control button", () => {
+    const button = document.createElement("button");
+    const input = document.createElement("input");
+
+    expect(shouldIgnoreFreeRoamKeyboardTarget(button)).toBe(false);
+    expect(shouldIgnoreFreeRoamKeyboardTarget(input)).toBe(true);
+    expect(isFreeRoamControlActivationKey("Enter")).toBe(true);
+    expect(isFreeRoamControlActivationKey("Space")).toBe(true);
+    expect(isFreeRoamControlActivationKey("KeyW")).toBe(false);
   });
 });
 
