@@ -27,7 +27,11 @@ vi.mock("firebase/firestore", () => ({
   where: vi.fn((...parts: unknown[]) => ({ parts })),
 }));
 
-import { SparkP2PSession } from "../network/sparkP2P";
+import {
+  SparkP2PSession,
+  sparkEstimatedServerNowMs,
+  sparkRelayExpiresAtMs,
+} from "../network/sparkP2P";
 
 type StartupInternals = {
   startCommon(): Promise<void>;
@@ -675,5 +679,47 @@ describe("Spark P2P startup cleanup", () => {
     });
 
     await session.stop(false);
+  });
+});
+
+describe("Spark relay clock normalization", () => {
+  test("accepts a fresh relay when sender and receiver wall clocks are fourteen minutes apart", () => {
+    const relayCreatedAtServerMs = 2_000_000;
+    const receiverLocalObservedAtMs = relayCreatedAtServerMs + 7 * 60_000;
+    const receiverLocalNowMs = receiverLocalObservedAtMs + 1_000;
+    const serverNowMs = sparkEstimatedServerNowMs(
+      { heartbeatAtMs: relayCreatedAtServerMs },
+      receiverLocalObservedAtMs,
+      receiverLocalNowMs,
+    );
+    const expiresAtMs = sparkRelayExpiresAtMs({
+      createdAt: { toMillis: () => relayCreatedAtServerMs },
+      // A sender clock seven minutes slow makes this look expired on the receiver clock.
+      expiresAtMs: relayCreatedAtServerMs - 7 * 60_000 + 10 * 60_000,
+    });
+
+    expect(serverNowMs).toBe(relayCreatedAtServerMs + 1_000);
+    expect(expiresAtMs).toBe(relayCreatedAtServerMs + 10 * 60_000);
+    expect(expiresAtMs).toBeGreaterThan(serverNowMs);
+  });
+
+  test("still expires a relay after ten minutes on the server timeline", () => {
+    const relayCreatedAtServerMs = 3_000_000;
+    const serverNowMs = sparkEstimatedServerNowMs(
+      { heartbeatAtMs: relayCreatedAtServerMs },
+      9_000_000,
+      9_000_000 + 10 * 60_000 + 1,
+    );
+
+    expect(
+      sparkRelayExpiresAtMs({
+        createdAt: { toMillis: () => relayCreatedAtServerMs },
+        expiresAtMs: Number.MAX_SAFE_INTEGER,
+      }),
+    ).toBeLessThan(serverNowMs);
+  });
+
+  test("keeps the millisecond expiry fallback for rolling deployments", () => {
+    expect(sparkRelayExpiresAtMs({ expiresAtMs: 42_000 })).toBe(42_000);
   });
 });

@@ -190,11 +190,13 @@ service cloud.firestore {
         && request.resource.data.senderUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
-          'kind', 'payload', 'createdAtMs', 'expiresAtMs'
+          'kind', 'payload', 'createdAtMs', 'expiresAtMs', 'createdAt'
         ])
         && request.resource.data.kind in ['offer', 'answer', 'ice']
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 65536
+        && (!request.resource.data.keys().hasAny(['createdAt'])
+          || request.resource.data.createdAt == request.time)
         && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;
       allow delete: if signedIn()
         && (resource.data.targetUid == request.auth.uid
@@ -211,11 +213,13 @@ service cloud.firestore {
         && request.resource.data.senderUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'senderUid', 'senderPeerId', 'targetUid', 'targetPeerId',
-          'kind', 'payload', 'createdAtMs', 'expiresAtMs'
+          'kind', 'payload', 'createdAtMs', 'expiresAtMs', 'createdAt'
         ])
         && request.resource.data.kind == 'wire'
         && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 262144
+        && (!request.resource.data.keys().hasAny(['createdAt'])
+          || request.resource.data.createdAt == request.time)
         && request.resource.data.expiresAtMs > request.resource.data.createdAtMs;
       allow delete: if signedIn()
         && (resource.data.targetUid == request.auth.uid

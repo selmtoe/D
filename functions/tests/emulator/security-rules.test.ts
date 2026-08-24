@@ -296,6 +296,18 @@ describe("Spark-plan P2P storage boundary", () => {
       expiresAtMs: 61_000,
     };
     await assertSucceeds(setDoc(doc(alice, "sparkMailboxes/P2P22/items/message-1"), packet));
+    await assertSucceeds(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/message-2"), {
+        ...packet,
+        createdAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(alice, "sparkMailboxes/P2P22/items/forged-clock"), {
+        ...packet,
+        createdAt: Timestamp.fromMillis(1_000),
+      }),
+    );
     const bob = environment.authenticatedContext("bob").firestore();
     await assertSucceeds(
       getDocs(

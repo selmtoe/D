@@ -43,6 +43,7 @@ interface RelayDocument {
   payload: string;
   createdAtMs: number;
   expiresAtMs: number;
+  createdAt?: unknown;
 }
 
 export type WireMessage =
@@ -120,6 +121,35 @@ export function sparkDirectoryHeartbeatMs(directory: {
   }
   const fallback = Number(directory.heartbeatAtMs ?? 0);
   return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function firestoreTimestampMs(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const toMillis = (value as { toMillis?: unknown }).toMillis;
+  if (typeof toMillis !== "function") return undefined;
+  try {
+    const milliseconds = Number(toMillis.call(value));
+    return Number.isFinite(milliseconds) ? milliseconds : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function sparkEstimatedServerNowMs(
+  directory: { heartbeatAtMs?: number } | undefined,
+  directoryObservedAtMs: number,
+  localNowMs: number,
+): number {
+  const heartbeatAtMs = directory?.heartbeatAtMs;
+  if (!Number.isFinite(heartbeatAtMs) || !Number.isFinite(directoryObservedAtMs)) {
+    return localNowMs;
+  }
+  return Number(heartbeatAtMs) + Math.max(0, localNowMs - directoryObservedAtMs);
+}
+
+export function sparkRelayExpiresAtMs(relay: { createdAt?: unknown; expiresAtMs: number }): number {
+  const serverCreatedAtMs = firestoreTimestampMs(relay.createdAt);
+  return serverCreatedAtMs === undefined ? relay.expiresAtMs : serverCreatedAtMs + RELAY_TTL_MS;
 }
 
 function normalizeDirectory(directory: DirectoryDocument): DirectoryDocument {
@@ -469,7 +499,12 @@ export class SparkP2PSession {
             if (change.type !== "added") continue;
             const relay = change.doc.data() as RelayDocument;
             if (relay.targetUid !== this.uid) continue;
-            if (relay.expiresAtMs < Date.now()) {
+            const serverNowMs = sparkEstimatedServerNowMs(
+              this.directory,
+              this.directoryObservedAtMs,
+              Date.now(),
+            );
+            if (sparkRelayExpiresAtMs(relay) < serverNowMs) {
               void deleteDoc(change.doc.ref).catch(() => undefined);
               continue;
             }
@@ -1091,7 +1126,7 @@ export class SparkP2PSession {
     kind: string,
     payload: unknown,
   ): Promise<void> {
-    const now = Date.now();
+    const now = sparkEstimatedServerNowMs(this.directory, this.directoryObservedAtMs, Date.now());
     const relay: RelayDocument = {
       senderUid: this.uid,
       senderPeerId: this.peerId,
@@ -1101,6 +1136,7 @@ export class SparkP2PSession {
       payload: safeJson(payload),
       createdAtMs: now,
       expiresAtMs: now + RELAY_TTL_MS,
+      createdAt: serverTimestamp(),
     };
     await addDoc(collection(this.db, collectionName, this.roomId, "items"), relay);
   }
