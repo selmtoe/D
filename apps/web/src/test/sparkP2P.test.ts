@@ -111,5 +111,28 @@ describe("Spark wire decoding", () => {
         }),
       ),
     ).toBeNull();
+    expect(
+      parseSparkWire(
+        JSON.stringify({
+          type: "command",
+          requestId: "short-request",
+          name: "saveAvatarProfile",
+          payload: { clientActionId: "x".repeat(129) },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseSparkWire(
+        JSON.stringify({
+          type: "command",
+          requestId: "oversized-command",
+          name: "saveAvatarProfile",
+          payload: { clientActionId: "valid-action", padding: "x".repeat(65_536) },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseSparkWire(JSON.stringify({ type: "view", view: { padding: "x".repeat(256 * 1_024) } })),
+    ).toBeNull();
   });
 });

@@ -102,6 +102,37 @@ function beginPendingMimic(authority: SparkAuthority, actionId: string) {
 }
 
 describe("Spark browser authority", () => {
+  it("rejects oversized action IDs without mutating authority state", () => {
+    const authority = waitingRoom();
+    const before = authority.exportSnapshot();
+
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "saveAvatarProfile",
+        { clientActionId: "x".repeat(129), avatar: structuredClone(defaultAvatar) },
+        2_000,
+      ),
+    ).toThrow("invalid-argument: 操作IDの形式が不正です");
+    expect(authority.exportSnapshot()).toEqual(before);
+  });
+
+  it("bounds and filters restored action history", () => {
+    const snapshot = waitingRoom().exportSnapshot();
+    const validIds = Array.from({ length: 205 }, (_, index) => `action-${index}`);
+    snapshot.appliedRoomActionIds = ["_invalid", "x".repeat(129), ...validIds];
+    snapshot.appliedRoomActionResults = Object.fromEntries([
+      ...validIds.map((actionId) => [actionId, { actionId }]),
+      ["unretained-action", { leaked: true }],
+    ]);
+
+    const restored = SparkAuthority.restore(snapshot).exportSnapshot();
+
+    expect(restored.appliedRoomActionIds).toEqual(validIds.slice(-200));
+    expect(Object.keys(restored.appliedRoomActionResults ?? {})).toEqual(validIds.slice(-200));
+    expect(restored.appliedRoomActionResults?.["unretained-action"]).toBeUndefined();
+  });
+
   it("runs the pure rules engine and applies the opening diamond 3 exactly once", () => {
     const authority = waitingRoom();
     authority.handleCommand(

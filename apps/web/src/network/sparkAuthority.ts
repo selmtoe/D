@@ -80,7 +80,17 @@ export interface JoinRequest {
 const MAX_PLAYERS = 6;
 const MAX_SPECTATORS = 32;
 const MAX_EVICTED_UIDS = 256;
+const MAX_APPLIED_ROOM_ACTIONS = 200;
 const TURN_MS = 60_000;
+
+export function isValidRoomActionId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  );
+}
 
 function commandError(code: string, message: string): never {
   throw new Error(`${code}: ${message}`);
@@ -331,11 +341,29 @@ export class SparkAuthority {
     if (evictedUids.length > MAX_EVICTED_UIDS) {
       commandError("resource-exhausted", "この部屋のキック履歴が上限を超えています");
     }
+    const appliedRoomActionIds = [
+      ...new Set(
+        (Array.isArray(restored.appliedRoomActionIds) ? restored.appliedRoomActionIds : []).filter(
+          isValidRoomActionId,
+        ),
+      ),
+    ].slice(-MAX_APPLIED_ROOM_ACTIONS);
+    const restoredResults = objectValue(restored.appliedRoomActionResults);
+    const appliedRoomActionResults = Object.fromEntries(
+      appliedRoomActionIds.flatMap((actionId) => {
+        if (!Object.prototype.hasOwnProperty.call(restoredResults, actionId)) return [];
+        const result = restoredResults[actionId];
+        return result && typeof result === "object" && !Array.isArray(result)
+          ? [[actionId, clone(result as Record<string, unknown>)] as const]
+          : [];
+      }),
+    );
     return new SparkAuthority({
       ...restored,
       departedProfiles: clone(restored.departedProfiles ?? {}),
       evictedUids,
-      appliedRoomActionResults: clone(restored.appliedRoomActionResults ?? {}),
+      appliedRoomActionIds,
+      appliedRoomActionResults,
     });
   }
 
@@ -535,8 +563,10 @@ export class SparkAuthority {
     const payload = objectValue(payloadValue);
     const member = this.snapshot.members[uid];
     if (!member) commandError("permission-denied", "部屋の参加者ではありません");
-    const actionId =
-      typeof payload.clientActionId === "string" ? payload.clientActionId : crypto.randomUUID();
+    const actionId = payload.clientActionId ?? crypto.randomUUID();
+    if (!isValidRoomActionId(actionId)) {
+      commandError("invalid-argument", "操作IDの形式が不正です");
+    }
     if (this.snapshot.appliedRoomActionIds.includes(actionId)) {
       return clone(this.snapshot.appliedRoomActionResults?.[actionId] ?? { duplicate: true });
     }
@@ -941,7 +971,8 @@ export class SparkAuthority {
 
   private recordRoomAction(actionId: string, response: Record<string, unknown>): void {
     this.snapshot.appliedRoomActionIds.push(actionId);
-    this.snapshot.appliedRoomActionIds = this.snapshot.appliedRoomActionIds.slice(-200);
+    this.snapshot.appliedRoomActionIds =
+      this.snapshot.appliedRoomActionIds.slice(-MAX_APPLIED_ROOM_ACTIONS);
     this.snapshot.appliedRoomActionResults ??= {};
     this.snapshot.appliedRoomActionResults[actionId] = clone(response);
     const retained = new Set(this.snapshot.appliedRoomActionIds);

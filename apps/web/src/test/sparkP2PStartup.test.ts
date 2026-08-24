@@ -5,7 +5,7 @@ import { SparkAuthority } from "../network/sparkAuthority";
 const firestore = vi.hoisted(() => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(async () => ({ docs: [] })),
-  onSnapshot: vi.fn(() => vi.fn()),
+  onSnapshot: vi.fn((..._args: unknown[]) => vi.fn()),
   runTransaction: vi.fn(),
   setDoc: vi.fn(),
 }));
@@ -35,6 +35,7 @@ import {
 
 type StartupInternals = {
   startCommon(): Promise<void>;
+  listenDirectory(): void;
   connectToCoordinator(): Promise<void>;
   request(value: unknown): Promise<Record<string, unknown>>;
   writePresence(online: boolean): Promise<void>;
@@ -90,6 +91,30 @@ describe("Spark P2P startup cleanup", () => {
 
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(false);
+  });
+
+  test("retains a room-closed notification when the directory disappears", async () => {
+    let directoryUpdate: ((snapshot: { exists(): boolean }) => void) | undefined;
+    const unsubscribe = vi.fn();
+    firestore.onSnapshot.mockImplementationOnce((...args: unknown[]) => {
+      directoryUpdate = args[1] as (snapshot: { exists(): boolean }) => void;
+      return unsubscribe;
+    });
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+
+    (session as unknown as StartupInternals).listenDirectory();
+    directoryUpdate?.({ exists: () => false });
+    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
+
+    const evicted = vi.fn();
+    session.onEvicted(evicted);
+    await vi.waitFor(() => expect(evicted).toHaveBeenCalledWith("room-closed"));
   });
 
   test("recovers a stale room before attempting a coordinator handshake", async () => {

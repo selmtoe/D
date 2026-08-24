@@ -386,9 +386,16 @@ export function subscribeRoomView(
     return Promise.reject(new Error("failed-precondition: P2P部屋ビューがありません"));
   }
   const stopView = session.onView(onView);
-  const stopEvicted = session.onEvicted(() =>
-    onError(new Error("evicted: ホストにより部屋からキックされました")),
-  );
+  const stopEvicted = session.onEvicted((reason) => {
+    if (activeSession === session) activeSession = undefined;
+    onError(
+      new Error(
+        reason === "kick"
+          ? "evicted: ホストにより部屋からキックされました"
+          : "evicted: 部屋の有効期限が切れたためロビーへ戻りました",
+      ),
+    );
+  });
   return Promise.resolve(() => {
     stopView();
     stopEvicted();

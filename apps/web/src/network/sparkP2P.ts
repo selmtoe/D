@@ -20,7 +20,12 @@ import {
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import type { PublicRoom, Role, RoomView } from "../app/model";
 import { parseCue, type CueEvent } from "./peerCues";
-import { SparkAuthority, type SparkMember, type SparkRoomSnapshot } from "./sparkAuthority";
+import {
+  isValidRoomActionId,
+  SparkAuthority,
+  type SparkMember,
+  type SparkRoomSnapshot,
+} from "./sparkAuthority";
 
 interface DirectoryDocument extends PublicRoom {
   visibility: "public";
@@ -86,6 +91,8 @@ const COORDINATOR_ELECTION_RETRY_MS = 15_000;
 const MEMBER_OFFLINE_MS = 70_000;
 const DISCONNECT_LIMIT_MS = 120_000;
 const RELAY_TTL_MS = 10 * 60_000;
+const MAX_COMMAND_WIRE_BYTES = 64 * 1_024;
+const MAX_WIRE_BYTES = 256 * 1_024;
 export const SPARK_ROOM_STALE_MS = 30 * 60_000;
 const STALE_CLEANUP_BATCH_SIZE = 12;
 
@@ -220,8 +227,15 @@ function validWireId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128;
 }
 
+function wireByteSize(payload: string): number {
+  return new TextEncoder().encode(payload).byteLength;
+}
+
 export function parseSparkWire(payload: string): WireMessage | null {
   try {
+    if (payload.length > MAX_WIRE_BYTES) return null;
+    const payloadBytes = wireByteSize(payload);
+    if (payloadBytes > MAX_WIRE_BYTES) return null;
     const value = JSON.parse(payload) as unknown;
     if (!wireRecord(value) || typeof value.type !== "string") return null;
     if (
@@ -256,10 +270,13 @@ export function parseSparkWire(payload: string): WireMessage | null {
     }
     if (
       value.type === "command" &&
+      payloadBytes <= MAX_COMMAND_WIRE_BYTES &&
       typeof value.name === "string" &&
       value.name.length > 0 &&
       value.name.length <= 64 &&
-      wireRecord(value.payload)
+      wireRecord(value.payload) &&
+      (value.payload.clientActionId === undefined ||
+        isValidRoomActionId(value.payload.clientActionId))
     ) {
       return value as unknown as WireMessage;
     }
@@ -315,7 +332,7 @@ export class SparkP2PSession {
   private readonly processedRequests = new Map<string, WireMessage>();
   private readonly viewListeners = new Set<(view: RoomView) => void>();
   private readonly cueListeners = new Set<(cue: CueEvent, senderUid: string) => void>();
-  private readonly evictionListeners = new Set<(reason: "kick") => void>();
+  private readonly evictionListeners = new Set<(reason: "kick" | "room-closed") => void>();
   private readonly modeListeners = new Set<(mode: "webrtc" | "firebase" | "offline") => void>();
   private readonly unsubscribes: Unsubscribe[] = [];
   private readonly disconnectSince = new Map<string, number>();
@@ -325,6 +342,8 @@ export class SparkP2PSession {
   >();
   private intervals: Array<ReturnType<typeof setInterval>> = [];
   private stopped = false;
+  private intentionalLeave = false;
+  private evictionReason?: "kick" | "room-closed";
   private tickPending = false;
   private coordinatorQueue: Promise<void> = Promise.resolve();
   private mode: "webrtc" | "firebase" | "offline" = "firebase";
@@ -525,6 +544,7 @@ export class SparkP2PSession {
         (snapshot) => {
           if (!snapshot.exists()) {
             this.setMode("offline");
+            if (!this.intentionalLeave) this.notifyEvicted("room-closed");
             void this.stop(false);
             return;
           }
@@ -982,7 +1002,7 @@ export class SparkP2PSession {
       return;
     }
     if (wire.type === "evicted") {
-      this.evictionListeners.forEach((listener) => listener(wire.reason));
+      this.notifyEvicted(wire.reason);
       void this.stop(false);
       return;
     }
@@ -1072,6 +1092,7 @@ export class SparkP2PSession {
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     if (this.stopped) throw new Error("offline: P2P接続は終了しています");
+    if (name === "leaveRoom") this.intentionalLeave = true;
     const requestId =
       typeof payload.clientActionId === "string" ? payload.clientActionId : crypto.randomUUID();
     const withAction = { ...payload, clientActionId: requestId };
@@ -1109,9 +1130,17 @@ export class SparkP2PSession {
     targetPeerId: string,
     wire: WireMessage,
   ): Promise<void> {
+    const serialized = safeJson(wire);
+    const serializedBytes = wireByteSize(serialized);
+    if (
+      serializedBytes > MAX_WIRE_BYTES ||
+      (wire.type === "command" && serializedBytes > MAX_COMMAND_WIRE_BYTES)
+    ) {
+      throw new Error("resource-exhausted: P2Pメッセージが大きすぎます");
+    }
     const peer = this.peers.get(targetPeerId);
     if (peer?.channel?.readyState === "open") {
-      peer.channel.send(safeJson(wire));
+      peer.channel.send(serialized);
       this.setMode("webrtc");
       return;
     }
@@ -1172,8 +1201,20 @@ export class SparkP2PSession {
     return () => this.cueListeners.delete(listener);
   }
 
-  onEvicted(listener: (reason: "kick") => void): () => void {
+  private notifyEvicted(reason: "kick" | "room-closed"): void {
+    if (this.evictionReason) return;
+    this.evictionReason = reason;
+    this.evictionListeners.forEach((listener) => listener(reason));
+  }
+
+  onEvicted(listener: (reason: "kick" | "room-closed") => void): () => void {
     this.evictionListeners.add(listener);
+    const reason = this.evictionReason;
+    if (reason) {
+      queueMicrotask(() => {
+        if (this.evictionListeners.has(listener)) listener(reason);
+      });
+    }
     return () => this.evictionListeners.delete(listener);
   }
 
