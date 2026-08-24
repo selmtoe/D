@@ -81,6 +81,7 @@ type PendingRequest = {
 const HEARTBEAT_MS = 30_000;
 const PEER_RECONNECT_MS = 30_000;
 const COORDINATOR_STALE_MS = 75_000;
+const COORDINATOR_ELECTION_RETRY_MS = 15_000;
 const MEMBER_OFFLINE_MS = 70_000;
 const DISCONNECT_LIMIT_MS = 120_000;
 const RELAY_TTL_MS = 10 * 60_000;
@@ -276,6 +277,7 @@ export class SparkP2PSession {
   private coordinatorUid = "";
   private coordinatorPeerId = "";
   private directory?: DirectoryDocument;
+  private directoryObservedAtMs = Date.now();
   private lastView?: RoomView;
   private readonly peers = new Map<string, PeerState>();
   private readonly earlyCandidates = new Map<string, RTCIceCandidateInit[]>();
@@ -299,6 +301,7 @@ export class SparkP2PSession {
   private presenceListening = false;
   private presenceWriteQueue: Promise<void> = Promise.resolve();
   private lastPeerConnectAttemptAt = 0;
+  private lastCoordinatorElectionAttemptAt = 0;
 
   private constructor(options: SparkSessionOptions) {
     this.db = options.db;
@@ -347,6 +350,7 @@ export class SparkP2PSession {
     const directory = normalizeDirectory(directorySnapshot.data() as DirectoryDocument);
     const session = new SparkP2PSession({ db, user, roomId: normalized });
     session.directory = directory;
+    session.directoryObservedAtMs = Date.now();
     session.coordinatorUid = directory.coordinatorUid;
     session.coordinatorPeerId = directory.coordinatorPeerId;
 
@@ -484,6 +488,7 @@ export class SparkP2PSession {
             return;
           }
           const next = normalizeDirectory(snapshot.data() as DirectoryDocument);
+          this.directoryObservedAtMs = Date.now();
           const previousCoordinatorPeerId = this.coordinatorPeerId;
           const changed = next.coordinatorPeerId !== this.coordinatorPeerId;
           this.directory = next;
@@ -581,7 +586,7 @@ export class SparkP2PSession {
       await this.enqueueCoordinator(async () => {
         const authority = this.authority;
         if (!authority) return;
-        if (this.directory && now - this.directory.heartbeatAtMs >= HEARTBEAT_MS) {
+        if (this.directory && now - this.directoryObservedAtMs >= HEARTBEAT_MS) {
           await this.persistDirectory(false).catch(() => this.setMode("offline"));
         }
         const snapshot = authority.exportSnapshot();
@@ -601,8 +606,11 @@ export class SparkP2PSession {
       });
       return;
     }
-    if (this.directory && now - this.directory.heartbeatAtMs > COORDINATOR_STALE_MS) {
-      await this.tryCoordinatorElection(now);
+    if (this.directory && now - this.directoryObservedAtMs > COORDINATOR_STALE_MS) {
+      if (now - this.lastCoordinatorElectionAttemptAt >= COORDINATOR_ELECTION_RETRY_MS) {
+        this.lastCoordinatorElectionAttemptAt = now;
+        await this.tryCoordinatorElection(now);
+      }
       return;
     }
     const coordinatorPeer = this.peers.get(this.coordinatorPeerId);
@@ -632,7 +640,6 @@ export class SparkP2PSession {
       const current = await transaction.get(directoryRef);
       if (!current.exists()) return false;
       const data = current.data() as DirectoryDocument;
-      if (now - sparkDirectoryHeartbeatMs(data) <= COORDINATOR_STALE_MS) return false;
       transaction.update(directoryRef, {
         coordinatorUid: this.uid,
         coordinatorPeerId: this.peerId,
@@ -770,6 +777,7 @@ export class SparkP2PSession {
       ...(this.directory?.lastActivityAt ? { lastActivityAt: this.directory.lastActivityAt } : {}),
     };
     this.directory = directory;
+    this.directoryObservedAtMs = now;
     this.coordinatorUid = directory.coordinatorUid;
     this.coordinatorPeerId = directory.coordinatorPeerId;
     await setDoc(

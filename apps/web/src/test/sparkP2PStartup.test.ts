@@ -38,12 +38,15 @@ type StartupInternals = {
   tryCoordinatorElection(now: number): Promise<void>;
   reconcilePresence(now: number): Promise<void>;
   enqueueCoordinator<T>(task: () => Promise<T>): Promise<T>;
+  persistDirectory(initial: boolean): Promise<void>;
   persistAndBroadcast(): Promise<void>;
   sendWire(targetUid: string, targetPeerId: string, wire: unknown): Promise<void>;
   authority?: SparkAuthority;
   coordinatorUid: string;
   coordinatorPeerId: string;
   directory?: { heartbeatAtMs: number };
+  directoryObservedAtMs: number;
+  lastCoordinatorElectionAttemptAt: number;
   presenceSeen: Map<string, { online: boolean; peerId: string; atMs: number }>;
   handleWire(wire: unknown, senderUid: string, senderPeerId: string): void;
   mode: "webrtc" | "firebase" | "offline";
@@ -310,6 +313,56 @@ describe("Spark P2P startup cleanup", () => {
     expect(reconnect).toHaveBeenCalledTimes(2);
   });
 
+  test("detects a stale directory by elapsed receipt time despite a skewed wall heartbeat", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.directory = { heartbeatAtMs: 9_999_999 };
+    internals.directoryObservedAtMs = 1_000;
+    const election = vi.spyOn(internals, "tryCoordinatorElection").mockResolvedValue();
+    const now = vi.spyOn(Date, "now").mockReturnValue(76_001);
+
+    await internals.tick();
+    now.mockReturnValue(78_001);
+    await internals.tick();
+
+    expect(election).toHaveBeenCalledOnce();
+    now.mockReturnValue(91_001);
+    await internals.tick();
+    expect(election).toHaveBeenCalledTimes(2);
+  });
+
+  test("heartbeats by elapsed receipt time despite a skewed server wall clock", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "host" },
+      roomId: "ABCDE",
+      peerId: "host-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    internals.directory = { heartbeatAtMs: 9_999_999 };
+    internals.directoryObservedAtMs = 1_000;
+    const heartbeat = vi.spyOn(internals, "persistDirectory").mockResolvedValue();
+    vi.spyOn(Date, "now").mockReturnValue(31_000);
+
+    await internals.tick();
+
+    expect(heartbeat).toHaveBeenCalledWith(false);
+  });
+
   test("demotes an old coordinator after another peer wins the directory lease", async () => {
     firestore.setDoc.mockResolvedValue(undefined);
     const Session = SparkP2PSession as unknown as SparkSessionConstructor;
@@ -391,6 +444,66 @@ describe("Spark P2P startup cleanup", () => {
     await internals.tryCoordinatorElection(100_000);
 
     expect(firestore.runTransaction).toHaveBeenCalledOnce();
+    await session.stop(false);
+  });
+
+  test("lets Firestore server time decide whether a coordinator lease is stale", async () => {
+    const authority = SparkAuthority.create(
+      "ABCDE",
+      "host",
+      "host-peer",
+      { name: "host", avatar: structuredClone(defaultAvatar) },
+      1_000,
+    );
+    authority.join(
+      {
+        uid: "successor",
+        peerId: "successor-peer",
+        profile: { name: "successor", avatar: structuredClone(defaultAvatar) },
+        role: "player",
+      },
+      1_100,
+    );
+    firestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => authority.exportSnapshot(),
+    });
+    const update = vi.fn();
+    firestore.runTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const operation = args[1] as (transaction: {
+        get: () => Promise<{ exists: () => boolean; data: () => Record<string, unknown> }>;
+        update: typeof update;
+      }) => Promise<boolean>;
+      await operation({
+        get: async () => ({
+          exists: () => true,
+          data: () => ({
+            coordinatorUid: "host",
+            coordinatorPeerId: "host-peer",
+            heartbeatAtMs: 9_999_999,
+          }),
+        }),
+        update,
+      });
+      return false;
+    });
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "successor" },
+      roomId: "ABCDE",
+      peerId: "successor-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+
+    await internals.tryCoordinatorElection(1_000);
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0]?.[1]).toMatchObject({
+      coordinatorUid: "successor",
+      coordinatorPeerId: "successor-peer",
+      heartbeatAtMs: 1_000,
+    });
     await session.stop(false);
   });
 
