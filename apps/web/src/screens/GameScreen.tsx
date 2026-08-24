@@ -429,6 +429,18 @@ export function eligibleEffectTargetPlayerIds(
   );
 }
 
+export function selectableEffectCardIds(
+  eligibleCardIds: readonly string[] | undefined,
+  effectKind: PendingEffectView["kind"] | undefined,
+  movingToDiscard: ReadonlySet<string>,
+): Set<string> {
+  return new Set(
+    (eligibleCardIds ?? []).filter(
+      (cardId) => effectKind !== "collect" || !movingToDiscard.has(cardId),
+    ),
+  );
+}
+
 export function GameScreen({
   room,
   connection,
@@ -480,6 +492,9 @@ export function GameScreen({
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
   const readOnly = room.role === "spectator" || me?.status !== "active";
+  const canManageTable = Boolean(
+    me && me.status !== "disqualified" && room.hostId === room.viewerId,
+  );
   const sortedHand = useMemo(() => sortHandWeakToStrong(room.hand), [room.hand]);
   const spectatorFocusId =
     room.players.find((player) => player.id === room.focusedPlayerId && player.status === "active")
@@ -539,9 +554,23 @@ export function GameScreen({
   const effectHasPlayerEligibility = directEffect?.eligiblePlayerIds !== undefined;
   const directEffectKind = directEffect?.kind;
   const directEffectRequiredCount = directEffect?.requiredCount ?? 0;
+  const movingToDiscardIds = useMemo(
+    () =>
+      new Set(
+        cardMotions
+          .filter((motion) => motion.to.kind === "discard")
+          .map((motion) => motion.card.id),
+      ),
+    [cardMotions],
+  );
   const effectSelectableIds = useMemo(
-    () => new Set(effectCardEligibility ? effectCardEligibility.split("\0") : []),
-    [effectCardEligibility],
+    () =>
+      selectableEffectCardIds(
+        effectCardEligibility ? effectCardEligibility.split("\0") : [],
+        directEffectKind,
+        movingToDiscardIds,
+      ),
+    [directEffectKind, effectCardEligibility, movingToDiscardIds],
   );
   const effectTargetPlayerIds = useMemo(
     () =>
@@ -692,12 +721,19 @@ export function GameScreen({
       setCardMotions([]);
       return;
     }
-    const next = deriveCardMotions(previous, room);
-    if (next.length)
-      setCardMotions((currentMotions) => {
+    setCardMotions((currentMotions) => {
+      const movingToDiscard = new Set(
+        currentMotions
+          .filter((motion) => motion.to.kind === "discard")
+          .map((motion) => motion.card.id),
+      );
+      const next = deriveCardMotions(previous, room, movingToDiscard);
+      if (next.length) {
         const known = new Set(currentMotions.map((motion) => motion.id));
         return [...currentMotions, ...next.filter((motion) => !known.has(motion.id))];
-      });
+      }
+      return currentMotions;
+    });
   }, [room]);
   useEffect(() => {
     if (dealing || (room.role === "spectator" && spectatorMode === "free")) {
@@ -789,7 +825,7 @@ export function GameScreen({
   return (
     <main
       id="main"
-      className={`game-screen ${room.role}${room.role === "spectator" && spectatorMode === "free" ? " free-roam" : ""}`}
+      className={`game-screen ${room.role}${room.role === "spectator" && spectatorMode === "free" ? " free-roam" : ""}${logOpen ? " log-open" : ""}`}
     >
       <div className="game-world">
         <SalonScene
@@ -837,7 +873,7 @@ export function GameScreen({
           <button type="button" disabled={busy} onClick={leave}>
             退出
           </button>
-          {me && room.hostId === room.viewerId && (
+          {canManageTable && (
             <button
               type="button"
               aria-expanded={moderationOpen}
@@ -861,7 +897,7 @@ export function GameScreen({
           </div>
         )}
       </header>
-      {moderationOpen && me && room.hostId === room.viewerId && (
+      {moderationOpen && canManageTable && (
         <section className="moderation-panel" aria-label="ホストの卓管理">
           <header>
             <strong>卓管理</strong>

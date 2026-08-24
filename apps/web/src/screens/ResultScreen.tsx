@@ -15,7 +15,8 @@ export function ResultScreen({
   rematch: () => void;
 }) {
   const viewerIsPlayer = room.players.some(
-    (player) => player.id === room.viewerId && player.present !== false,
+    (player) =>
+      player.id === room.viewerId && player.present !== false && player.status !== "disqualified",
   );
   const rows = room.rankings
     .map((ranking) => ({

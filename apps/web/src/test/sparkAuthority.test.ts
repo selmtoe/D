@@ -54,6 +54,37 @@ function pendingBlindJokerAuthority() {
   return SparkAuthority.restore(snapshot);
 }
 
+function invalidBlindHostAuthority() {
+  const authority = waitingRoom("blind");
+  authority.handleCommand(
+    "p1",
+    "startGame",
+    {
+      clientActionId: "start-invalid-blind-host",
+      expectedRevision: authority.exportSnapshot().revision,
+    },
+    2_000,
+  );
+  const snapshot = authority.exportSnapshot();
+  const game = snapshot.game!;
+  const ids = new Set(["spade-4", "heart-7", "club-5", "diamond-6"]);
+  const hand = (...entries: Array<[string, boolean]>): HandCard[] =>
+    entries.map(([id, blind]) => ({
+      card: createDeck().find((candidate) => candidate.id === id)!,
+      blind,
+    }));
+  game.players.find((player) => player.id === "p1")!.hand = hand(
+    ["spade-4", true],
+    ["heart-7", true],
+  );
+  game.players.find((player) => player.id === "p2")!.hand = hand(["club-5", false]);
+  game.players.find((player) => player.id === "p3")!.hand = hand(["diamond-6", false]);
+  game.deck = createDeck().filter((card) => !ids.has(card.id));
+  game.turnPlayerId = "p1";
+  game.firstPlay = false;
+  return SparkAuthority.restore(snapshot);
+}
+
 function beginPendingMimic(authority: SparkAuthority, actionId: string) {
   return authority.handleCommand(
     "p1",
@@ -315,6 +346,59 @@ describe("Spark browser authority", () => {
     ).toThrow(/プレイヤーホスト専用/);
     expect(() =>
       authority.handleCommand("watcher", "startGame", { clientActionId: "spectator-start" }, 1_104),
+    ).toThrow(/プレイヤーホスト専用/);
+  });
+
+  it("revokes host authority after an illegal blind play disqualifies the host", () => {
+    const authority = invalidBlindHostAuthority();
+    authority.handleCommand(
+      "p1",
+      "submitPlay",
+      {
+        clientActionId: "invalid-blind-host-play",
+        expectedRevision: authority.exportSnapshot().revision,
+        gameId: authority.exportSnapshot().game!.id,
+        cardIds: ["spade-4", "heart-7"],
+        mimics: [],
+        blindConfirmed: true,
+      },
+      2_100,
+    );
+
+    const snapshot = authority.exportSnapshot();
+    expect(snapshot.game?.players.find((player) => player.id === "p1")?.status).toBe(
+      "disqualified",
+    );
+    expect(snapshot.hostUid).toBe("p2");
+    expect(authority.project("p1").role).toBe("spectator");
+    expect(() =>
+      authority.handleCommand(
+        "p1",
+        "kickMember",
+        { clientActionId: "disqualified-host-kick", targetUid: "p3" },
+        2_101,
+      ),
+    ).toThrow(/プレイヤーホスト専用/);
+
+    expect(() =>
+      authority.handleCommand(
+        "p2",
+        "transferHost",
+        { clientActionId: "transfer-to-disqualified-host", targetUid: "p1" },
+        2_102,
+      ),
+    ).toThrow(/接続中プレイヤー/);
+
+    const staleSnapshot = authority.exportSnapshot();
+    staleSnapshot.hostUid = "p1";
+    const restored = SparkAuthority.restore(staleSnapshot);
+    expect(() =>
+      restored.handleCommand(
+        "p1",
+        "kickMember",
+        { clientActionId: "stale-disqualified-host-kick", targetUid: "p3" },
+        2_103,
+      ),
     ).toThrow(/プレイヤーホスト専用/);
   });
 

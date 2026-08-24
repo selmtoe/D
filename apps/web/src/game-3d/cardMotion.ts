@@ -81,7 +81,11 @@ export function cardMotionPerspectiveChanged(previous: RoomView, next: RoomView)
   );
 }
 
-export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotionEvent[] {
+export function deriveCardMotions(
+  previous: RoomView,
+  next: RoomView,
+  movingToDiscard: ReadonlySet<string> = new Set(),
+): CardMotionEvent[] {
   if (
     previous.phase === "dealing" ||
     next.phase === "dealing" ||
@@ -96,6 +100,10 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
   const previousField = new Map(previousTable.map((card) => [card.id, card]));
   const nextField = new Map(nextTable.map((card) => [card.id, card]));
   const previousDiscard = new Map(previous.discard.map((card) => [card.id, card]));
+  const visiblePreviousDiscard = previous.discard.filter((card) => !movingToDiscard.has(card.id));
+  const visibleDiscardIndexes = new Map(
+    visiblePreviousDiscard.map((card, index) => [card.id, index]),
+  );
   const nextDiscard = new Map(next.discard.map((card) => [card.id, card]));
   const previousSeats = cardsAtSeats(previous);
   const nextSeats = cardsAtSeats(next);
@@ -179,19 +187,22 @@ export function deriveCardMotions(previous: RoomView, next: RoomView): CardMotio
   for (const card of next.hand) {
     if (previousHand.has(card.id)) continue;
     const seated = previousSeats.get(card.id);
+    const discardRackIndex = visibleDiscardIndexes.get(card.id);
     push({
       card,
       from: seated
         ? { kind: "seat", playerId: seated.playerId }
-        : previousDiscard.has(card.id)
+        : discardRackIndex !== undefined
           ? {
               kind: "discardRack",
-              cardIndex: previous.discard.findIndex((item) => item.id === card.id),
-              cardCount: previous.discard.length,
+              cardIndex: discardRackIndex,
+              cardCount: visiblePreviousDiscard.length,
             }
-          : previousField.has(card.id)
-            ? { kind: "field" }
-            : { kind: "deck" },
+          : previousDiscard.has(card.id)
+            ? { kind: "discard" }
+            : previousField.has(card.id)
+              ? { kind: "field" }
+              : { kind: "deck" },
       to: { kind: "hand" },
       kind: seated ? "acquire" : previousDiscard.has(card.id) ? "collect" : "acquire",
     });

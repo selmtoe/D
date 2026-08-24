@@ -3,9 +3,24 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingEffectView, RoomView } from "../app/model";
 import { EffectPanel } from "../screens/EffectPanel";
-import { DirectEffectControls, eligibleEffectTargetPlayerIds } from "../screens/GameScreen";
+import {
+  DirectEffectControls,
+  eligibleEffectTargetPlayerIds,
+  selectableEffectCardIds,
+} from "../screens/GameScreen";
 
 afterEach(cleanup);
+
+describe("direct effect card eligibility", () => {
+  it("temporarily excludes a K-recovery card that is still moving into discard", () => {
+    const selectable = selectableEffectCardIds(["moving", "ready"], "collect", new Set(["moving"]));
+
+    expect([...selectable]).toEqual(["ready"]);
+    expect([...selectableEffectCardIds(["moving"], "discard", new Set(["moving"]))]).toEqual([
+      "moving",
+    ]);
+  });
+});
 
 const room: RoomView = {
   roomId: "ROOM1",

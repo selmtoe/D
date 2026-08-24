@@ -120,6 +120,36 @@ describe("result rankings", () => {
     expect(screen.queryByRole("button", { name: "同じ部屋で次のゲーム" })).toBeNull();
   });
 
+  it("does not offer a rematch to a disqualified player with a stale host id", () => {
+    const disqualifiedHost = { ...player("p1", "一郎"), status: "disqualified" as const };
+    const room: RoomView = {
+      roomId: "RESULT",
+      revision: 9,
+      generation: 0,
+      phase: "finished",
+      role: "spectator",
+      viewerId: "p1",
+      hostId: "p1",
+      players: [disqualifiedHost, player("p2", "二郎"), player("p3", "三郎")],
+      spectators: [],
+      settings: { mode: "blind", blindCount: 1 },
+      direction: 1,
+      revolution: false,
+      jackBack: false,
+      suitLock: [],
+      field: [],
+      discard: [],
+      hand: [],
+      pendingEffects: [],
+      rankings: [],
+      log: [],
+    };
+
+    render(<ResultScreen room={room} busy={false} leave={vi.fn()} rematch={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "同じ部屋で次のゲーム" })).toBeNull();
+  });
+
   it("shows a rematch or connection failure", () => {
     const room: RoomView = {
       roomId: "RESULT",

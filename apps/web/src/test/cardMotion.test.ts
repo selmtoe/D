@@ -118,6 +118,22 @@ describe("card motion projection diff", () => {
     );
   });
 
+  it("uses the compacted K-recovery rack position while another card is moving to discard", () => {
+    const incomingDiscard = card("incoming-discard");
+    const recovered = card("recovered");
+    const previous = view(5, [], [], [incomingDiscard, recovered]);
+    const next = view(6, [recovered], [], [incomingDiscard]);
+
+    expect(deriveCardMotions(previous, next, new Set([incomingDiscard.id]))).toContainEqual(
+      expect.objectContaining({
+        kind: "collect",
+        card: recovered,
+        from: { kind: "discardRack", cardIndex: 0, cardCount: 1 },
+        to: { kind: "hand" },
+      }),
+    );
+  });
+
   it("does not treat revision-scoped opponent backs as newly acquired cards", () => {
     const previous = view(8, [card("mine")], []);
     previous.players[1] = {

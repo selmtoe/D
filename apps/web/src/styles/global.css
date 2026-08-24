@@ -2051,9 +2051,11 @@ h2 {
   .free-roam-controls {
     bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
-  .game-screen.free-roam .chat-panel {
-    bottom: max(190px, calc(env(safe-area-inset-bottom) + 180px));
-    height: min(300px, calc(100svh - 270px));
+  .game-screen.free-roam.log-open .free-roam-controls {
+    display: none;
+  }
+  .game-screen.free-roam.log-open .effect-observer-status {
+    display: none;
   }
   .game-screen.free-roam .effect-observer-status {
     bottom: max(190px, calc(env(safe-area-inset-bottom) + 180px));

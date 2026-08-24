@@ -569,7 +569,13 @@ export class SparkAuthority {
         this.requireHost(uid);
         const targetUid = String(payload.targetUid ?? "");
         const target = this.snapshot.members[targetUid];
-        if (!target || target.role !== "player" || !target.online) {
+        const targetPlayer = this.snapshot.game?.players.find((player) => player.id === targetUid);
+        if (
+          !target ||
+          target.role !== "player" ||
+          !target.online ||
+          targetPlayer?.status === "disqualified"
+        ) {
           commandError("failed-precondition", "接続中プレイヤーだけに移譲できます");
         }
         this.snapshot.hostUid = targetUid;
@@ -868,9 +874,15 @@ export class SparkAuthority {
       const remaining = Object.values(this.snapshot.members).sort(
         (left, right) => left.joinedAtMs - right.joinedAtMs,
       );
+      const eligiblePlayers = remaining.filter(
+        (candidate) =>
+          candidate.role === "player" &&
+          this.snapshot.game?.players.find((player) => player.id === candidate.uid)?.status !==
+            "disqualified",
+      );
       this.snapshot.hostUid =
-        remaining.find((candidate) => candidate.role === "player" && candidate.online)?.uid ??
-        remaining.find((candidate) => candidate.role === "player")?.uid ??
+        eligiblePlayers.find((candidate) => candidate.online)?.uid ??
+        eligiblePlayers[0]?.uid ??
         remaining.find((candidate) => candidate.online)?.uid ??
         remaining[0]?.uid ??
         "";
@@ -890,7 +902,12 @@ export class SparkAuthority {
   }
 
   private requireHost(uid: string): void {
-    if (this.snapshot.hostUid !== uid || this.snapshot.members[uid]?.role !== "player") {
+    const gamePlayer = this.snapshot.game?.players.find((player) => player.id === uid);
+    if (
+      this.snapshot.hostUid !== uid ||
+      this.snapshot.members[uid]?.role !== "player" ||
+      gamePlayer?.status === "disqualified"
+    ) {
       commandError("permission-denied", "プレイヤーホスト専用操作です");
     }
   }
@@ -947,17 +964,16 @@ export class SparkAuthority {
       (player) => player.id === this.snapshot.hostUid,
     );
     if (hostPlayer?.status === "disqualified") {
+      const eligiblePlayers = Object.values(this.snapshot.members)
+        .filter(
+          (member) =>
+            member.role === "player" &&
+            this.snapshot.game?.players.find((player) => player.id === member.uid)?.status !==
+              "disqualified",
+        )
+        .sort((left, right) => left.joinedAtMs - right.joinedAtMs);
       this.snapshot.hostUid =
-        Object.values(this.snapshot.members)
-          .filter(
-            (member) =>
-              member.role === "player" &&
-              member.online &&
-              this.snapshot.game?.players.find((player) => player.id === member.uid)?.status !==
-                "disqualified",
-          )
-          .sort((left, right) => left.joinedAtMs - right.joinedAtMs)[0]?.uid ??
-        this.snapshot.hostUid;
+        eligiblePlayers.find((member) => member.online)?.uid ?? eligiblePlayers[0]?.uid ?? "";
     }
     this.commit(now);
   }
