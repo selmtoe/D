@@ -3,6 +3,7 @@ import { defaultAvatar } from "@daifugo/avatar-schema";
 import { SparkAuthority } from "../network/sparkAuthority";
 
 const firestore = vi.hoisted(() => ({
+  addDoc: vi.fn(),
   getDoc: vi.fn(),
   getDocs: vi.fn(async () => ({ docs: [] })),
   onSnapshot: vi.fn((..._args: unknown[]) => vi.fn()),
@@ -11,7 +12,7 @@ const firestore = vi.hoisted(() => ({
 }));
 
 vi.mock("firebase/firestore", () => ({
-  addDoc: vi.fn(),
+  addDoc: firestore.addDoc,
   collection: vi.fn((...path: unknown[]) => ({ path })),
   deleteDoc: vi.fn(),
   doc: vi.fn((...path: unknown[]) => ({ path })),
@@ -1214,6 +1215,39 @@ describe("Spark P2P startup cleanup", () => {
 });
 
 describe("Spark relay clock normalization", () => {
+  test("retries without the optional server timestamp against rolling-deploy Rules", async () => {
+    const Session = SparkP2PSession as unknown as SparkSessionConstructor;
+    const session = new Session({
+      db: {} as never,
+      user: { uid: "guest" },
+      roomId: "ABCDE",
+      peerId: "guest-peer",
+    });
+    const internals = session as unknown as StartupInternals;
+    internals.directory = { heartbeatAtMs: Date.now() };
+    internals.directoryObservedAtMs = Date.now();
+    firestore.addDoc
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Missing or insufficient permissions."), {
+          code: "permission-denied",
+        }),
+      )
+      .mockResolvedValue(undefined);
+
+    await internals.sendRelay("sparkSignals", "host", "host-peer", "offer", {
+      sdp: "valid-sdp",
+    });
+    await internals.sendRelay("sparkSignals", "host", "host-peer", "ice", {
+      candidate: { candidate: "valid-candidate" },
+    });
+
+    expect(firestore.addDoc).toHaveBeenCalledTimes(3);
+    expect(firestore.addDoc.mock.calls[0]?.[1]).toMatchObject({ createdAt: "server-time" });
+    expect(firestore.addDoc.mock.calls[1]?.[1]).not.toHaveProperty("createdAt");
+    expect(firestore.addDoc.mock.calls[2]?.[1]).not.toHaveProperty("createdAt");
+    await session.stop(false);
+  });
+
   test("accepts a fresh relay when sender and receiver wall clocks are fourteen minutes apart", () => {
     const relayCreatedAtServerMs = 2_000_000;
     const receiverLocalObservedAtMs = relayCreatedAtServerMs + 7 * 60_000;

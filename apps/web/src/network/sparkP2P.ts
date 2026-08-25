@@ -284,6 +284,18 @@ function responseSource(uid: string, peerId: string): string {
   return safeJson([uid, peerId]);
 }
 
+function isPermissionDenied(cause: unknown): boolean {
+  if (!cause || typeof cause !== "object") return false;
+  const error = cause as { code?: unknown; message?: unknown };
+  return (
+    error.code === "permission-denied" ||
+    error.code === "firestore/permission-denied" ||
+    (typeof error.message === "string" &&
+      (error.message.includes("permission-denied") ||
+        error.message.includes("Missing or insufficient permissions")))
+  );
+}
+
 function processedRequestKey(uid: string, peerId: string, requestId: string): string {
   return safeJson([uid, peerId, requestId]);
 }
@@ -466,6 +478,7 @@ export class SparkP2PSession {
   private presenceWriteQueue: Promise<void> = Promise.resolve();
   private lastPeerConnectAttemptAt = 0;
   private lastCoordinatorElectionAttemptAt = 0;
+  private relayCreatedAtSupport: "unknown" | "supported" | "unsupported" = "unknown";
 
   private constructor(options: SparkSessionOptions) {
     this.db = options.db;
@@ -1480,9 +1493,25 @@ export class SparkP2PSession {
       payload: safeJson(payload),
       createdAtMs: now,
       expiresAtMs: now + RELAY_TTL_MS,
-      createdAt: serverTimestamp(),
     };
-    await addDoc(collection(this.db, collectionName, this.roomId, "items"), relay);
+    const items = collection(this.db, collectionName, this.roomId, "items");
+    if (this.relayCreatedAtSupport === "unsupported") {
+      await addDoc(items, relay);
+      return;
+    }
+    try {
+      await addDoc(items, { ...relay, createdAt: serverTimestamp() });
+      this.relayCreatedAtSupport = "supported";
+    } catch (cause) {
+      if (this.relayCreatedAtSupport === "supported" || !isPermissionDenied(cause)) throw cause;
+      // Some production rooms can briefly run against the previous Rules
+      // contract during a rolling web/rules deploy. That contract rejects the
+      // optional server timestamp field but accepts the millisecond fallback.
+      // Several ICE writes can be in flight with the initial offer, so every
+      // concurrent legacy-format rejection must retry after support flips.
+      this.relayCreatedAtSupport = "unsupported";
+      await addDoc(items, relay);
+    }
   }
 
   private waitForInitialView(): Promise<void> {
