@@ -445,6 +445,11 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "1", {
         timeout: 15_000,
       });
+      const freeRoamApplause = spectator.page.getByRole("button", { name: "拍手を送る" });
+      if (!(await freeRoamApplause.isVisible())) {
+        await spectator.page.getByRole("button", { name: "エモートを開く" }).click();
+      }
+      await freeRoamApplause.click();
       await expect(
         observer.page.locator('[data-avatar-emote-player-id="uid-spectator"]'),
       ).toHaveAttribute("data-avatar-emote", "applause", { timeout: 15_000 });

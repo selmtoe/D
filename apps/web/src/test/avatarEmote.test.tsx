@@ -35,7 +35,10 @@ describe("avatar emote presentation", () => {
   it("selects the newest unexpired cue independently for each player", () => {
     const emotes: PlayerEmoteCue[] = [
       { sender: "alice", cue: cue("alice-new", "surprise", 9_900) },
-      { sender: "bob", cue: cue("bob-expired", "thinking", 6_000) },
+      {
+        sender: "bob",
+        cue: cue("bob-expired", "thinking", 10_000 - AVATAR_EMOTE_DURATION_MS - 1),
+      },
       { sender: "alice", cue: cue("alice-old", "applause", 9_000) },
       { sender: "carol", cue: cue("carol-future", "applause", 10_500) },
     ];
@@ -75,7 +78,9 @@ describe("avatar emote presentation", () => {
     expect(screen.getByRole("img")).toHaveAttribute("data-avatar-emote-player-id", "alice");
     expect(screen.getByRole("img")).toHaveAttribute("data-avatar-emote-event-id", "alice-2");
 
-    rerender(<AvatarEmote playerId="alice" emotes={emotes} nowMs={5_000} />);
+    rerender(
+      <AvatarEmote playerId="alice" emotes={emotes} nowMs={1_200 + AVATAR_EMOTE_DURATION_MS + 1} />,
+    );
     expect(screen.queryByRole("img")).toBeNull();
   });
 

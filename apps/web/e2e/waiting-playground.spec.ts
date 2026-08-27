@@ -123,10 +123,16 @@ test.describe("3D waiting playground", () => {
         "true",
       );
       await page.keyboard.down("KeyW");
-      await page.waitForTimeout(220);
-      await page.keyboard.up("KeyW");
-      const afterMove = poseOf(await waitForPose(page));
-      expect(afterMove.z).toBeLessThan(initial.z - 0.05);
+      try {
+        await expect
+          .poll(async () => poseOf(await waitForPose(page)).z, {
+            timeout: 5_000,
+            intervals: [50, 100, 250],
+          })
+          .toBeLessThan(initial.z - 0.05);
+      } finally {
+        await page.keyboard.up("KeyW");
+      }
 
       const canvasBox = await canvas.boundingBox();
       if (canvasBox) {
@@ -139,8 +145,18 @@ test.describe("3D waiting playground", () => {
           canvasBox.y + canvasBox.height / 2,
         );
       }
-      const afterLook = poseOf(await waitForPose(page));
-      expect(afterLook.yaw).toBeLessThan(initial.yaw);
+      // Headless Chromium can report zero movement for absolute mouse moves
+      // after Pointer Lock. Dispatch the same movement delta to exercise the
+      // application's locked-mouse handler deterministically.
+      await page.evaluate(() => {
+        document.dispatchEvent(new MouseEvent("mousemove", { movementX: 90, movementY: 0 }));
+      });
+      await expect
+        .poll(async () => poseOf(await waitForPose(page)).yaw, {
+          timeout: 5_000,
+          intervals: [50, 100, 250],
+        })
+        .toBeLessThan(initial.yaw);
       await page.keyboard.press("Escape");
       await expect(page.locator(".waiting-playground-viewport")).toHaveAttribute(
         "data-pointer-locked",

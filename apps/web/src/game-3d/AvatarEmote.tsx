@@ -23,7 +23,7 @@ export interface ActiveAvatarEmote {
   remainingMs: number;
 }
 
-export const AVATAR_EMOTE_DURATION_MS = 2_800;
+export const AVATAR_EMOTE_DURATION_MS = 8_000;
 
 const presentations: Readonly<Record<AvatarEmoteKind, AvatarEmotePresentation>> = {
   surprise: { symbol: "!", label: "びっくり", accent: "#ffd66b" },
