@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   animationNames,
   animationPose,
+  avatarFacingYaw,
   proceduralPartStyle,
   type CatalogKey,
 } from "../avatar-3d/proceduralAvatar";
@@ -26,5 +27,12 @@ describe("procedural avatar catalog", () => {
       JSON.stringify(animationPose(id, 0.73, false)),
     );
     expect(new Set(signatures).size).toBe(24);
+  });
+
+  it("turns the avatar front toward the supplied first-person view yaw", () => {
+    expect(avatarFacingYaw(undefined)).toBe(0);
+    expect(avatarFacingYaw(0)).toBeCloseTo(Math.PI);
+    expect(avatarFacingYaw(Math.PI / 2)).toBeCloseTo(-Math.PI / 2);
+    expect(avatarFacingYaw(-Math.PI / 2, 0.2)).toBeCloseTo(Math.PI / 2 + 0.2);
   });
 });

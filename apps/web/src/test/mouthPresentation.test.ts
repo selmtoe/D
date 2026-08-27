@@ -1,6 +1,6 @@
 import { avatarCatalog } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
-import { mouthPresentation } from "../avatar-3d/mouthPresentation";
+import { beardPresentation, mouthPresentation } from "../avatar-3d/mouthPresentation";
 
 describe("avatar mouth presentation", () => {
   it("keeps the five semantic mouth families horizontal with fixed arc rotations", () => {
@@ -31,6 +31,15 @@ describe("avatar mouth presentation", () => {
     for (const id of avatarCatalog.mouth) {
       const mouth = mouthPresentation(id, "expression-1");
       if (mouth.arc === Math.PI) expect(Math.abs(mouth.rotationZ)).not.toBeCloseTo(Math.PI / 2);
+    }
+  });
+
+  it("keeps every beard semicircle horizontal around the chin", () => {
+    for (const id of avatarCatalog.beard.filter((beardId) => beardId !== "none")) {
+      const beard = beardPresentation(id);
+      expect(beard.orientation).toBe("horizontal");
+      expect(Math.abs(beard.rotationZ)).not.toBeCloseTo(Math.PI / 2);
+      expect(beard.rotationZ).toBe(Math.PI);
     }
   });
 });

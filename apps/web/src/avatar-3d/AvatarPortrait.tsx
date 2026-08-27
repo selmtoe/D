@@ -26,7 +26,11 @@ export function AvatarPortrait({ profile, label }: { profile: AvatarProfileV1; l
   return (
     <div ref={root} className="avatar-portrait" role="img" aria-label={label}>
       {!suppressCanvas && nearViewport && (
-        <Canvas dpr={0.65} frameloop="demand" camera={{ position: [0, 1.78, 4.2], fov: 34 }}>
+        <Canvas
+          dpr={0.65}
+          frameloop="demand"
+          camera={{ position: [0, 1.78, 4.2], rotation: [0, 0, 0], fov: 34 }}
+        >
           <ambientLight intensity={2.2} />
           <directionalLight position={[3, 5, 4]} intensity={2.5} />
           <Avatar3D profile={profile} lowPower />

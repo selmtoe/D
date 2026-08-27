@@ -3,8 +3,8 @@ import { useFrame } from "@react-three/fiber";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { CanvasTexture, Color, SRGBColorSpace, type Group } from "three";
 import { createFacePaintCanvas } from "./facePaint";
-import { mouthPresentation } from "./mouthPresentation";
-import { animationPose, proceduralPartStyle } from "./proceduralAvatar";
+import { beardPresentation, mouthPresentation } from "./mouthPresentation";
+import { animationPose, avatarFacingYaw, proceduralPartStyle } from "./proceduralAvatar";
 
 function materialRoughness(material: AvatarProfileV1["materials"]["outfit"]): number {
   return { velvet: 0.88, satin: 0.24, wool: 0.76, silk: 0.34 }[material];
@@ -442,10 +442,13 @@ function Avatar3DView({
   profile,
   lowPower = false,
   active = false,
+  viewYaw,
 }: {
   profile: AvatarProfileV1;
   lowPower?: boolean;
   active?: boolean;
+  /** First-person camera yaw; the model turns its face toward the same direction. */
+  viewYaw?: number;
 }) {
   const root = useRef<Group>(null);
   const bodyRig = useRef<Group>(null);
@@ -503,7 +506,7 @@ function Avatar3DView({
     if (lowPower || !root.current) return;
     const pose = animationPose(profile.animationSetId, clock.elapsedTime, active);
     root.current.position.set(pose.rootX, pose.rootY, 0);
-    root.current.rotation.set(0, pose.rootYaw, pose.rootRoll);
+    root.current.rotation.set(0, avatarFacingYaw(viewYaw, pose.rootYaw), pose.rootRoll);
     if (bodyRig.current) bodyRig.current.rotation.x = pose.bodyPitch;
     if (headRig.current) headRig.current.rotation.set(pose.headPitch, pose.headYaw, 0);
     if (leftArm.current) {
@@ -522,8 +525,9 @@ function Avatar3DView({
   const headwearFamily = Math.min(11, Math.floor(style.headwear.signature * 12));
   const eyewearColor = proceduralColor(profile.colors.accent, style.eyewear, 0.88);
   const headwearColor = proceduralColor(profile.colors.accent, style.headwear, 1);
+  const beard = beardPresentation(profile.parts.beard);
   return (
-    <group ref={root} scale={[1, body.heightScale, 1]}>
+    <group ref={root} rotation={[0, avatarFacingYaw(viewYaw), 0]} scale={[1, body.heightScale, 1]}>
       <group ref={bodyRig}>
         <mesh
           position={[0, 0.95, 0]}
@@ -674,10 +678,10 @@ function Avatar3DView({
           {style.beard.active && (
             <mesh
               position={[0, -0.26 - style.beard.signature * 0.04, -0.005]}
-              rotation={[0, 0, Math.PI / 2]}
-              scale={[0.9 + style.beard.signature * 0.42, 0.88 + style.beard.wave * 0.25, 1]}
+              rotation={[0, 0, beard.rotationZ]}
+              scale={[beard.widthScale, beard.heightScale, 1]}
             >
-              <torusGeometry args={[0.17, 0.035 + style.beard.sweep * 0.035, 7, 18, Math.PI]} />
+              <torusGeometry args={[0.17, beard.thickness, 7, 18, Math.PI]} />
               <meshStandardMaterial color={profile.colors.hair} roughness={0.92} />
             </mesh>
           )}
@@ -1207,6 +1211,7 @@ export const Avatar3D = memo(
   (previous, next) =>
     previous.lowPower === next.lowPower &&
     previous.active === next.active &&
+    previous.viewYaw === next.viewYaw &&
     JSON.stringify(previous.profile) === JSON.stringify(next.profile),
 );
 Avatar3D.displayName = "Avatar3D";

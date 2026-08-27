@@ -47,6 +47,15 @@ export interface AvatarPose {
   legLift: number;
 }
 
+/**
+ * The avatar mesh faces +Z, while a first-person yaw of zero looks toward -Z.
+ * Apply the half turn here so callers can pass their camera/view yaw directly.
+ */
+export function avatarFacingYaw(viewYaw: number | undefined, animationYaw = 0): number {
+  const yaw = (viewYaw === undefined ? 0 : viewYaw + Math.PI) + animationYaw;
+  return Math.atan2(Math.sin(yaw), Math.cos(yaw));
+}
+
 const still = (): AvatarPose => ({
   rootY: 0,
   rootX: 0,
