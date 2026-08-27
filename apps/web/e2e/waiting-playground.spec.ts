@@ -134,20 +134,9 @@ test.describe("3D waiting playground", () => {
         await page.keyboard.up("KeyW");
       }
 
-      const canvasBox = await canvas.boundingBox();
-      if (canvasBox) {
-        await page.mouse.move(
-          canvasBox.x + canvasBox.width / 2,
-          canvasBox.y + canvasBox.height / 2,
-        );
-        await page.mouse.move(
-          canvasBox.x + canvasBox.width / 2 + 90,
-          canvasBox.y + canvasBox.height / 2,
-        );
-      }
-      // Headless Chromium can report zero movement for absolute mouse moves
-      // after Pointer Lock. Dispatch the same movement delta to exercise the
-      // application's locked-mouse handler deterministically.
+      // Absolute mouse moves under Pointer Lock are browser/runner dependent.
+      // Dispatch one explicit delta to exercise the locked-mouse handler and
+      // verify the same rightward look direction deterministically.
       await page.evaluate(() => {
         document.dispatchEvent(new MouseEvent("mousemove", { movementX: 90, movementY: 0 }));
       });
