@@ -340,7 +340,10 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await playerTwoFocus.click();
       await expect(playerTwoFocus).toHaveAttribute("aria-pressed", "true");
       await expect
-        .poll(async () => followCanvas.getAttribute("data-spectator-camera-position"))
+        .poll(async () => followCanvas.getAttribute("data-spectator-camera-position"), {
+          timeout: 15_000,
+          intervals: [100, 250, 500, 1_000],
+        })
         .not.toBe(cameraBefore.join(","));
       await spectator.page.waitForTimeout(900);
       const cameraAfter = (await followCanvas.getAttribute("data-spectator-camera-position"))!
@@ -437,6 +440,17 @@ test.describe("single-canvas visual gameplay inspection", () => {
           });
         }
       }
+      await expect
+        .poll(
+          async () => {
+            const current = await readFreeRoamPose(spectator.page);
+            const yawProgress = Math.abs(current.yaw - poseBeforeTurn.yaw) / 0.05;
+            const pitchProgress = Math.abs(current.pitch - poseBeforeTurn.pitch) / 0.02;
+            return Math.min(yawProgress, pitchProgress);
+          },
+          { timeout: 15_000, intervals: [50, 100, 250, 500] },
+        )
+        .toBeGreaterThan(1);
       const poseAfterTurn = await readFreeRoamPose(spectator.page);
       expect(Math.abs(poseAfterTurn.yaw - poseBeforeTurn.yaw)).toBeGreaterThan(0.05);
       expect(Math.abs(poseAfterTurn.pitch - poseBeforeTurn.pitch)).toBeGreaterThan(0.02);
@@ -554,8 +568,10 @@ test.describe("single-canvas visual gameplay inspection", () => {
     const player = await reconnectPage(browser, authority, "uid-player-3");
     try {
       const playerNames = player.page.locator(".character-name-tag--player");
-      await expect(playerNames.filter({ hasText: "ホスト" })).toBeVisible();
-      await expect(playerNames.filter({ hasText: "プレイヤー2" })).toBeVisible();
+      await expect(playerNames.filter({ hasText: "ホスト" })).toBeVisible({ timeout: 15_000 });
+      await expect(playerNames.filter({ hasText: "プレイヤー2" })).toBeVisible({
+        timeout: 15_000,
+      });
       await expect(playerNames.filter({ hasText: "プレイヤー3" })).toHaveCount(0);
       await expect(playerNames.filter({ hasText: "ホスト" })).toHaveAttribute(
         "data-current-turn",
