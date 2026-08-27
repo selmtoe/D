@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { CanvasTexture, Color, SRGBColorSpace, type Group } from "three";
 import { createFacePaintCanvas } from "./facePaint";
+import { mouthPresentation } from "./mouthPresentation";
 import { animationPose, proceduralPartStyle } from "./proceduralAvatar";
 
 function materialRoughness(material: AvatarProfileV1["materials"]["outfit"]): number {
@@ -21,6 +22,65 @@ function proceduralColor(
     (style.signature - 0.5) * 0.14 * strength,
   );
   return `#${color.getHexString()}`;
+}
+
+function Mouth({
+  mouthId,
+  expressionId,
+  lowPower,
+}: {
+  mouthId: string;
+  expressionId: string;
+  lowPower: boolean;
+}) {
+  const mouth = mouthPresentation(mouthId, expressionId);
+  const radialSegments = lowPower ? 6 : 9;
+  const tubularSegments = lowPower ? 14 : 24;
+  const lipColor = "#74352f";
+  return (
+    <group position={[0, -0.22, 0.045]} scale={[mouth.widthScale, mouth.heightScale, 1]}>
+      {mouth.shape === "neutral" && (
+        <mesh rotation={[0, 0, mouth.rotationZ]}>
+          <capsuleGeometry args={[mouth.thickness, 0.16, 5, tubularSegments]} />
+          <meshStandardMaterial color={lipColor} roughness={0.62} />
+        </mesh>
+      )}
+      {(mouth.shape === "smile" || mouth.shape === "frown") && (
+        <mesh rotation={[0, 0, mouth.rotationZ]}>
+          <torusGeometry
+            args={[0.11, mouth.thickness, radialSegments, tubularSegments, mouth.arc]}
+          />
+          <meshStandardMaterial color={lipColor} roughness={0.62} />
+        </mesh>
+      )}
+      {mouth.shape === "toothy" && (
+        <group>
+          <mesh scale={[1.16, 0.58, 0.28]}>
+            <sphereGeometry args={[0.11, tubularSegments, radialSegments]} />
+            <meshStandardMaterial color="#552723" roughness={0.7} />
+          </mesh>
+          <mesh position={[0, 0.022, 0.034]}>
+            <boxGeometry args={[0.19, 0.043, 0.018]} />
+            <meshStandardMaterial color="#fff7df" roughness={0.38} />
+          </mesh>
+        </group>
+      )}
+      {mouth.shape === "surprised" && (
+        <group scale={[0.72, 1, 1]}>
+          <mesh position={[0, 0, -0.008]}>
+            <circleGeometry args={[0.079, tubularSegments]} />
+            <meshStandardMaterial color="#4e211f" roughness={0.72} />
+          </mesh>
+          <mesh>
+            <torusGeometry
+              args={[0.08, mouth.thickness, radialSegments, tubularSegments, mouth.arc]}
+            />
+            <meshStandardMaterial color={lipColor} roughness={0.62} />
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
 }
 
 function Hair({
@@ -606,14 +666,11 @@ function Avatar3DView({
             <coneGeometry args={[0.07, 0.16 + style.nose.signature * 0.05, 10]} />
             <meshStandardMaterial color={profile.colors.skin} roughness={0.7} />
           </mesh>
-          <mesh
-            position={[0, -0.22 + (style.expression.signature - 0.5) * 0.035, 0.045]}
-            rotation={[0, 0, Math.PI / 2 + (style.mouth.wave - 0.5) * 0.2]}
-            scale={[0.78 + style.mouth.signature * 0.46, 0.78 + style.expression.wave * 0.3, 1]}
-          >
-            <torusGeometry args={[0.11, 0.018 + style.mouth.sweep * 0.015, 7, 20, Math.PI]} />
-            <meshStandardMaterial color="#74352f" roughness={0.62} />
-          </mesh>
+          <Mouth
+            mouthId={profile.parts.mouth}
+            expressionId={profile.parts.expression}
+            lowPower={lowPower}
+          />
           {style.beard.active && (
             <mesh
               position={[0, -0.26 - style.beard.signature * 0.04, -0.005]}

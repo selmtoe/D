@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { PendingEffectView, RoomView } from "../app/model";
+import { stealAnimationCue } from "../network/peerCues";
 import { shuffleStealCandidates, StealSequence } from "../screens/StealSequence";
 
 describe("A-steal presentation shuffle", () => {
@@ -108,5 +109,101 @@ describe("A-steal presentation shuffle", () => {
     if (!payload) throw new Error("A奪いpayloadがありません");
     expect(payload.selections).toHaveLength(2);
     expect(payload.selections.map((selection) => selection.targetUid).sort()).toEqual(["p2", "p3"]);
+  });
+
+  it("shows a victim's face-up projected cards to spectators during the steal animation", async () => {
+    const cards = [
+      {
+        id: "p2-a",
+        visibility: "face" as const,
+        suit: "spade" as const,
+        rank: "7" as const,
+        blind: false,
+      },
+      {
+        id: "p2-b",
+        visibility: "face" as const,
+        suit: "heart" as const,
+        rank: "9" as const,
+        blind: false,
+      },
+    ];
+    const room: RoomView = {
+      roomId: "ABCDE",
+      revision: 5,
+      gameId: "game-1",
+      generation: 0,
+      phase: "effect",
+      role: "spectator",
+      viewerId: "watcher",
+      hostId: "p1",
+      focusedPlayerId: "p1",
+      players: [
+        {
+          id: "p1",
+          name: "一郎",
+          avatar: defaultAvatar,
+          cardCount: 1,
+          cards: [],
+          connection: "online",
+          status: "active",
+          host: true,
+        },
+        {
+          id: "p2",
+          name: "二郎",
+          avatar: defaultAvatar,
+          cardCount: cards.length,
+          cards,
+          connection: "online",
+          status: "active",
+          host: false,
+        },
+      ],
+      spectators: [{ id: "watcher", name: "観戦者" }],
+      settings: { mode: "normal", blindCount: 0 },
+      direction: 1,
+      revolution: false,
+      jackBack: false,
+      suitLock: [],
+      field: [],
+      discard: [],
+      hand: [],
+      pendingEffects: [],
+      rankings: [],
+      log: [],
+    };
+    const effect: PendingEffectView = {
+      id: "steal-watch",
+      kind: "steal",
+      actorId: "p1",
+      requiredCount: 1,
+      eligiblePlayerIds: ["p2"],
+      eligibleCardIds: cards.map((card) => card.id),
+      message: "1枚奪ってください",
+    };
+    const onVisual = vi.fn();
+    render(
+      createElement(StealSequence, {
+        effect,
+        room,
+        busy: false,
+        lowPower: false,
+        reducedMotion: false,
+        lastCue: {
+          cue: stealAnimationCue("target", "p2", { cardCount: 2, takeCount: 1 }),
+          sender: "p1",
+        },
+        sendCue: vi.fn(async () => true),
+        resolve: vi.fn(async () => true),
+        onVisual,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(onVisual).toHaveBeenCalledWith(
+        expect.objectContaining({ perspective: "observer", cards }),
+      ),
+    );
   });
 });

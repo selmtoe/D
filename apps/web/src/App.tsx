@@ -31,6 +31,7 @@ import { feedback, primeFeedback } from "./components/feedback";
 import { getStoredValue, setStoredValue } from "./app/browserStorage";
 import { connectionStateOnBrowserOnline } from "./app/connectionState";
 import { canApplyPwaUpdate, useApplyPwaUpdateWhenSafe } from "./app/pwaUpdate";
+import { appendReplayFrame, type ReplayFrame } from "./app/replay";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -60,6 +61,7 @@ export default function App() {
     .slice(0, 5);
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>([]);
   const operationsInFlight = useRef(0);
   useApplyPwaUpdateWhenSafe(canApplyPwaUpdate(app.phase, busy, Boolean(activeRoomId || app.room)));
   const handleRoomEvicted = useCallback((roomId: string) => {
@@ -136,6 +138,11 @@ export default function App() {
     );
     return () => window.clearTimeout(timer);
   }, [app.phase, dispatch, lowPower, reducedMotion]);
+
+  useEffect(() => {
+    if (!app.room) return;
+    setReplayFrames((frames) => appendReplayFrame(frames, app.room!));
+  }, [app.room]);
 
   useEffect(() => {
     if (app.phase !== "ENTRANCE" || !reconnectRoomId || activeRoomId) return;
@@ -224,6 +231,7 @@ export default function App() {
         clearRoomReconnect(room.roomId);
         setActiveRoomId(undefined);
         history.replaceState(null, "", location.pathname);
+        setReplayFrames([]);
         dispatch({ type: "LEAVE_ROOM" });
         dispatch({
           type: "CONNECTION",
@@ -241,7 +249,7 @@ export default function App() {
         <div className="brand-seal" aria-hidden="true">
           大
         </div>
-        <p role="status">サロンへ接続しています…</p>
+        <p role="status">ロビーへ接続しています…</p>
       </div>
     );
 
@@ -300,7 +308,8 @@ export default function App() {
   else if (
     (app.phase === "DEALING" ||
       app.phase === "PLAYING_TURN" ||
-      app.phase === "AWAITING_FORCED_EFFECT") &&
+      app.phase === "AWAITING_FORCED_EFFECT" ||
+      app.phase === "FINISHING") &&
     app.room
   )
     screen = (
@@ -313,6 +322,8 @@ export default function App() {
         error={app.error}
         dealing={app.phase === "DEALING" && !lowPower && !reducedMotion}
         skipDeal={() => dispatch({ type: "DEALING_DONE" })}
+        finishing={app.phase === "FINISHING"}
+        finishPresentation={() => dispatch({ type: "FINISH_PRESENTATION_DONE" })}
         leave={leave}
         command={command}
       />
@@ -323,6 +334,9 @@ export default function App() {
         room={app.room}
         busy={busy}
         error={app.error}
+        replayFrames={replayFrames}
+        lowPower={lowPower}
+        reducedMotion={reducedMotion}
         leave={leave}
         rematch={() => void command("startRematch", commandBase(app.room!))}
       />
@@ -345,7 +359,7 @@ export default function App() {
       <Suspense
         fallback={
           <div className="modal-backdrop" role="status">
-            仕立て室を準備しています…
+            アバター編集画面を準備しています…
           </div>
         }
       >

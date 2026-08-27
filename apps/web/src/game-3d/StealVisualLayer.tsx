@@ -69,6 +69,7 @@ function AnimatedStealCards({ state, room }: { state: StealVisualState; room: Ro
             <Card3D
               key={card.id}
               card={card}
+              faceVisibleFromBack={state.perspective === "observer" && card.visibility === "face"}
               position={[centered * spread, taken ? 0.34 : 0, taken ? -0.28 : 0]}
               rotation={[-Math.PI / 2, 0, taken ? 0.08 : 0]}
               scale={0.48}

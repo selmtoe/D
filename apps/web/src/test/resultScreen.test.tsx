@@ -1,11 +1,14 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlayerView, RoomView } from "../app/model";
 import { ResultScreen } from "../screens/ResultScreen";
 
 vi.mock("../avatar-3d/AvatarPortrait", () => ({
   AvatarPortrait: ({ label }: { label: string }) => <span aria-label={label} />,
+}));
+vi.mock("../game-3d/SalonScene", () => ({
+  SalonScene: () => <div data-testid="replay-scene" />,
 }));
 
 afterEach(cleanup);
@@ -185,5 +188,47 @@ describe("result rankings", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("ホストへ接続できません");
+  });
+
+  it("opens and closes a viewer-private replay", () => {
+    const room: RoomView = {
+      roomId: "RESULT",
+      revision: 9,
+      gameId: "game-1",
+      generation: 0,
+      phase: "finished",
+      role: "player",
+      viewerId: "p1",
+      hostId: "p1",
+      players: [player("p1", "一郎"), player("p2", "二郎")],
+      spectators: [],
+      settings: { mode: "blind", blindCount: 1 },
+      direction: 1,
+      revolution: false,
+      jackBack: false,
+      suitLock: [],
+      field: [],
+      discard: [],
+      hand: [],
+      pendingEffects: [],
+      rankings: [],
+      log: [],
+    };
+    render(
+      <ResultScreen
+        room={room}
+        busy={false}
+        replayFrames={[{ capturedAtMs: 1_000, room }]}
+        leave={vi.fn()}
+        rematch={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "リプレイを見る" }));
+    expect(screen.getByRole("dialog", { name: "リプレイ" })).toBeInTheDocument();
+    expect(screen.getByText(/伏せられていた札は後からも公開しません/)).toBeInTheDocument();
+    expect(screen.getByTestId("replay-scene")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "リプレイを閉じる" }));
+    expect(screen.queryByRole("dialog", { name: "リプレイ" })).toBeNull();
   });
 });

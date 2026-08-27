@@ -9,6 +9,7 @@ export type AppPhase =
   | "DEALING"
   | "PLAYING_TURN"
   | "AWAITING_FORCED_EFFECT"
+  | "FINISHING"
   | "FINISHED";
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "grace" | "offline";
 export type Role = "player" | "spectator";
@@ -53,6 +54,27 @@ export interface PendingEffectView {
   message: string;
 }
 
+export type EffectNotice =
+  | { kind: "steal"; actorId: string; targetId: string; cardCount: number }
+  | { kind: "give"; actorId: string; targetId: string; cardCount: number }
+  | { kind: "discard"; actorId: string; cardCount: number; cardLabels?: string[] }
+  | { kind: "collect"; actorId: string; cardCount: number; cardLabels?: string[] }
+  | {
+      kind: "bomber";
+      actorId: string;
+      ranks: Array<Rank | "Joker">;
+      cardCount: number;
+      losses?: Array<{ playerId: string; cardCount: number }>;
+    };
+
+export interface RoomLogEntry {
+  id: string;
+  atMs: number;
+  text: string;
+  kind: "play" | "pass" | "effect" | "system";
+  notice?: EffectNotice;
+}
+
 export interface RoomView {
   roomId: string;
   revision: number;
@@ -87,7 +109,7 @@ export interface RoomView {
     revealedCards?: CardView[];
   };
   rankings: { playerId: string; place: number; reason?: string }[];
-  log: { id: string; atMs: number; text: string; kind: "play" | "pass" | "effect" | "system" }[];
+  log: RoomLogEntry[];
   chat?: { id: string; uid: string; name: string; role: Role; text: string; atMs: number }[];
   focusedPlayerId?: string;
 }
@@ -126,6 +148,7 @@ export type AppEvent =
   | { type: "RESTORE_PROFILE"; profile: LocalProfile }
   | { type: "ROOM_VIEW"; room: RoomView }
   | { type: "DEALING_DONE" }
+  | { type: "FINISH_PRESENTATION_DONE" }
   | { type: "LEAVE_ROOM" }
   | { type: "EVICTED"; message: string }
   | { type: "CONNECTION"; connection: ConnectionState }

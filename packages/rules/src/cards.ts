@@ -36,11 +36,13 @@ export function shuffle<T>(values: readonly T[], rng: () => number = Math.random
 
 function markBlind(cards: readonly Card[], count: number, rng: () => number): HandCard[] {
   if (count === 0) return cards.map((card) => ({ card, blind: false }));
+  // The opening player must be able to identify ♦3. Hiding it can leave every
+  // client with no legal first-play action and makes a fair blind choice impossible.
+  const eligibleIndexes = cards.flatMap((card, index) =>
+    card.suit === "diamond" && card.rank === "3" ? [] : [index],
+  );
   const selected = new Set(
-    shuffle(
-      cards.map((_, index) => index),
-      rng,
-    ).slice(0, Math.min(count, cards.length)),
+    shuffle(eligibleIndexes, rng).slice(0, Math.min(count, eligibleIndexes.length)),
   );
   const visible = cards
     .filter((_, index) => !selected.has(index))

@@ -1,7 +1,8 @@
-import { defaultAvatar, migrateAvatar, type AvatarProfileV1 } from "@daifugo/avatar-schema";
+import { migrateAvatar, type AvatarProfileV1 } from "@daifugo/avatar-schema";
 import {
   applyGameCommand,
   createInitialGameState,
+  deterministicEffectSelection,
   findLegalJokerMimics,
   projectGame,
   type EffectSelection,
@@ -15,6 +16,7 @@ import {
 } from "@daifugo/rules";
 import type {
   CardView,
+  EffectNotice,
   PendingEffectView,
   PublicRoom,
   Rank,
@@ -23,6 +25,7 @@ import type {
   Suit,
 } from "../app/model";
 import { chooseCpuDecision } from "./cpuPlayer";
+import { randomCpuAvatar } from "./cpuAvatar";
 
 export interface SparkMember {
   uid: string;
@@ -67,6 +70,7 @@ export interface SparkRoomSnapshot {
     atMs: number;
     text: string;
     kind: "play" | "pass" | "effect" | "system";
+    notice?: EffectNotice;
   }>;
   appliedRoomActionIds: string[];
   appliedRoomActionResults?: Record<string, Record<string, unknown>>;
@@ -272,6 +276,102 @@ function eventText(event: GameEvent, members: Record<string, SparkMember>): stri
     case "game-finished":
       return "対局が終了しました";
   }
+}
+
+function effectNoticeEntries(
+  game: GameState,
+  effect: PendingEffect,
+  selection: EffectSelection,
+  members: Record<string, SparkMember>,
+): Array<{ text: string; notice: EffectNotice }> {
+  const name = (uid: string) => members[uid]?.name ?? "参加者";
+  const suitSymbol: Record<Suit, string> = {
+    spade: "♠",
+    heart: "♥",
+    diamond: "♦",
+    club: "♣",
+  };
+  const cardLabel = (card: { suit: Suit | null; rank: PhysicalRank }) =>
+    card.rank === "JOKER" ? "Joker" : `${card.suit ? suitSymbol[card.suit] : ""}${card.rank}`;
+  if (effect.type === "steal" && selection.type === "steal") {
+    return selection.transfers.map(({ playerId, cardIds }) => ({
+      text: `${name(effect.actorId)}がA奪いで${name(playerId)}からカードを${cardIds.length}枚奪いました`,
+      notice: {
+        kind: "steal",
+        actorId: effect.actorId,
+        targetId: playerId,
+        cardCount: cardIds.length,
+      },
+    }));
+  }
+  if (effect.type === "give" && selection.type === "give") {
+    return selection.transfers.map(({ playerId, cardIds }) => ({
+      text: `${name(playerId)}が7渡しで${name(effect.actorId)}からカードを${cardIds.length}枚受け取りました`,
+      notice: {
+        kind: "give",
+        actorId: effect.actorId,
+        targetId: playerId,
+        cardCount: cardIds.length,
+      },
+    }));
+  }
+  if (effect.type === "discard" && selection.type === "discard") {
+    const actor = game.players.find((player) => player.id === effect.actorId);
+    const cardLabels = selection.cardIds.flatMap((cardId) => {
+      const card = actor?.hand.find((entry) => entry.card.id === cardId)?.card;
+      return card ? [cardLabel(card)] : [];
+    });
+    return [
+      {
+        text: `${name(effect.actorId)}が10捨てで${cardLabels.join("・") || "カード"}を捨てました`,
+        notice: {
+          kind: "discard",
+          actorId: effect.actorId,
+          cardCount: selection.cardIds.length,
+          cardLabels,
+        },
+      },
+    ];
+  }
+  if (effect.type === "recover" && selection.type === "recover") {
+    const cardLabels = selection.cardIds.flatMap((cardId) => {
+      const card = game.discard.find((candidate) => candidate.id === cardId);
+      return card ? [cardLabel(card)] : [];
+    });
+    return [
+      {
+        text: `${name(effect.actorId)}がK回収で${cardLabels.join("・") || "カード"}を回収しました`,
+        notice: {
+          kind: "collect",
+          actorId: effect.actorId,
+          cardCount: selection.cardIds.length,
+          cardLabels,
+        },
+      },
+    ];
+  }
+  if (effect.type === "bomb" && selection.type === "bomb") {
+    const selectedRanks = new Set(selection.ranks);
+    const cardCount = game.players.reduce(
+      (count, player) =>
+        count + player.hand.filter((entry) => selectedRanks.has(entry.card.rank)).length,
+      0,
+    );
+    const losses = game.players.flatMap((player) => {
+      const lostCount = player.hand.filter((entry) => selectedRanks.has(entry.card.rank)).length;
+      return lostCount ? [{ playerId: player.id, cardCount: lostCount }] : [];
+    });
+    const ranks = selection.ranks.map((rank) => (rank === "JOKER" ? "Joker" : rank)) as Array<
+      Rank | "Joker"
+    >;
+    return [
+      {
+        text: `${name(effect.actorId)}がQボンバーで${ranks.join("・")}を${cardCount}枚捨てました`,
+        notice: { kind: "bomber", actorId: effect.actorId, ranks, cardCount, losses },
+      },
+    ];
+  }
+  return [];
 }
 
 export class SparkAuthority {
@@ -579,12 +679,22 @@ export class SparkAuthority {
       this.afterGameMutation(now);
       return true;
     }
+    const actionId = `timeout-${actorId}-${now}`;
+    const pendingEffect = game.pendingEffect;
+    const resolvedEffectNotices = pendingEffect
+      ? effectNoticeEntries(
+          game,
+          pendingEffect,
+          deterministicEffectSelection(game, pendingEffect),
+          this.snapshot.members,
+        )
+      : [];
     const result = applyGameCommand(
       game,
       {
         type: "timeout",
         playerId: actorId,
-        actionId: `timeout-${actorId}-${now}`,
+        actionId,
         expectedVersion: game.version,
       },
       now,
@@ -592,6 +702,7 @@ export class SparkAuthority {
     if (!result.ok) return false;
     this.snapshot.game = result.state;
     this.appendGameEvents(result.events, now);
+    this.appendEffectNotices(resolvedEffectNotices, actionId, now);
     this.afterGameMutation(now);
     return true;
   }
@@ -704,7 +815,7 @@ export class SparkAuthority {
           uid: cpuUid,
           peerId: cpuUid,
           name: `CPU ${cpuNumber}`,
-          avatar: clone(defaultAvatar),
+          avatar: randomCpuAvatar(),
           role: "player",
           joinedAtMs: now + cpuNumber,
           online: true,
@@ -713,7 +824,7 @@ export class SparkAuthority {
         this.snapshot.socialLog.push({
           id: `cpu-add-${cpuUid}-${now}`,
           atMs: now,
-          text: `CPU ${cpuNumber}を追加しました（学習済みNN）`,
+          text: `CPU ${cpuNumber}を追加しました`,
           kind: "system",
         });
         response = { cpuUid };
@@ -887,6 +998,7 @@ export class SparkAuthority {
       commandError("failed-precondition", "ブラインドJoker宣言を先に確定してください");
     }
     let command: GameCommand;
+    let resolvedEffectNotices: Array<{ text: string; notice: EffectNotice }> = [];
     if (name === "submitPlay") {
       const cardIds = stringArray(payload.cardIds);
       const player = game.players.find((candidate) => candidate.id === uid);
@@ -974,6 +1086,7 @@ export class SparkAuthority {
       } else {
         commandError("invalid-argument", `未対応コマンド: ${name}`);
       }
+      resolvedEffectNotices = effectNoticeEntries(game, effect, selection, this.snapshot.members);
       command = {
         type: "resolve-effect",
         playerId: uid,
@@ -988,6 +1101,7 @@ export class SparkAuthority {
     if (name === "declareJokerMimic") delete this.snapshot.pendingMimic;
     this.snapshot.game = result.state;
     this.appendGameEvents(result.events, now);
+    this.appendEffectNotices(resolvedEffectNotices, actionId, now);
     this.recordRoomAction(actionId, {});
     this.afterGameMutation(now);
     return {};
@@ -1131,6 +1245,23 @@ export class SparkAuthority {
               : event.type === "effect-pending"
                 ? "effect"
                 : "system",
+      });
+    });
+    this.snapshot.socialLog = this.snapshot.socialLog.slice(-300);
+  }
+
+  private appendEffectNotices(
+    entries: Array<{ text: string; notice: EffectNotice }>,
+    actionId: string,
+    now: number,
+  ): void {
+    entries.forEach((entry, index) => {
+      this.snapshot.socialLog.push({
+        id: `effect-resolved-${actionId}-${index}`,
+        atMs: now,
+        text: entry.text,
+        kind: "effect",
+        notice: entry.notice,
       });
     });
     this.snapshot.socialLog = this.snapshot.socialLog.slice(-300);

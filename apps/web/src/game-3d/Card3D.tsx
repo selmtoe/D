@@ -11,6 +11,7 @@ import {
   type Object3D,
 } from "three";
 import type { CardView } from "../app/model";
+import { isCourtRank, standardPipLayout, type PipPlacement } from "./cardDesign";
 
 const suitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
 type PointerCaptureTarget = EventTarget & {
@@ -75,6 +76,70 @@ function CardProjectionProbe({ dataAttribute }: { dataAttribute: string }) {
 
 type VisibleCardAppearance = Extract<CardView, { visibility: "face" }>;
 
+function drawPip(ctx: CanvasRenderingContext2D, symbol: string, placement: PipPlacement): void {
+  ctx.save();
+  ctx.translate(placement.x, placement.y);
+  if (placement.upsideDown) ctx.rotate(Math.PI);
+  ctx.scale(placement.scale ?? 1, placement.scale ?? 1);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "52px ui-serif, serif";
+  ctx.fillText(symbol, 0, 0);
+  ctx.restore();
+}
+
+function drawCornerIndex(
+  ctx: CanvasRenderingContext2D,
+  rank: string,
+  symbol: string,
+  x: number,
+  y: number,
+  upsideDown: boolean,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  if (upsideDown) ctx.rotate(Math.PI);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${rank === "10" ? 38 : 46}px ui-serif, serif`;
+  ctx.fillText(rank, 0, 0);
+  ctx.font = "32px ui-serif, serif";
+  ctx.fillText(symbol, 0, 38);
+  ctx.restore();
+}
+
+function drawCourtCard(ctx: CanvasRenderingContext2D, rank: "J" | "Q" | "K", symbol: string): void {
+  ctx.save();
+  ctx.fillStyle = "#e7d7aa";
+  ctx.fillRect(62, 86, 132, 212);
+  ctx.strokeStyle = "#b28a3b";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(62, 86, 132, 212);
+  ctx.fillStyle = "#183b4a";
+  ctx.fillRect(70, 94, 116, 94);
+  ctx.fillStyle = "#7f2940";
+  ctx.fillRect(70, 196, 116, 94);
+  ctx.fillStyle = "#f4df99";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "800 74px ui-serif, serif";
+  ctx.fillText(rank, 128, 164);
+  ctx.save();
+  ctx.translate(128, 220);
+  ctx.rotate(Math.PI);
+  ctx.fillText(rank, 0, 0);
+  ctx.restore();
+  ctx.fillStyle = "#f7f1df";
+  ctx.font = "42px ui-serif, serif";
+  ctx.fillText(symbol, 128, 112);
+  ctx.save();
+  ctx.translate(128, 272);
+  ctx.rotate(Math.PI);
+  ctx.fillText(symbol, 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+
 function cardTexture(
   visibility: CardView["visibility"],
   suit: VisibleCardAppearance["suit"],
@@ -84,6 +149,7 @@ function cardTexture(
   mimicRank: NonNullable<VisibleCardAppearance["mimic"]>["rank"] | undefined,
   blind: boolean,
   back: boolean,
+  mirrored = false,
 ): CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -94,6 +160,12 @@ function cardTexture(
     fallback.colorSpace = SRGBColorSpace;
     fallback.anisotropy = 1;
     return fallback;
+  }
+  if (mirrored) {
+    // The physical back plane is rotated by PI around Y. Pre-mirroring its
+    // texture keeps spectator-authorized face text readable from that side.
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
   }
   ctx.fillStyle = back ? "#123f32" : "#f7f1df";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -139,12 +211,11 @@ function cardTexture(
       }
     } else {
       const symbol = suit ? suitSymbol[suit] : "";
-      ctx.fillText(rank ?? "", 22, 68);
-      ctx.font = "46px serif";
-      ctx.fillText(symbol, 24, 116);
-      ctx.textAlign = "center";
-      ctx.font = "116px serif";
-      ctx.fillText(symbol, 128, 244);
+      drawCornerIndex(ctx, rank ?? "", symbol, 28, 42, false);
+      drawCornerIndex(ctx, rank ?? "", symbol, 228, 342, true);
+      if (isCourtRank(rank)) drawCourtCard(ctx, rank, symbol);
+      else if (rank)
+        standardPipLayout(rank).forEach((placement) => drawPip(ctx, symbol, placement));
     }
     if (blind) {
       ctx.fillStyle = "rgba(8,23,21,.88)";
@@ -180,6 +251,7 @@ export function Card3D({
   hitAreaHeight,
   hitAreaOffsetX = 0,
   e2eProjectionAttribute,
+  faceVisibleFromBack = false,
 }: {
   card: CardView;
   position?: [number, number, number];
@@ -199,6 +271,7 @@ export function Card3D({
   hitAreaHeight?: number | undefined;
   hitAreaOffsetX?: number | undefined;
   e2eProjectionAttribute?: string | undefined;
+  faceVisibleFromBack?: boolean | undefined;
 }) {
   const root = useRef<Group>(null);
   const dragging = useRef<number | null>(null);
@@ -227,10 +300,21 @@ export function Card3D({
       ),
     [blind, joker, mimicRank, mimicSuit, rank, suit, visibility],
   );
-  const back = useMemo(
-    () => cardTexture("hidden", undefined, undefined, undefined, undefined, undefined, false, true),
-    [],
-  );
+  const back = useMemo(() => {
+    if (faceVisibleFromBack && visibility === "face") {
+      return cardTexture(visibility, suit, rank, joker, mimicSuit, mimicRank, blind, false, true);
+    }
+    return cardTexture(
+      "hidden",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      true,
+    );
+  }, [blind, faceVisibleFromBack, joker, mimicRank, mimicSuit, rank, suit, visibility]);
   useEffect(
     () => () => {
       front.dispose();

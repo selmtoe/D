@@ -11,22 +11,18 @@ function normalizeYaw(yaw: number): number {
 }
 
 /**
- * Every authority projection keeps one canonical player order. Player views and follow-spectator
- * views rotate that order so their viewpoint seat starts at index zero. Free spectators retain the
- * canonical table. Shared spectator poses therefore use the same rotation as the displayed seats.
+ * Every authority projection keeps one canonical player order. Player views rotate that order so
+ * their own seat starts at index zero. Spectators always retain the canonical table because their
+ * camera physically travels between seats. Shared spectator poses use the same displayed geometry.
  */
 export function tablePerspectiveRotation(
   players: readonly PlayerView[],
   role: RoomView["role"],
   viewerId: string,
-  focusedPlayerId?: string,
-  spectatorMode: "follow" | "free" = "free",
 ): number {
   const visiblePlayers = players.filter((player) => player.present !== false);
-  const viewpointId =
-    role === "spectator" ? (spectatorMode === "follow" ? focusedPlayerId : undefined) : viewerId;
-  if (!viewpointId) return 0;
-  const viewpointIndex = visiblePlayers.findIndex((player) => player.id === viewpointId);
+  if (role !== "player") return 0;
+  const viewpointIndex = visiblePlayers.findIndex((player) => player.id === viewerId);
   if (viewpointIndex <= 0 || visiblePlayers.length < 2) return 0;
   return (viewpointIndex / visiblePlayers.length) * Math.PI * 2;
 }

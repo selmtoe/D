@@ -86,11 +86,11 @@ export function EntranceScreen({
               ? "認証中…"
               : reconnecting
                 ? "部屋へ再接続中…"
-                : "サロンへ入る"}
+                : "ロビーへ入る"}
           </button>
         </form>
         <button type="button" className="secondary" disabled={reconnecting} onClick={openEditor}>
-          アバターを仕立てる
+          アバターを編集
         </button>
         {app.error && (
           <p className="inline-error" role="alert">

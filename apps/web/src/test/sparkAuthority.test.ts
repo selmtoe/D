@@ -937,6 +937,7 @@ describe("Spark browser authority", () => {
   });
 
   it("runs hundreds of automatic legal turns and effects for 3 to 6 players without corruption", () => {
+    let observedTimeoutNotice = false;
     for (let playerCount = 3; playerCount <= 6; playerCount += 1) {
       const authority = SparkAuthority.create(
         `ROOM${playerCount}`,
@@ -971,6 +972,15 @@ describe("Spark browser authority", () => {
         turns += 1;
       }
       const finished = authority.exportSnapshot();
+      const timeoutNotice = finished.socialLog.find(
+        (entry) => entry.id.startsWith("effect-resolved-timeout-") && entry.notice,
+      );
+      if (timeoutNotice) {
+        observedTimeoutNotice = true;
+        expect(authority.project("p1").log.find((entry) => entry.id === timeoutNotice.id)).toEqual(
+          authority.project("p2").log.find((entry) => entry.id === timeoutNotice.id),
+        );
+      }
       expect(checkStateInvariants(finished.game!)).toEqual({ valid: true, errors: [] });
       if (finished.status === "playing") {
         const active = finished.game!.players.filter((player) => player.status === "active");
@@ -985,5 +995,6 @@ describe("Spark browser authority", () => {
         expect(finished.game?.players.every((player) => player.rank !== null)).toBe(true);
       }
     }
+    expect(observedTimeoutNotice).toBe(true);
   });
 });

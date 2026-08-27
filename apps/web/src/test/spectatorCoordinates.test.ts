@@ -21,10 +21,7 @@ const players: PlayerView[] = ["p1", "p2", "p3", "p4"].map((id) => ({
 describe("spectator canonical table coordinates", () => {
   it("derives the scene rotation from the visible viewpoint seat", () => {
     expect(tablePerspectiveRotation(players, "player", "p3")).toBeCloseTo(Math.PI);
-    expect(tablePerspectiveRotation(players, "spectator", "watcher", "p3", "follow")).toBeCloseTo(
-      Math.PI,
-    );
-    expect(tablePerspectiveRotation(players, "spectator", "watcher", "p3", "free")).toBe(0);
+    expect(tablePerspectiveRotation(players, "spectator", "watcher")).toBe(0);
   });
 
   it("ignores departed seats without changing canonical geometry for present players", () => {

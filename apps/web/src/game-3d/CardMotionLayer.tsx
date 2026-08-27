@@ -16,8 +16,17 @@ export function cardAnchorPosition(
   anchor: CardAnchor,
   room: RoomView,
   mobile: boolean,
+  handViewpointId?: string,
 ): [number, number, number] {
-  if (anchor.kind === "hand") return [0, 1.15, mobile ? 3.75 : 4.15];
+  if (anchor.kind === "hand") {
+    const distance = mobile ? 3.75 : 4.15;
+    const viewpointIndex = Math.max(
+      0,
+      room.players.findIndex((player) => player.id === handViewpointId),
+    );
+    const rotation = (viewpointIndex / Math.max(1, room.players.length)) * Math.PI * 2;
+    return [-Math.sin(rotation) * distance, 1.15, Math.cos(rotation) * distance];
+  }
   if (anchor.kind === "field") {
     if (
       anchor.playIndex !== undefined &&
@@ -58,11 +67,13 @@ function MotionCard({
   motion,
   room,
   mobile,
+  handViewpointId,
   onDone,
 }: {
   motion: CardMotionEvent;
   room: RoomView;
   mobile: boolean;
+  handViewpointId?: string | undefined;
   onDone: (id: string) => void;
 }) {
   const root = useRef<Group>(null);
@@ -70,10 +81,13 @@ function MotionCard({
   const arrivedAt = useRef<number | undefined>(undefined);
   const finished = useRef(false);
   const from = useMemo(
-    () => cardAnchorPosition(motion.from, room, mobile),
-    [mobile, motion.from, room],
+    () => cardAnchorPosition(motion.from, room, mobile, handViewpointId),
+    [handViewpointId, mobile, motion.from, room],
   );
-  const to = useMemo(() => cardAnchorPosition(motion.to, room, mobile), [mobile, motion.to, room]);
+  const to = useMemo(
+    () => cardAnchorPosition(motion.to, room, mobile, handViewpointId),
+    [handViewpointId, mobile, motion.to, room],
+  );
   useFrame(({ clock }) => {
     if (!root.current) return;
     startedAt.current ??= clock.elapsedTime;
@@ -110,12 +124,14 @@ function QueuedMotionCard({
   motion,
   room,
   mobile,
+  handViewpointId,
 }: {
   motion: CardMotionEvent;
   room: RoomView;
   mobile: boolean;
+  handViewpointId?: string | undefined;
 }) {
-  const position = cardAnchorPosition(motion.from, room, mobile);
+  const position = cardAnchorPosition(motion.from, room, mobile, handViewpointId);
   return (
     <group position={position}>
       <Card3D card={motion.card} scale={motion.kind === "flush" ? 0.66 : 0.74} />
@@ -127,21 +143,36 @@ export function CardMotionLayer({
   motions,
   room,
   mobile,
+  handViewpointId,
   onDone,
 }: {
   motions: CardMotionEvent[];
   room: RoomView;
   mobile: boolean;
+  handViewpointId?: string | undefined;
   onDone: (id: string) => void;
 }) {
   const display = cardMotionsForDisplay(motions);
   return (
     <>
       {display.queued.map((motion) => (
-        <QueuedMotionCard key={`queued-${motion.id}`} motion={motion} room={room} mobile={mobile} />
+        <QueuedMotionCard
+          key={`queued-${motion.id}`}
+          motion={motion}
+          room={room}
+          mobile={mobile}
+          handViewpointId={handViewpointId}
+        />
       ))}
       {display.active.map((motion) => (
-        <MotionCard key={motion.id} motion={motion} room={room} mobile={mobile} onDone={onDone} />
+        <MotionCard
+          key={motion.id}
+          motion={motion}
+          room={room}
+          mobile={mobile}
+          handViewpointId={handViewpointId}
+          onDone={onDone}
+        />
       ))}
     </>
   );

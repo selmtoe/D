@@ -6,8 +6,8 @@ async function openSalon(page: Page, name: string): Promise<void> {
   const nameInput = page.getByLabel("プレイヤー名");
   await expect(nameInput).toBeVisible();
   await nameInput.fill(name);
-  await page.getByRole("button", { name: "サロンへ入る" }).click();
-  await expect(page.getByRole("heading", { name: "今夜の円卓を選ぶ" })).toBeVisible();
+  await page.getByRole("button", { name: "ロビーへ入る" }).click();
+  await expect(page.getByRole("heading", { name: "参加する部屋を選ぶ" })).toBeVisible();
 }
 
 async function contextPage(
@@ -145,7 +145,7 @@ test.describe("browser-injected authoritative room transport", () => {
 
       await openSalon(spectator.page, "観戦者");
       await joinByCode(spectator.page, authority.roomId, "spectator");
-      await expect(spectator.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
+      await expect(spectator.page.getByRole("button", { name: "プレイヤー視点" })).toBeVisible();
       await expect(spectator.page.getByRole("button", { name: "パス" })).toHaveCount(0);
       const spectatorLabels = await spectator.page
         .getByRole("listbox", { name: /手札/ })
@@ -154,11 +154,11 @@ test.describe("browser-injected authoritative room transport", () => {
       expect(spectatorLabels).toHaveLength(3);
       expect(spectatorLabels.every((label) => !label.includes("中身は非公開"))).toBe(true);
       expect(spectatorLabels.some((label) => label.includes("ブラインド札"))).toBe(true);
-      const freeMode = spectator.page.getByRole("button", { name: "キャラ移動" });
+      const freeMode = spectator.page.getByRole("button", { name: "自由に移動" });
       await freeMode.click();
       await expect(freeMode).toHaveAttribute("aria-pressed", "true");
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
-      await spectator.page.getByRole("button", { name: "憑依" }).click();
+      await spectator.page.getByRole("button", { name: "プレイヤー視点" }).click();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
 
       authority.pauseViewer("uid-spectator");

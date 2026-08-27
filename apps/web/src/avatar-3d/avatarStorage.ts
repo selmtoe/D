@@ -21,7 +21,7 @@ export function loadPresets(): { id: string; name: string; profile: AvatarProfil
     if (!Array.isArray(parsed)) return [];
     return parsed.slice(0, 8).map((item, index) => ({
       id: typeof item?.id === "string" ? item.id : `preset-${index}`,
-      name: typeof item?.name === "string" ? item.name.slice(0, 16) : `仕立て ${index + 1}`,
+      name: typeof item?.name === "string" ? item.name.slice(0, 16) : `保存 ${index + 1}`,
       profile: migrateAvatar(item?.profile),
     }));
   } catch {

@@ -1,6 +1,7 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { CardView, RoomView } from "../app/model";
+import { cardAnchorPosition } from "../game-3d/CardMotionLayer";
 import {
   CARD_BODY_THICKNESS,
   cardMotionsForDisplay,
@@ -347,6 +348,18 @@ describe("card motion projection diff", () => {
 });
 
 describe("physical card stack placement", () => {
+  it("rotates the focused spectator hand anchor to the matching canonical seat", () => {
+    const room = view(1, [], []);
+    room.role = "spectator";
+    room.viewerId = "watcher";
+
+    expect(cardAnchorPosition({ kind: "hand" }, room, false, "other")).toEqual([
+      expect.closeTo(0),
+      1.15,
+      expect.closeTo(-4.15),
+    ]);
+  });
+
   it("separates field layers by more than the scaled card body thickness", () => {
     const lower = fieldCardPlacement(0, 2, 0, 2, 0);
     const upper = fieldCardPlacement(0, 2, 1, 2, 1);
@@ -356,11 +369,28 @@ describe("physical card stack placement", () => {
     expect(upper.position[0]).not.toBe(lower.position[0]);
   });
 
+  it("keeps a large field pile clustered around the center without diagonal drift", () => {
+    const placements = Array.from({ length: 24 }, (_, layerIndex) =>
+      fieldCardPlacement(layerIndex % 5, 5, layerIndex % 3, 3, layerIndex),
+    );
+
+    expect(placements.every(({ position }) => Math.abs(position[0]) <= 0.58)).toBe(true);
+    expect(placements.every(({ position }) => Math.abs(position[2]) <= 0.38)).toBe(true);
+    const xSteps = placements
+      .slice(1)
+      .map((placement, index) =>
+        Number((placement.position[0] - placements[index]!.position[0]).toFixed(3)),
+      );
+    expect(new Set(xSteps).size).toBeGreaterThan(4);
+  });
+
   it("separates discard layers enough for both static and moving cards", () => {
     const lower = discardStackPlacement(0);
     const upper = discardStackPlacement(1);
 
     expect(DISCARD_LAYER_SPACING).toBeGreaterThan(CARD_BODY_THICKNESS * 0.74);
     expect(upper.position[1] - lower.position[1]).toBeCloseTo(DISCARD_LAYER_SPACING);
+    expect(Math.abs(lower.position[0] - 2.9)).toBeLessThanOrEqual(0.12);
+    expect(Math.abs(upper.position[2] + 1.45)).toBeLessThanOrEqual(0.09);
   });
 });

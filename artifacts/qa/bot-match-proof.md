@@ -75,7 +75,7 @@
 - 選択理由: stealのrequiredCount=1を満たす観測可能な対象を先頭から選んだ。
 - 送信command: `{"name":"resolveSteal","payload":{"roomId":"Q0000","gameId":"p2p-0-00000000-0000-4000-8000-000000000001","expectedRevision":13,"selections":[{"targetUid":"bot-3","cardId":"p2p-0-00000000-0000-4000-8000-000000000001-card-08"}],"clientActionId":"normal-3p-seed-3101-action-0010"}}`
 - authority結果: `{"ok":true,"response":{}}`
-- event: `{"publicLog":[],"ruleLog":[]}`
+- event: `{"publicLog":[{"id":"effect-resolved-normal-3p-seed-3101-action-0010-0","atMs":1700000011000,"text":"Bot 1がA奪いでBot 3からカードを1枚奪いました","kind":"effect","notice":{"kind":"steal","actorId":"bot-1","targetId":"bot-3","cardCount":1}}],"ruleLog":[]}`
 - 適用確認: `{"revisionBefore":13,"revisionAfter":14,"gameVersionBefore":9,"gameVersionAfter":10,"actionRecorded":true,"invariantValid":true,"actorHandBefore":14,"actorHandAfter":15,"actorStatusBefore":"active","actorStatusAfter":"active","pileCardIdsBefore":["p2p-0-00000000-0000-4000-8000-000000000001-card-37"],"pileCardIdsAfter":["p2p-0-00000000-0000-4000-8000-000000000001-card-37"],"pendingJokerMimicAfter":false}`
 
 ### blind authority判定: blind-3p-seed-3102 / #6 / bot-2

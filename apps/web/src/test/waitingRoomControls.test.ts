@@ -138,8 +138,8 @@ describe("waiting room controls", () => {
       { removeCpu, kick, transferHost },
     );
 
-    expect(screen.getByText("AI・NN実験")).toBeVisible();
-    expect(screen.getByText("学習済みNN · 常時接続")).toBeVisible();
+    expect(screen.getByText("CPU")).toBeVisible();
+    expect(screen.getByText("CPUプレイヤー · 常時接続")).toBeVisible();
     expect(screen.queryByRole("button", { name: "CPU 1へホストを移譲" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "CPU 1のCPU席を削除" }));

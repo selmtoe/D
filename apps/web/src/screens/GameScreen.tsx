@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CardView, PendingEffectView, Rank, RoomView, Suit } from "../app/model";
+import type { CardView, EffectNotice, PendingEffectView, Rank, RoomView, Suit } from "../app/model";
 import {
   loadPersonalSettings,
   savePersonalSettings,
@@ -43,6 +43,49 @@ const suitLabel = {
   club: "クラブ",
 } as const;
 const noPlayableCards = new Set<string>();
+
+export function formatEffectNotice(
+  notice: EffectNotice,
+  viewerId: string,
+  players: RoomView["players"],
+): string {
+  const name = (playerId: string) =>
+    players.find((player) => player.id === playerId)?.name ?? "プレイヤー";
+  const actorName = name(notice.actorId);
+  switch (notice.kind) {
+    case "steal":
+      if (notice.actorId === viewerId)
+        return `A奪い！ ${name(notice.targetId)}からカードを${notice.cardCount}枚奪った！`;
+      if (notice.targetId === viewerId)
+        return `A奪いで${actorName}にカードを${notice.cardCount}枚奪われた！`;
+      return `${actorName}が${name(notice.targetId)}からカードを${notice.cardCount}枚奪った！`;
+    case "give":
+      if (notice.targetId === viewerId)
+        return `7渡し！ ${actorName}からカードを${notice.cardCount}枚受け取った！`;
+      if (notice.actorId === viewerId)
+        return `7渡し！ ${name(notice.targetId)}にカードを${notice.cardCount}枚渡した！`;
+      return `${name(notice.targetId)}が${actorName}からカードを${notice.cardCount}枚受け取った！`;
+    case "discard":
+      return `${notice.actorId === viewerId ? "10捨て！" : `${actorName}の10捨て！`} カードを${notice.cardCount}枚捨てた！${notice.cardLabels?.length ? `（${notice.cardLabels.join("・")}）` : ""}`;
+    case "collect":
+      return `${notice.actorId === viewerId ? "K回収！" : `${actorName}のK回収！`} カードを${notice.cardCount}枚回収した！${notice.cardLabels?.length ? `（${notice.cardLabels.join("・")}）` : ""}`;
+    case "bomber": {
+      const viewerLoss = notice.losses?.find((loss) => loss.playerId === viewerId)?.cardCount;
+      const lossDetail = viewerLoss
+        ? ` あなたは${viewerLoss}枚失った！`
+        : notice.losses?.length
+          ? `（${notice.losses.map((loss) => `${name(loss.playerId)} ${loss.cardCount}枚`).join("、")}）`
+          : "";
+      return `${notice.actorId === viewerId ? "Qボンバー！" : `${actorName}のQボンバー！`} ${notice.ranks.join("・")}を${notice.cardCount}枚捨てた！${lossDetail}`;
+    }
+  }
+}
+
+const emotePresentation = {
+  applause: { symbol: "👏", label: "拍手" },
+  surprise: { symbol: "！", label: "びっくり" },
+  thinking: { symbol: "…", label: "考え中" },
+} as const;
 
 function jokerCandidateKey(candidate: { cardId: string; suit: Suit; rank: Rank }[]): string {
   return [...candidate]
@@ -216,13 +259,12 @@ export function playersForDisplay(
   players: RoomView["players"],
   role: RoomView["role"],
   viewerId: string,
-  focusedPlayerId: string | undefined,
-  spectatorMode: "follow" | "free",
 ): RoomView["players"] {
-  const viewpointId =
-    role === "spectator" ? (spectatorMode === "follow" ? focusedPlayerId : undefined) : viewerId;
-  if (!viewpointId) return players;
-  const viewerIndex = players.findIndex((player) => player.id === viewpointId);
+  // Player projections stay seat-relative. Spectators keep the authority seat
+  // order so changing focus moves the camera around the table instead of
+  // teleporting every seated player into a newly rotated array.
+  if (role !== "player") return players;
+  const viewerIndex = players.findIndex((player) => player.id === viewerId);
   return viewerIndex > 0
     ? [...players.slice(viewerIndex), ...players.slice(0, viewerIndex)]
     : players;
@@ -565,6 +607,12 @@ export function selectableEffectCardIds(
   );
 }
 
+export function shouldKeepOwnHandBright(
+  effectKind: PendingEffectView["kind"] | undefined,
+): boolean {
+  return effectKind === "bomber" || effectKind === "collect";
+}
+
 export function GameScreen({
   room,
   connection,
@@ -574,6 +622,8 @@ export function GameScreen({
   error,
   dealing,
   skipDeal,
+  finishing = false,
+  finishPresentation = () => undefined,
   leave,
   command,
 }: {
@@ -585,6 +635,8 @@ export function GameScreen({
   error?: string | undefined;
   dealing: boolean;
   skipDeal: () => void;
+  finishing?: boolean;
+  finishPresentation?: () => void;
   leave: () => void;
   command: (name: string, payload?: Record<string, unknown>) => Promise<boolean>;
 }) {
@@ -604,10 +656,27 @@ export function GameScreen({
   const [spectatorMode, setSpectatorMode] = useState<"follow" | "free">("follow");
   const [personalSettings, setPersonalSettings] = useState(loadPersonalSettings);
   const [personalSettingsOpen, setPersonalSettingsOpen] = useState(false);
+  const [reactionControlsOpen, setReactionControlsOpen] = useState(false);
+  const [effectNoticeQueue, setEffectNoticeQueue] = useState<
+    Array<{ id: string; message: string }>
+  >([]);
+  const [reactionNoticeQueue, setReactionNoticeQueue] = useState<
+    Array<{ id: string; symbol: string; message: string }>
+  >([]);
+  const knownEffectNoticeIds = useRef(
+    new Set(room.log.filter((entry) => entry.notice).map((entry) => entry.id)),
+  );
+  const knownReactionIds = useRef(new Set<string>());
+  const effectNoticeProcessedRevision = useRef(room.revision);
   const autoJokerDeclaration = useRef<string | undefined>(undefined);
   const playSubmissionPending = useRef(false);
   const passSubmissionPending = useRef(false);
   const previousRoom = useRef<RoomView | undefined>(undefined);
+  const cardMotionProcessedRevision = useRef(room.revision);
+  const finishPresentationStartedAt = useRef<number | undefined>(undefined);
+  const finishPresentationDone = useRef(false);
+  const finishPresentationCallback = useRef(finishPresentation);
+  finishPresentationCallback.current = finishPresentation;
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
   const presentPlayers = useMemo(() => playersAtTable(room.players), [room.players]);
@@ -624,16 +693,64 @@ export function GameScreen({
     [presentPlayers, room.spectators],
   );
   const peerCues = usePeerCues(room.roomId, room.viewerId, peerIds);
+  useEffect(() => {
+    effectNoticeProcessedRevision.current = room.revision;
+    const fresh = room.log.filter(
+      (entry) => entry.notice && !knownEffectNoticeIds.current.has(entry.id),
+    );
+    if (!fresh.length) return;
+    fresh.forEach((entry) => knownEffectNoticeIds.current.add(entry.id));
+    setEffectNoticeQueue((currentQueue) => [
+      ...currentQueue,
+      ...fresh.map((entry) => ({
+        id: entry.id,
+        message: formatEffectNotice(entry.notice!, room.viewerId, room.players),
+      })),
+    ]);
+  }, [room.log, room.players, room.revision, room.viewerId]);
+  useEffect(() => {
+    if (!effectNoticeQueue.length) return;
+    const timer = window.setTimeout(
+      () => setEffectNoticeQueue((currentQueue) => currentQueue.slice(1)),
+      3800,
+    );
+    return () => window.clearTimeout(timer);
+  }, [effectNoticeQueue]);
+  useEffect(() => {
+    const fresh = peerCues.recentEmotes.filter(
+      ({ cue }) => !knownReactionIds.current.has(cue.eventId),
+    );
+    if (!fresh.length) return;
+    fresh.forEach(({ cue }) => knownReactionIds.current.add(cue.eventId));
+    setReactionNoticeQueue((currentQueue) =>
+      [
+        ...currentQueue,
+        ...fresh.map(({ cue, sender }) => {
+          const presentation = emotePresentation[cue.emote];
+          const senderName =
+            room.players.find((player) => player.id === sender)?.name ??
+            room.spectators.find((spectator) => spectator.id === sender)?.name ??
+            "観戦者";
+          return {
+            id: cue.eventId,
+            symbol: presentation.symbol,
+            message: `${senderName}: ${presentation.label}`,
+          };
+        }),
+      ].slice(-3),
+    );
+  }, [peerCues.recentEmotes, room.players, room.spectators]);
+  useEffect(() => {
+    if (!reactionNoticeQueue.length) return;
+    const timer = window.setTimeout(
+      () => setReactionNoticeQueue((currentQueue) => currentQueue.slice(1)),
+      2600,
+    );
+    return () => window.clearTimeout(timer);
+  }, [reactionNoticeQueue]);
   const tableViewRotation = useMemo(
-    () =>
-      tablePerspectiveRotation(
-        room.players,
-        room.role,
-        room.viewerId,
-        spectatorFocusId,
-        spectatorMode,
-      ),
-    [room.players, room.role, room.viewerId, spectatorFocusId, spectatorMode],
+    () => tablePerspectiveRotation(room.players, room.role, room.viewerId),
+    [room.players, room.role, room.viewerId],
   );
   const remoteSpectatorPoses = useMemo(
     () => canonicalPoseMapToView(peerCues.spectatorPoses, tableViewRotation),
@@ -658,9 +775,9 @@ export function GameScreen({
   }, [peerCues.send, room.role, spectatorMode]);
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
-  const readOnly = room.role === "spectator" || me?.status !== "active";
+  const readOnly = finishing || room.role === "spectator" || me?.status !== "active";
   const canManageTable = Boolean(
-    me && me.status !== "disqualified" && room.hostId === room.viewerId,
+    !finishing && me && me.status !== "disqualified" && room.hostId === room.viewerId,
   );
   const orderedHand = useMemo(
     () => (personalSettings.autoSortHand ? sortHandWeakToStrong(room.hand) : room.hand),
@@ -687,13 +804,7 @@ export function GameScreen({
     ? `${room.gameId ?? room.generation}:${autoPassTurn.current.sequence}:${room.trickId ?? "field"}`
     : undefined;
   const displayRoom = useMemo(() => {
-    const players = playersForDisplay(
-      room.players,
-      room.role,
-      room.viewerId,
-      spectatorFocusId,
-      spectatorMode,
-    );
+    const players = playersForDisplay(room.players, room.role, room.viewerId);
     return {
       ...room,
       players,
@@ -909,6 +1020,7 @@ export function GameScreen({
   useEffect(() => {
     const previous = previousRoom.current;
     previousRoom.current = room;
+    cardMotionProcessedRevision.current = room.revision;
     if (!previous) return;
     if (cardMotionPerspectiveChanged(previous, room)) {
       setCardMotions([]);
@@ -933,6 +1045,37 @@ export function GameScreen({
       setCardMotions([]);
     }
   }, [dealing, room.role, spectatorMode]);
+  useEffect(() => {
+    if (!finishing) {
+      finishPresentationStartedAt.current = undefined;
+      finishPresentationDone.current = false;
+      return;
+    }
+    finishPresentationStartedAt.current ??= Date.now();
+    const elapsed = Date.now() - finishPresentationStartedAt.current;
+    const finishingRevisionIngested =
+      cardMotionProcessedRevision.current === room.revision &&
+      effectNoticeProcessedRevision.current === room.revision;
+    const presentationComplete =
+      finishingRevisionIngested && cardMotions.length === 0 && effectNoticeQueue.length === 0;
+    const settleMs = lowPower || reducedMotion ? 120 : 650;
+    const hardTimeoutMs = 20_000;
+    const remaining = Math.max(0, hardTimeoutMs - elapsed);
+    const delay = presentationComplete ? Math.min(settleMs, remaining) : remaining;
+    const timer = window.setTimeout(() => {
+      if (finishPresentationDone.current) return;
+      finishPresentationDone.current = true;
+      finishPresentationCallback.current();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    cardMotions.length,
+    effectNoticeQueue.length,
+    finishing,
+    lowPower,
+    reducedMotion,
+    room.revision,
+  ]);
   useEffect(() => {
     if (previousTurn.current !== room.currentPlayerId) {
       feedback("turn", muted);
@@ -1049,38 +1192,57 @@ export function GameScreen({
     void resolveEffect(directEffect, payload);
   };
   const focusedSpectator = room.players.find((player) => player.id === spectatorFocusId);
+  const cueConnectionLabel =
+    peerCues.mode === "webrtc"
+      ? "直接接続中"
+      : peerCues.mode === "firebase"
+        ? "中継接続中"
+        : peerCues.mode === "offline"
+          ? "送信できません"
+          : "接続中";
   const emoteControls = (
-    <section className="emote-controls" aria-label="エモート">
-      <span>
-        {peerCues.mode === "webrtc"
-          ? "低遅延"
-          : peerCues.mode === "firebase"
-            ? "Firebase"
-            : peerCues.mode === "offline"
-              ? "エモート停止"
-              : "接続中"}
-      </span>
-      <button
-        type="button"
-        onClick={() => void peerCues.send(emoteCue("applause"))}
-        aria-label="拍手を送る"
-      >
-        👏
-      </button>
-      <button
-        type="button"
-        onClick={() => void peerCues.send(emoteCue("surprise"))}
-        aria-label="驚きを送る"
-      >
-        !
-      </button>
-      <button
-        type="button"
-        onClick={() => void peerCues.send(emoteCue("thinking"))}
-        aria-label="思案を送る"
-      >
-        …
-      </button>
+    <section
+      className={`emote-controls${reactionControlsOpen ? " open" : ""}`}
+      aria-label="全員にリアクションを送る"
+      title={`リアクションの通信状態: ${cueConnectionLabel}`}
+    >
+      <div className="emote-toggle-wrap">
+        <button
+          type="button"
+          className="emote-toggle"
+          aria-expanded={reactionControlsOpen}
+          aria-label={reactionControlsOpen ? "リアクションを閉じる" : "リアクションを開く"}
+          onClick={() => setReactionControlsOpen((open) => !open)}
+        >
+          ☺
+        </button>
+        <small className={`cue-mode ${peerCues.mode}`}>{cueConnectionLabel}</small>
+      </div>
+      <div className="emote-actions">
+        <strong>
+          リアクション
+          <small>押すと全員の画面に表示</small>
+        </strong>
+        {(
+          [
+            ["applause", "👏", "拍手を送る"],
+            ["surprise", "!", "驚きを送る"],
+            ["thinking", "…", "思案を送る"],
+          ] as const
+        ).map(([emote, symbol, label]) => (
+          <button
+            type="button"
+            key={emote}
+            onClick={() => {
+              void peerCues.send(emoteCue(emote));
+              setReactionControlsOpen(false);
+            }}
+            aria-label={label}
+          >
+            {symbol}
+          </button>
+        ))}
+      </div>
     </section>
   );
   return (
@@ -1095,11 +1257,13 @@ export function GameScreen({
           playableIds={
             directEffect
               ? effectSelectableIds
-              : personalSettings.dimUnplayableCards
-                ? playBlocked
-                  ? noPlayableCards
-                  : playableIds
-                : undefined
+              : shouldKeepOwnHandBright(activeEffect?.kind)
+                ? undefined
+                : personalSettings.dimUnplayableCards
+                  ? playBlocked
+                    ? noPlayableCards
+                    : playableIds
+                  : undefined
           }
           handReadOnly={readOnly || busy}
           onToggleCard={
@@ -1147,25 +1311,33 @@ export function GameScreen({
           </button>
           <button
             type="button"
+            aria-label="個人設定"
             aria-haspopup="dialog"
             aria-expanded={personalSettingsOpen}
             onClick={() => setPersonalSettingsOpen(true)}
           >
-            個人設定
+            設定
           </button>
           {canManageTable && (
             <button
               type="button"
+              aria-label="参加者管理"
               aria-expanded={moderationOpen}
               onClick={() => setModerationOpen((open) => !open)}
             >
-              卓管理
+              管理
             </button>
           )}
         </div>
         <div className="turn-status" role="timer" aria-live="polite">
-          <strong>{current ? `${current.name}の手番` : "進行待ち"}</strong>
-          {room.turnDeadlineMs && (
+          <strong>
+            {finishing
+              ? "最後のカード演出を再生中"
+              : current
+                ? `${current.name}の手番`
+                : "進行待ち"}
+          </strong>
+          {!finishing && room.turnDeadlineMs && (
             <span className={seconds <= 10 ? "urgent" : ""}>残り {seconds}秒</span>
           )}
           <ConnectionBadge state={connection} />
@@ -1178,18 +1350,18 @@ export function GameScreen({
         )}
       </header>
       {moderationOpen && canManageTable && (
-        <section className="moderation-panel" aria-label="ホストの卓管理">
+        <section className="moderation-panel" aria-label="ホストの参加者管理">
           <header>
-            <strong>卓管理</strong>
+            <strong>参加者管理</strong>
             <button
               type="button"
               onClick={() => setModerationOpen(false)}
-              aria-label="卓管理を閉じる"
+              aria-label="参加者管理を閉じる"
             >
               ×
             </button>
           </header>
-          <p>キックされた対局者は失格となり、再接続できません。</p>
+          <p>退出させられた対局者は失格となり、再接続できません。</p>
           <ul>
             {presentPlayers
               .filter((player) => player.id !== room.viewerId)
@@ -1204,12 +1376,12 @@ export function GameScreen({
                     className="host-kick"
                     disabled={busy}
                     onClick={() => {
-                      if (window.confirm(`${player.name}を部屋からキックしますか？`)) {
+                      if (window.confirm(`${player.name}を部屋から退出させますか？`)) {
                         void command("kickMember", { ...payloadBase, targetUid: player.id });
                       }
                     }}
                   >
-                    キック
+                    退出させる
                   </button>
                 </li>
               ))}
@@ -1229,7 +1401,7 @@ export function GameScreen({
                       void command("kickMember", { ...payloadBase, targetUid: spectator.id })
                     }
                   >
-                    キック
+                    退出させる
                   </button>
                 </li>
               ))}
@@ -1252,9 +1424,12 @@ export function GameScreen({
       {room.role === "spectator" && (
         <section className="spectator-controls" aria-label="観戦するプレイヤー">
           <strong>
-            <span>{spectatorMode === "follow" ? "プレイヤー視点" : "自由観戦"}</span>
+            <span>{spectatorMode === "follow" ? "プレイヤー視点" : "自由に移動中"}</span>
             {spectatorMode === "follow" && focusedSpectator && (
-              <small>{focusedSpectator.name}を観戦中</small>
+              <small>
+                <span>{focusedSpectator.name}を観戦中</span>
+                <span>ほかの手札はカーソルを重ねて確認</span>
+              </small>
             )}
           </strong>
           <div className="spectator-modes">
@@ -1263,7 +1438,7 @@ export function GameScreen({
               aria-pressed={spectatorMode === "follow"}
               onClick={() => setSpectatorMode("follow")}
             >
-              憑依
+              プレイヤー視点
             </button>
             <button
               type="button"
@@ -1273,7 +1448,7 @@ export function GameScreen({
                 event.currentTarget.blur();
               }}
             >
-              キャラ移動
+              自由に移動
             </button>
           </div>
           <div className={spectatorMode === "free" ? "spectator-focus hidden" : "spectator-focus"}>
@@ -1297,20 +1472,36 @@ export function GameScreen({
                 </button>
               ))}
           </div>
-          {emoteControls}
         </section>
       )}
-      {room.role !== "spectator" && emoteControls}
+      {emoteControls}
       <CommentDanmaku
         comments={room.chat ?? []}
         lowPower={lowPower}
         reducedMotion={reducedMotion}
       />
+      {effectNoticeQueue[0] && (
+        <aside className="effect-notification" role="status" aria-live="assertive">
+          <span aria-hidden="true">効果</span>
+          <strong>{effectNoticeQueue[0].message}</strong>
+        </aside>
+      )}
+      {reactionNoticeQueue[0] && (
+        <aside className="reaction-notification" role="status" aria-live="polite">
+          <b aria-hidden="true">{reactionNoticeQueue[0].symbol}</b>
+          <span>{reactionNoticeQueue[0].message}</span>
+        </aside>
+      )}
+      {finishing && (
+        <p className="finishing-status" role="status" aria-live="polite">
+          カードの移動と効果演出が終わってから結果を表示します
+        </p>
+      )}
       {dealing && !(room.role === "spectator" && spectatorMode === "free") && (
         <section className="dealing-overlay" aria-live="polite">
-          <p className="eyebrow">DEALING</p>
+          <p className="eyebrow">配札中</p>
           <h2>カードを配っています</h2>
-          <p>中央のデックから各席へ順番に配札中。権威状態は確定済みです。</p>
+          <p>中央の山札から各席へ順番に配っています。カードの内容はすでに決まっています。</p>
           <button type="button" onClick={skipDeal}>
             配札演出をスキップ
           </button>
@@ -1354,7 +1545,13 @@ export function GameScreen({
         <AccessibleHand
           cards={orderedHand}
           selectedIds={selectedIds}
-          playableIds={playBlocked ? noPlayableCards : playableIds}
+          playableIds={
+            shouldKeepOwnHandBright(activeEffect?.kind)
+              ? undefined
+              : playBlocked
+                ? noPlayableCards
+                : playableIds
+          }
           onToggle={readOnly || busy ? () => undefined : selectCard}
           onSubmit={openPlay}
           readOnly={readOnly || busy}

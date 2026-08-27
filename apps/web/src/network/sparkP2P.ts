@@ -1355,13 +1355,15 @@ export class SparkP2PSession {
   private async broadcastCue(cue: CueEvent, senderUid: string): Promise<void> {
     if (!this.authority) return;
     const snapshot = this.authority.exportSnapshot();
-    for (const member of Object.values(snapshot.members)) {
-      if (!member.cpu && member.uid !== senderUid && member.online) {
-        await this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid }).catch(
-          () => undefined,
-        );
-      }
-    }
+    await Promise.all(
+      Object.values(snapshot.members)
+        .filter((member) => !member.cpu && member.uid !== senderUid && member.online)
+        .map((member) =>
+          this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid }).catch(
+            () => undefined,
+          ),
+        ),
+    );
   }
 
   async sendCue(cue: CueEvent): Promise<void> {

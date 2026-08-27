@@ -68,7 +68,7 @@ export function PersonalSettingsDialog({
       >
         <header>
           <div>
-            <p className="eyebrow">LOCAL PREFERENCES</p>
+            <p className="eyebrow">この端末の設定</p>
             <h2 id="personal-settings-title">個人設定</h2>
           </div>
           <button

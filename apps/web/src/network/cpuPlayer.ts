@@ -448,6 +448,17 @@ function safeFallback(candidates: readonly CpuCandidate[]): CpuCandidate | undef
 }
 
 /**
+ * A blind play can disqualify its owner. Keep it as a last resort only when no
+ * visible legal play or legal pass exists; the NN still ranks every safe option.
+ */
+export function riskFilteredCpuCandidates(
+  candidates: readonly CpuCandidate[],
+): readonly CpuCandidate[] {
+  const safe = candidates.filter((candidate) => !candidate.authorityJudgedBlind);
+  return safe.length > 0 ? safe : candidates;
+}
+
+/**
  * Chooses among authority-validated candidates with the trained CandidateScorer neural network.
  * The model never sees another player's hidden face; rule validation remains authoritative.
  */
@@ -456,8 +467,9 @@ export function chooseCpuDecision(
   view: RoomView,
   actorId: string,
 ): CpuDecision | undefined {
-  const candidates = legalCpuCandidates(game, view, actorId);
-  if (candidates.length === 0) return undefined;
+  const legalCandidates = legalCpuCandidates(game, view, actorId);
+  if (legalCandidates.length === 0) return undefined;
+  const candidates = riskFilteredCpuCandidates(legalCandidates);
   try {
     const state = encodeCpuState(view, actorId);
     const scores = scoreCpuCandidates(

@@ -13,6 +13,30 @@ async function capture(page: Page, path: string): Promise<void> {
   await page.screenshot({ path });
 }
 
+async function expectUiInsideViewport(page: Page, selectors: string[]): Promise<void> {
+  const result = await page.evaluate((requestedSelectors) => {
+    const viewportHeight = window.visualViewport?.height ?? innerHeight;
+    return requestedSelectors.map((selector) => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) return { selector, present: false, inside: false };
+      const rect = element.getBoundingClientRect();
+      const visible =
+        getComputedStyle(element).display !== "none" && rect.width > 0 && rect.height > 0;
+      return {
+        selector,
+        present: visible,
+        inside:
+          visible &&
+          rect.left >= -0.5 &&
+          rect.right <= innerWidth + 0.5 &&
+          rect.top >= -0.5 &&
+          rect.bottom <= viewportHeight + 0.5,
+      };
+    });
+  }, selectors);
+  expect(result).toEqual(selectors.map((selector) => ({ selector, present: true, inside: true })));
+}
+
 async function readFreeRoamPose(page: Page): Promise<{
   x: number;
   y: number;
@@ -156,7 +180,7 @@ async function reconnectPage(
   if (role === "player") {
     await expect(page.getByRole("button", { name: "パス" })).toBeVisible();
   } else {
-    await expect(page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "プレイヤー視点" })).toBeVisible();
   }
   return { context, page };
 }
@@ -305,8 +329,55 @@ test.describe("single-canvas visual gameplay inspection", () => {
       { lowPower: true },
     );
     try {
-      await expect(spectator.page.locator("canvas").first()).toBeVisible();
+      const followCanvas = spectator.page.locator("canvas").first();
+      await expect(followCanvas).toBeVisible();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
+      await expect(followCanvas).toHaveAttribute("data-spectator-camera-position", /.+/);
+      const cameraBefore = (await followCanvas.getAttribute("data-spectator-camera-position"))!
+        .split(",")
+        .map(Number);
+      const playerTwoFocus = spectator.page.getByRole("button", { name: "プレイヤー2" });
+      await playerTwoFocus.click();
+      await expect(playerTwoFocus).toHaveAttribute("aria-pressed", "true");
+      await expect
+        .poll(async () => followCanvas.getAttribute("data-spectator-camera-position"))
+        .not.toBe(cameraBefore.join(","));
+      await spectator.page.waitForTimeout(900);
+      const cameraAfter = (await followCanvas.getAttribute("data-spectator-camera-position"))!
+        .split(",")
+        .map(Number);
+      expect(
+        Math.hypot(cameraAfter[0]! - cameraBefore[0]!, cameraAfter[2]! - cameraBefore[2]!),
+      ).toBeGreaterThan(8);
+      expect(Math.hypot(cameraAfter[0]!, cameraAfter[2]!)).toBeCloseTo(
+        Math.hypot(cameraBefore[0]!, cameraBefore[2]!),
+        0,
+      );
+      await expect(followCanvas).toHaveAttribute("data-spectator-inspect-points", /\d/, {
+        timeout: 15_000,
+      });
+      const inspectPoint = String(await followCanvas.getAttribute("data-spectator-inspect-points"))
+        .split(";")[0]!
+        .split(":")
+        .map(Number);
+      const followBounds = await followCanvas.boundingBox();
+      expect(followBounds).not.toBeNull();
+      if (followBounds) {
+        await spectator.page.mouse.move(
+          followBounds.x + (inspectPoint[0] ?? 0),
+          followBounds.y + (inspectPoint[1] ?? 0),
+        );
+        if (mobile) {
+          await spectator.page.mouse.down();
+          await spectator.page.mouse.up();
+        }
+      }
+      const handPreview = spectator.page.locator(".spectator-hand-preview");
+      await expect(handPreview).toBeVisible({ timeout: 15_000 });
+      await expect(handPreview).toBeInViewport();
+      expect(await handPreview.locator("[data-spectator-inspect-card]").count()).toBeGreaterThan(0);
+      await capture(spectator.page, testInfo.outputPath("spectator-opponent-hand-inspect.png"));
+      await expect(handPreview).toBeVisible();
       if (mobile) {
         expect(
           await spectator.page.locator(".spectator-focus button").evaluateAll((buttons) =>
@@ -318,14 +389,19 @@ test.describe("single-canvas visual gameplay inspection", () => {
         ).toBe(true);
       }
       await capture(spectator.page, testInfo.outputPath("spectator-follow-view.png"));
+      await spectator.page.getByRole("button", { name: "リアクションを開く" }).click();
+      await spectator.page.getByRole("button", { name: "拍手を送る" }).click();
+      await expect(observer.page.locator(".reaction-notification")).toContainText("観戦者: 拍手", {
+        timeout: 15_000,
+      });
 
-      await spectator.page.getByRole("button", { name: "キャラ移動" }).click();
+      await spectator.page.getByRole("button", { name: "自由に移動" }).click();
       await expect(
-        spectator.page.getByText(mobile ? /キャラクターを移動/ : /WASD／矢印で移動/),
+        spectator.page.getByText(mobile ? /左のボタンで移動/ : /WASD／マウスで移動/),
       ).toBeVisible();
       await expect(spectator.page.getByRole("button", { name: "ジャンプ" })).toBeVisible();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
-      const canvas = spectator.page.locator("canvas").first();
+      const canvas = followCanvas;
       await expect(canvas).toHaveAttribute("data-free-roam-pose", /.+/);
       const observerCanvas = observer.page.locator("canvas").first();
       await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "1", {
@@ -336,13 +412,30 @@ test.describe("single-canvas visual gameplay inspection", () => {
       const bounds = await canvas.boundingBox();
       expect(bounds).not.toBeNull();
       if (bounds) {
-        await spectator.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-        await spectator.page.mouse.down();
-        await spectator.page.mouse.move(
-          bounds.x + bounds.width / 2 + 85,
-          bounds.y + bounds.height / 2 - 20,
-        );
-        await spectator.page.mouse.up();
+        const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        if (mobile) {
+          await spectator.page.mouse.move(center.x, center.y);
+          await spectator.page.mouse.down();
+          await spectator.page.mouse.move(center.x + 85, center.y - 20);
+          await spectator.page.mouse.up();
+        } else {
+          await canvas.click({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
+          await expect
+            .poll(() =>
+              spectator.page.evaluate(
+                () => document.pointerLockElement === document.querySelector("canvas"),
+              ),
+            )
+            .toBe(true);
+          await spectator.page.evaluate(() => {
+            const event = new MouseEvent("mousemove", { bubbles: true });
+            Object.defineProperties(event, {
+              movementX: { value: 85 },
+              movementY: { value: -20 },
+            });
+            document.dispatchEvent(event);
+          });
+        }
       }
       const poseAfterTurn = await readFreeRoamPose(spectator.page);
       expect(Math.abs(poseAfterTurn.yaw - poseBeforeTurn.yaw)).toBeGreaterThan(0.05);
@@ -394,7 +487,8 @@ test.describe("single-canvas visual gameplay inspection", () => {
         (await canvas.getAttribute("data-free-roam-peak-y")) ?? Number.NaN,
       );
       expect(peakBeforeJump).toBeGreaterThanOrEqual(0.05);
-      await spectator.page.getByRole("button", { name: "ジャンプ" }).click();
+      if (mobile) await spectator.page.getByRole("button", { name: "ジャンプ" }).click();
+      else await spectator.page.keyboard.press("Space");
       await expect
         .poll(
           async () => Number((await canvas.getAttribute("data-free-roam-peak-y")) ?? Number.NaN),
@@ -406,6 +500,16 @@ test.describe("single-canvas visual gameplay inspection", () => {
       expect(
         await spectator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       ).toBe(true);
+      if (mobile) {
+        await expectUiInsideViewport(spectator.page, [
+          ".game-topbar",
+          ".status-stack",
+          ".spectator-controls",
+          ".free-roam-controls",
+          ".emote-controls",
+          ".log-toggle",
+        ]);
+      }
       await spectator.page.keyboard.press("Escape");
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
       await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "0", {
@@ -431,7 +535,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
         .filter({ hasText: "プレイヤー3" });
       await expect(oldSeatName).toHaveCount(0);
 
-      await spectator.page.getByRole("button", { name: "キャラ移動" }).click();
+      await spectator.page.getByRole("button", { name: "自由に移動" }).click();
       await expect(oldSeatName).toHaveCount(0);
       await expect(
         spectator.page.locator(".character-name-tag--spectator").filter({ hasText: "プレイヤー3" }),
@@ -699,7 +803,6 @@ test.describe("single-canvas visual gameplay inspection", () => {
     test.setTimeout(90_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
-    authority.forceFinishedRankings();
     const context = await browser.newContext({
       viewport:
         testInfo.project.name === "mobile-chromium"
@@ -714,6 +817,9 @@ test.describe("single-canvas visual gameplay inspection", () => {
     const page = await context.newPage();
     try {
       await page.goto(`/?room=${authority.roomId}&role=player`);
+      await expect(page.locator(".game-screen")).toBeVisible();
+      authority.forceFinishedRankings();
+      await expect(page.getByText(/カードの移動と効果演出が終わってから結果/)).toBeVisible();
       await expect(page.getByRole("heading", { name: "対局結果" })).toBeVisible();
       const rows = page.getByRole("listitem");
       await expect(rows).toHaveCount(3);
@@ -721,6 +827,37 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(rows.nth(1)).toContainText("2位プレイヤー3");
       await expect(rows.nth(2)).toContainText("3位プレイヤー2");
       await capture(page, testInfo.outputPath("rankings-numerical-order.png"));
+      const replay = page.getByRole("button", { name: "リプレイを見る" });
+      await expect(replay).toBeEnabled();
+      await replay.click();
+      await expect(page.getByRole("dialog", { name: "リプレイ" })).toBeVisible();
+      await expect(page.getByRole("slider", { name: "リプレイ位置" })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "再生速度" })).toBeVisible();
+      await expectUiInsideViewport(page, [
+        ".replay-dialog",
+        ".replay-stage",
+        ".replay-timeline",
+        ".replay-controls",
+      ]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await capture(page, testInfo.outputPath("match-replay-dialog.png"));
+      if (testInfo.project.name === "mobile-chromium") {
+        await page.setViewportSize({ width: 844, height: 390 });
+        await expectUiInsideViewport(page, [
+          ".replay-dialog",
+          ".replay-stage",
+          ".replay-timeline",
+          ".replay-controls",
+        ]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        await capture(page, testInfo.outputPath("match-replay-dialog-landscape.png"));
+      }
+      await page.getByRole("button", { name: "リプレイを閉じる" }).click();
+      await expect(replay).toBeFocused();
     } finally {
       await closeContext(context);
     }

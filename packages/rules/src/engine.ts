@@ -398,7 +398,10 @@ function resolvePendingSelection(
   return null;
 }
 
-function deterministicSelection(state: GameState, effect: PendingEffect): EffectSelection {
+export function deterministicEffectSelection(
+  state: GameState,
+  effect: PendingEffect,
+): EffectSelection {
   const actor = playerById(state, effect.actorId)!;
   switch (effect.type) {
     case "recover":
@@ -532,13 +535,18 @@ function disqualifyPlayer(
   return null;
 }
 
-function weakestVisibleOpening(state: GameState, playerId: string): { cardIds: string[] } | null {
+function weakestVisibleOpening(
+  state: GameState,
+  playerId: string,
+): { cardIds: string[]; blindConfirmed?: boolean } | null {
   const player = playerById(state, playerId)!;
   if (state.firstPlay) {
     const diamondThree = player.hand.find(
-      (entry) => !entry.blind && entry.card.suit === "diamond" && entry.card.rank === "3",
+      (entry) => entry.card.suit === "diamond" && entry.card.rank === "3",
     );
-    return diamondThree === undefined ? null : { cardIds: [diamondThree.card.id] };
+    return diamondThree === undefined
+      ? null
+      : { cardIds: [diamondThree.card.id], blindConfirmed: diamondThree.blind };
   }
   const candidates = player.hand
     .filter((entry) => !entry.blind)
@@ -595,7 +603,7 @@ export function applyGameCommand(
         return failure(state, "INVALID_EFFECT", "only the pending actor can time out");
       error = resolvePendingSelection(
         next,
-        deterministicSelection(next, next.pendingEffect),
+        deterministicEffectSelection(next, next.pendingEffect),
         events,
       );
     } else {
@@ -606,7 +614,18 @@ export function applyGameCommand(
         const opening = weakestVisibleOpening(next, command.playerId);
         if (opening === null) error = advanceAfterPass(next, command.playerId, events, true);
         else
-          error = applyPlay(next, { ...command, type: "play", cardIds: opening.cardIds }, events);
+          error = applyPlay(
+            next,
+            {
+              ...command,
+              type: "play",
+              cardIds: opening.cardIds,
+              ...(opening.blindConfirmed === undefined
+                ? {}
+                : { blindConfirmed: opening.blindConfirmed }),
+            },
+            events,
+          );
       }
     }
   } else {

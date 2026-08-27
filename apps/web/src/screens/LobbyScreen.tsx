@@ -110,7 +110,7 @@ export function LobbyScreen({
       <header className="topbar">
         <div>
           <span className="brand-mark">大富豪</span>
-          <p>サロンロビー</p>
+          <p>対戦ロビー</p>
         </div>
         <ConnectionBadge state={connection} />
         <div className="profile-chip">
@@ -120,8 +120,8 @@ export function LobbyScreen({
       </header>
       <section className="lobby-actions" aria-labelledby="lobby-actions-title">
         <div>
-          <p className="eyebrow">CHOOSE YOUR TABLE</p>
-          <h1 id="lobby-actions-title">今夜の円卓を選ぶ</h1>
+          <p className="eyebrow">部屋を選ぶ</p>
+          <h1 id="lobby-actions-title">参加する部屋を選ぶ</h1>
         </div>
         <button type="button" className="primary create-room" disabled={busy} onClick={create}>
           {busy ? "接続中…" : "新しい部屋を作る"}
@@ -157,7 +157,7 @@ export function LobbyScreen({
       <section className="public-rooms" aria-labelledby="public-title">
         <header>
           <div>
-            <p className="eyebrow">OPEN TABLES</p>
+            <p className="eyebrow">公開部屋</p>
             <h2 id="public-title">公開中の部屋</h2>
           </div>
           <span>{rooms.length}室</span>

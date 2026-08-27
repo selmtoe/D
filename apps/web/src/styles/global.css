@@ -946,6 +946,9 @@ h2 {
   font-size: 0.68rem;
   font-weight: 500;
 }
+.spectator-controls strong small span {
+  display: block;
+}
 .spectator-controls .spectator-modes {
   flex: 0 0 auto;
   padding-right: 0.5rem;
@@ -960,6 +963,82 @@ h2 {
 .spectator-controls button[aria-pressed="true"] {
   background: #d7b668;
   color: #14201c;
+}
+.spectator-hand-preview {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  top: 55%;
+  width: min(82vw, 980px);
+  padding: 0.5rem 0.75rem 0.8rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgb(215 182 104 / 54%);
+  border-radius: 18px;
+  background: rgb(5 18 16 / 88%);
+  box-shadow: 0 18px 54px rgb(0 0 0 / 68%);
+  pointer-events: none;
+}
+.spectator-hand-preview > strong {
+  display: block;
+  margin-bottom: 0.42rem;
+  color: #fff4d9;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.spectator-hand-preview > div {
+  display: flex;
+  justify-content: center;
+  min-height: 9.2rem;
+}
+.spectator-preview-card {
+  position: relative;
+  flex: 0 0 clamp(82px, 7vw, 116px);
+  aspect-ratio: 1 / 1.46;
+  overflow: hidden;
+  border: 3px solid #d8cfb8;
+  border-radius: 9px;
+  color: #151515;
+  background: #f6f0df;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 48%);
+}
+.spectator-preview-card + .spectator-preview-card {
+  margin-left: -2.35rem;
+}
+.spectator-preview-card.red {
+  color: #a71924;
+}
+.spectator-preview-index {
+  position: absolute;
+  z-index: 2;
+  top: 0.26rem;
+  left: 0.3rem;
+  font-weight: 900;
+  font-size: clamp(0.82rem, 1.4vw, 1.15rem);
+  line-height: 1;
+}
+.spectator-preview-index.bottom {
+  inset: auto 0.3rem 0.26rem auto;
+  transform: rotate(180deg);
+}
+.spectator-preview-pip {
+  position: absolute;
+  font-size: clamp(0.72rem, 1.35vw, 1.18rem);
+  line-height: 1;
+  transform-origin: center;
+}
+.spectator-preview-court {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: Georgia, serif;
+  font-size: clamp(2.2rem, 4vw, 4.2rem);
+  font-weight: 900;
+}
+.spectator-preview-court.joker {
+  font-size: clamp(0.72rem, 1.5vw, 1.25rem);
+  letter-spacing: 0.04em;
+  writing-mode: vertical-rl;
 }
 .free-roam-controls {
   position: absolute;
@@ -1002,30 +1081,145 @@ h2 {
 }
 .emote-controls {
   position: absolute;
-  z-index: 5;
-  left: max(0.65rem, env(safe-area-inset-left));
-  top: 92px;
+  z-index: 7;
+  right: max(0.65rem, env(safe-area-inset-right));
+  top: 50%;
   display: flex;
+  transform: translateY(-50%);
+  flex-direction: row-reverse;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.3rem;
+  padding: 0.25rem;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--panel);
+  background: rgba(5, 18, 16, 0.88);
+  backdrop-filter: blur(8px);
 }
-.emote-controls span {
-  padding: 0 0.3rem;
+.emote-toggle-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.16rem;
+}
+.emote-controls .emote-toggle {
+  flex: 0 0 auto;
+  width: 44px;
+  padding: 0;
+  color: #16221e;
+  background: var(--brass);
+  font-size: 1.05rem;
+}
+.cue-mode {
+  color: #bdc8c1;
+  font-size: 0.5rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+.cue-mode::before {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: 0.2rem;
+  border-radius: 50%;
+  background: #d8bd6b;
+  content: "";
+}
+.cue-mode.webrtc::before {
+  background: #69d59b;
+}
+.cue-mode.firebase::before {
+  background: #70baf2;
+}
+.cue-mode.offline::before {
+  background: #e18a8a;
+}
+.emote-actions {
+  display: none;
+  width: 96px;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+.emote-controls.open .emote-actions {
+  display: flex;
+}
+.emote-controls strong {
+  display: grid;
+  color: #e8d69f;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-align: center;
+}
+.emote-controls strong small {
   color: #aeb8b1;
-  font-size: 0.6rem;
+  font-size: 0.56rem;
+  font-weight: 500;
 }
 .emote-controls button {
   width: 44px;
+  min-height: 40px;
   padding: 0;
 }
-.spectator-controls > .emote-controls {
-  position: static;
-  z-index: auto;
-  flex: 0 0 auto;
+.effect-notification,
+.reaction-notification {
+  position: absolute;
+  z-index: 12;
+  left: 50%;
+  pointer-events: none;
+  transform: translateX(-50%);
+  border: 1px solid rgb(240 206 117 / 68%);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 48%);
+  backdrop-filter: blur(10px);
+  animation: notice-arrive 220ms ease-out;
+}
+.effect-notification {
+  top: 17%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  width: min(560px, calc(100% - 1.5rem));
+  padding: 0.72rem 0.85rem;
+  border-radius: 14px;
+  background: rgb(27 25 16 / 94%);
+}
+.effect-notification > span {
+  padding: 0.25rem 0.42rem;
+  border-radius: 7px;
+  color: #13211d;
+  background: var(--brass);
+  font-size: 0.65rem;
+  font-weight: 900;
+}
+.effect-notification strong {
+  color: #fff8dc;
+  font-size: clamp(0.86rem, 2vw, 1.05rem);
+}
+.reaction-notification {
+  top: 31%;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 999px;
+  color: #fff8dc;
+  background: rgb(9 32 28 / 92%);
+  font-weight: 800;
+}
+.reaction-notification b {
+  font-size: 1.25rem;
+}
+@keyframes notice-arrive {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .effect-notification,
+  .reaction-notification {
+    animation: none;
+  }
 }
 .comment-danmaku {
   position: absolute;
@@ -2095,6 +2289,127 @@ h2 {
   margin-top: 1rem;
 }
 
+.finishing-status {
+  position: fixed;
+  z-index: 75;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  width: min(34rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.7rem 1rem;
+  border: 1px solid rgb(239 207 127 / 54%);
+  border-radius: 999px;
+  color: #fff4d1;
+  background: rgb(5 18 16 / 90%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 42%);
+  text-align: center;
+}
+
+.replay-backdrop {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right))
+    max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  background: rgb(2 9 8 / 88%);
+  backdrop-filter: blur(10px);
+}
+.replay-dialog {
+  width: min(1080px, 100%);
+  height: min(820px, calc(100svh - 1.5rem));
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 0.65rem;
+  padding: clamp(0.75rem, 2vw, 1.2rem);
+  border: 1px solid rgb(220 190 112 / 48%);
+  border-radius: 22px;
+  background: #071513;
+  box-shadow: 0 26px 90px rgb(0 0 0 / 65%);
+}
+.replay-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.replay-dialog > header h2,
+.replay-dialog > header p,
+.replay-description {
+  margin: 0;
+}
+.replay-dialog > header > button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 1.45rem;
+}
+.replay-description {
+  color: #b9c6bf;
+  font-size: 0.82rem;
+}
+.replay-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgb(215 182 104 / 26%);
+  border-radius: 16px;
+  background: #06100f;
+}
+.replay-canvas {
+  position: absolute;
+  inset: 0;
+}
+.replay-caption {
+  position: absolute;
+  z-index: 2;
+  right: 0.7rem;
+  bottom: 0.7rem;
+  left: 0.7rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  color: #fff7df;
+  background: rgb(4 15 13 / 80%);
+  pointer-events: none;
+}
+.replay-caption strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-timeline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+.replay-timeline input {
+  width: 100%;
+  min-height: 44px;
+}
+
+.replay-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.replay-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.replay-controls select {
+  min-height: 42px;
+}
+
 @media (max-width: 720px) {
   .entrance-screen {
     align-items: end;
@@ -2176,13 +2491,27 @@ h2 {
     flex: 0 0 auto;
   }
   .game-topbar {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(110px, 1fr) auto;
+    gap: 0.25rem;
+    padding-inline: 0.35rem;
   }
   .game-topbar .brand-mark {
     display: none;
   }
   .game-topbar .profile-chip span {
     display: none;
+  }
+  .game-topbar > div:first-child {
+    gap: 0.2rem;
+  }
+  .game-topbar > div:first-child button {
+    min-width: 48px;
+    padding-inline: 0.45rem;
+    font-size: 0.72rem;
+  }
+  .game-topbar .profile-chip .avatar-portrait {
+    width: 36px;
+    height: 36px;
   }
   .turn-status {
     padding: 0.35rem 0.55rem;
@@ -2225,8 +2554,39 @@ h2 {
   .spectator-controls button {
     padding-inline: 0.65rem;
   }
-  .game-screen.spectator .emote-controls span {
+  .spectator-hand-preview {
+    top: 58%;
+    width: calc(100% - 1rem);
+    padding: 0.4rem 0.45rem 0.6rem;
+  }
+  .spectator-hand-preview > div {
+    min-height: 7.2rem;
+  }
+  .spectator-preview-card {
+    flex-basis: 78px;
+  }
+  .spectator-preview-card + .spectator-preview-card {
+    margin-left: -2.15rem;
+  }
+  .emote-controls {
+    right: max(0.3rem, env(safe-area-inset-right));
+    padding: 0.2rem;
+  }
+  .emote-controls strong {
+    font-size: 0.56rem;
+    white-space: nowrap;
+  }
+  .emote-controls strong small {
     display: none;
+  }
+  .effect-notification {
+    top: 24%;
+    width: calc(100% - 1rem);
+    padding: 0.6rem;
+  }
+  .reaction-notification {
+    top: 35%;
+    max-width: calc(100% - 1rem);
   }
   .play-controls {
     bottom: max(66px, calc(env(safe-area-inset-bottom) + 60px));
@@ -2247,8 +2607,15 @@ h2 {
     transform: none;
   }
   .log-toggle {
-    width: 92px;
+    width: 104px;
     padding-inline: 0.3rem;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .game-screen.free-roam .log-toggle {
+    right: max(0.5rem, env(safe-area-inset-right));
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    left: auto;
   }
   .effect-panel {
     left: 0.5rem;
@@ -2277,6 +2644,25 @@ h2 {
   }
   .free-roam-controls {
     bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .free-roam-controls button[aria-label="前へ進む"] {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .free-roam-controls button[aria-label="左へ移動"] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .free-roam-controls button[aria-label="後ろへ進む"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .free-roam-controls button[aria-label="右へ移動"] {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .free-roam-controls .free-roam-jump {
+    grid-row: 3;
   }
   .game-screen.free-roam.log-open .effect-observer-status {
     display: none;
@@ -2440,6 +2826,66 @@ h2 {
   .result-card .avatar-portrait {
     width: 46px;
     height: 46px;
+  }
+  .replay-backdrop {
+    padding: max(0.3rem, env(safe-area-inset-top)) max(0.3rem, env(safe-area-inset-right))
+      max(0.3rem, env(safe-area-inset-bottom)) max(0.3rem, env(safe-area-inset-left));
+  }
+  .replay-dialog {
+    height: calc(100svh - 0.6rem);
+    gap: 0.4rem;
+    padding: 0.55rem;
+    border-radius: 14px;
+  }
+  .replay-description {
+    font-size: 0.7rem;
+    line-height: 1.35;
+  }
+  .replay-caption {
+    right: 0.35rem;
+    bottom: 0.35rem;
+    left: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.72rem;
+  }
+  .replay-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 0.35rem;
+  }
+  .replay-controls button,
+  .replay-controls select {
+    min-height: 40px;
+    padding-inline: 0.45rem;
+  }
+  .replay-controls label {
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .replay-dialog {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 34vw);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+  .replay-dialog > header,
+  .replay-description {
+    grid-column: 1 / -1;
+  }
+  .replay-stage {
+    grid-row: 3 / 5;
+  }
+  .replay-timeline,
+  .replay-controls {
+    grid-column: 2;
+  }
+  .replay-controls {
+    align-self: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .replay-controls label {
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 }
 

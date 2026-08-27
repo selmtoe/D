@@ -27,7 +27,7 @@ describe("entrance reconnect guard", () => {
 
     const reconnect = screen.getByRole("button", { name: "部屋へ再接続中…" });
     expect(reconnect).toBeDisabled();
-    expect(screen.getByRole("button", { name: "アバターを仕立てる" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "アバターを編集" })).toBeDisabled();
     fireEvent.submit(reconnect.closest("form")!);
     expect(enter).not.toHaveBeenCalled();
     expect(openEditor).not.toHaveBeenCalled();

@@ -11,6 +11,8 @@ export interface RemoteSpectatorParticipant {
   id: string;
   name: string;
   avatar: AvatarProfileV1;
+  rank?: number;
+  disqualified?: boolean;
 }
 
 /** A finished player can free-roam too, so pose owners may come from either room list. */
@@ -21,7 +23,13 @@ export function remoteSpectatorParticipants(
   const candidates = new Map<string, RemoteSpectatorParticipant>();
   for (const player of room.players) {
     if (player.present === false) continue;
-    candidates.set(player.id, { id: player.id, name: player.name, avatar: player.avatar });
+    candidates.set(player.id, {
+      id: player.id,
+      name: player.name,
+      avatar: player.avatar,
+      ...(player.rank === undefined ? {} : { rank: player.rank }),
+      ...(player.status === "disqualified" ? { disqualified: true } : {}),
+    });
   }
   for (const spectator of room.spectators) {
     candidates.set(spectator.id, {
@@ -49,14 +57,35 @@ function RemoteSpectatorAvatar({
   lowPower: boolean;
 }) {
   const root = useRef<Group>(null);
-  const target = useMemo(
-    () => new Vector3(participant.pose.x, participant.pose.y, participant.pose.z),
-    [participant.pose.x, participant.pose.y, participant.pose.z],
-  );
+  const target = useRef(new Vector3(participant.pose.x, participant.pose.y, participant.pose.z));
+  const predicted = useMemo(() => new Vector3(), []);
+  const velocity = useRef(new Vector3());
+  const receivedAt = useRef(performance.now());
+  const previousPose = useRef(participant.pose);
+  useEffect(() => {
+    const previous = previousPose.current;
+    const elapsedSeconds = Math.max(0.016, (participant.pose.atMs - previous.atMs) / 1_000);
+    velocity.current
+      .set(
+        participant.pose.x - previous.x,
+        participant.pose.y - previous.y,
+        participant.pose.z - previous.z,
+      )
+      .divideScalar(elapsedSeconds)
+      .clampLength(0, 6.5);
+    if (!participant.pose.moving) velocity.current.set(0, 0, 0);
+    target.current.set(participant.pose.x, participant.pose.y, participant.pose.z);
+    previousPose.current = participant.pose;
+    receivedAt.current = performance.now();
+  }, [participant.pose]);
   useFrame((_, delta) => {
     if (!root.current) return;
-    const factor = 1 - Math.exp(-Math.min(delta, 0.1) * 12);
-    root.current.position.lerp(target, factor);
+    const factor = 1 - Math.exp(-Math.min(delta, 0.1) * 18);
+    const extrapolationSeconds = participant.pose.moving
+      ? Math.min(0.1, Math.max(0, (performance.now() - receivedAt.current) / 1_000))
+      : 0;
+    predicted.copy(target.current).addScaledVector(velocity.current, extrapolationSeconds);
+    root.current.position.lerp(predicted, factor);
     root.current.rotation.y = lerpAngle(
       root.current.rotation.y,
       participant.pose.yaw + Math.PI,
@@ -71,7 +100,12 @@ function RemoteSpectatorAvatar({
       rotation={[0, participant.pose.yaw + Math.PI, 0]}
     >
       <Avatar3D profile={participant.avatar} lowPower={lowPower} active={participant.pose.moving} />
-      <CharacterNameTag name={participant.name} kind="spectator" />
+      <CharacterNameTag
+        name={participant.name}
+        rank={participant.rank}
+        disqualified={participant.disqualified}
+        kind="spectator"
+      />
       <mesh position={[0, 0.032, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.66, 0.78, lowPower ? 18 : 32]} />
         <meshBasicMaterial color="#78d8ff" transparent opacity={0.74} />

@@ -47,7 +47,7 @@ describe("application state machine", () => {
     ["dealing", "DEALING"],
     ["playing", "PLAYING_TURN"],
     ["effect", "AWAITING_FORCED_EFFECT"],
-    ["finished", "FINISHED"],
+    ["finished", "FINISHING"],
   ] as const)("maps %s to %s", (serverPhase, appPhase) =>
     expect(transition(initialAppState, { type: "ROOM_VIEW", room: room(serverPhase) }).phase).toBe(
       appPhase,
@@ -57,6 +57,21 @@ describe("application state machine", () => {
     expect(
       transition(initialAppState, { type: "ROOM_VIEW", room: room("playing", "spectator") }).role,
     ).toBe("spectator"));
+  it("enters the result only after the finish presentation completes", () => {
+    const finishing = transition(initialAppState, {
+      type: "ROOM_VIEW",
+      room: room("finished"),
+    });
+    expect(finishing.phase).toBe("FINISHING");
+    const finished = transition(finishing, { type: "FINISH_PRESENTATION_DONE" });
+    expect(finished.phase).toBe("FINISHED");
+    expect(
+      transition(finished, {
+        type: "ROOM_VIEW",
+        room: { ...room("finished"), revision: 2 },
+      }).phase,
+    ).toBe("FINISHED");
+  });
   it("ignores an out-of-order room projection", () => {
     const current = { ...room("playing"), revision: 4 };
     const state = transition(initialAppState, { type: "ROOM_VIEW", room: current });

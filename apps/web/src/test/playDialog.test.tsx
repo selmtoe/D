@@ -122,15 +122,14 @@ describe("play confirmation dialog", () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it("keeps authoritative seat order stable in free spectator mode", () => {
+  it("keeps authoritative seat order stable in every spectator mode", () => {
     const players = ["p1", "p2", "p3"].map((id) => ({ id })) as RoomView["players"];
 
-    expect(playersForDisplay(players, "spectator", "spectator", "p2", "follow")).toEqual([
+    expect(playersForDisplay(players, "spectator", "spectator")).toBe(players);
+    expect(playersForDisplay(players, "player", "p2")).toEqual([
       players[1],
       players[2],
       players[0],
     ]);
-    expect(playersForDisplay(players, "spectator", "spectator", "p2", "free")).toBe(players);
-    expect(playersForDisplay(players, "spectator", "spectator", "p3", "free")).toBe(players);
   });
 });

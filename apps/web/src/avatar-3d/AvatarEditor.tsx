@@ -193,7 +193,7 @@ export function AvatarEditor({
       ...presets,
       {
         id: crypto.randomUUID(),
-        name: `仕立て ${presets.length + 1}`,
+        name: `保存 ${presets.length + 1}`,
         profile: structuredClone(draft),
       },
     ].slice(-8);
@@ -231,8 +231,8 @@ export function AvatarEditor({
       >
         <header>
           <div>
-            <p className="eyebrow">CHARACTER ATELIER</p>
-            <h2 id="avatar-title">アバターを仕立てる</h2>
+            <p className="eyebrow">アバター編集</p>
+            <h2 id="avatar-title">アバターを編集</h2>
             <p id="avatar-description">共通3Dパーツから、ゲームをまたいで使う姿を選びます。</p>
           </div>
           <button

@@ -24,11 +24,15 @@ export function currentTurnSpotlightPresentation(
 
 export function CharacterNameTag({
   name,
+  rank,
+  disqualified = false,
   currentTurn = false,
   kind = "player",
   mobile = false,
 }: {
   name: string;
+  rank?: number | undefined;
+  disqualified?: boolean | undefined;
   currentTurn?: boolean;
   kind?: CharacterLabelKind;
   mobile?: boolean;
@@ -47,6 +51,7 @@ export function CharacterNameTag({
         data-current-turn={currentTurn || undefined}
       >
         <span>{displayName}</span>
+        {disqualified ? <small>失格</small> : rank !== undefined && <small>{rank}位</small>}
         {currentTurn && <small>手番</small>}
       </div>
     </Html>

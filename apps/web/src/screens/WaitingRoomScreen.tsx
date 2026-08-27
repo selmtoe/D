@@ -81,7 +81,7 @@ export function WaitingRoomScreen({
       <section className="waiting-card">
         <header>
           <div>
-            <p className="eyebrow">PRIVATE ROOM</p>
+            <p className="eyebrow">待機中の部屋</p>
             <h1>
               部屋 <span className="room-code">{room.roomId}</span>
             </h1>
@@ -143,11 +143,11 @@ export function WaitingRoomScreen({
                       <div>
                         <strong>
                           {player.name}
-                          {player.cpu && <span className="cpu-badge">AI・NN実験</span>}
+                          {player.cpu && <span className="cpu-badge">CPU</span>}
                         </strong>
                         <span>
                           {player.cpu
-                            ? "学習済みNN · 常時接続"
+                            ? "CPUプレイヤー · 常時接続"
                             : `${player.host ? "ホスト · " : ""}${
                                 player.connection === "online"
                                   ? "接続中"
@@ -170,7 +170,7 @@ export function WaitingRoomScreen({
                                 onClick={() => transferHost(player.id)}
                                 aria-label={`${player.name}へホストを移譲`}
                               >
-                                ホスト移譲
+                                ホストにする
                               </button>
                             )}
                             <button
@@ -182,7 +182,7 @@ export function WaitingRoomScreen({
                                   window.confirm(
                                     player.cpu
                                       ? `${player.name}を削除しますか？`
-                                      : `${player.name}を部屋からキックしますか？`,
+                                      : `${player.name}を部屋から退出させますか？`,
                                   )
                                 ) {
                                   if (player.cpu) removeCpu(player.id);
@@ -192,10 +192,10 @@ export function WaitingRoomScreen({
                               aria-label={
                                 player.cpu
                                   ? `${player.name}のCPU席を削除`
-                                  : `${player.name}を部屋からキック`
+                                  : `${player.name}を部屋から退出させる`
                               }
                             >
-                              {player.cpu ? "CPUを削除" : "キック"}
+                              {player.cpu ? "CPUを削除" : "退出させる"}
                             </button>
                           </div>
                         )
@@ -224,11 +224,11 @@ export function WaitingRoomScreen({
                         className="host-kick"
                         disabled={busy}
                         onClick={() => {
-                          if (window.confirm(`${spectator.name}を部屋からキックしますか？`))
+                          if (window.confirm(`${spectator.name}を部屋から退出させますか？`))
                             kick(spectator.id);
                         }}
                       >
-                        キック
+                        退出させる
                       </button>
                     )}
                   </li>

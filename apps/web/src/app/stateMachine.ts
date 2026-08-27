@@ -6,7 +6,7 @@ export function phaseForRoom(room: RoomView): AppPhase {
   if (room.phase === "waiting") return "ROOM_WAITING";
   if (room.phase === "dealing") return "DEALING";
   if (room.phase === "effect") return "AWAITING_FORCED_EFFECT";
-  if (room.phase === "finished") return "FINISHED";
+  if (room.phase === "finished") return "FINISHING";
   return "PLAYING_TURN";
 }
 
@@ -52,21 +52,28 @@ export function transition(state: AppState, event: AppEvent): AppState {
         room: event.room,
         role: event.room.role,
         phase:
-          state.phase === "DEALING" &&
+          state.phase === "FINISHED" &&
           state.room?.roomId === event.room.roomId &&
           state.room.gameId === event.room.gameId &&
-          event.room.phase === "playing"
-            ? "DEALING"
-            : state.room?.phase === "waiting" &&
-                event.room.phase === "playing" &&
-                state.room.gameId !== event.room.gameId
+          event.room.phase === "finished"
+            ? "FINISHED"
+            : state.phase === "DEALING" &&
+                state.room?.roomId === event.room.roomId &&
+                state.room.gameId === event.room.gameId &&
+                event.room.phase === "playing"
               ? "DEALING"
-              : phaseForRoom(event.room),
+              : state.room?.phase === "waiting" &&
+                  event.room.phase === "playing" &&
+                  state.room.gameId !== event.room.gameId
+                ? "DEALING"
+                : phaseForRoom(event.room),
         connection: "connected",
         error: undefined,
       };
     case "DEALING_DONE":
       return state.phase === "DEALING" ? { ...state, phase: "PLAYING_TURN" } : state;
+    case "FINISH_PRESENTATION_DONE":
+      return state.phase === "FINISHING" ? { ...state, phase: "FINISHED" } : state;
     case "LEAVE_ROOM":
       return { phase: "SALON_LOBBY", connection: state.connection, profile: state.profile };
     case "EVICTED":

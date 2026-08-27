@@ -78,8 +78,8 @@ async function openSalon(page: Page, name: string): Promise<void> {
   await page.goto("/");
   await expect(page.getByLabel("プレイヤー名")).toBeVisible();
   await page.getByLabel("プレイヤー名").fill(name);
-  await page.getByRole("button", { name: "サロンへ入る" }).click();
-  await expect(page.getByRole("heading", { name: "今夜の円卓を選ぶ" })).toBeVisible();
+  await page.getByRole("button", { name: "ロビーへ入る" }).click();
+  await expect(page.getByRole("heading", { name: "参加する部屋を選ぶ" })).toBeVisible();
 }
 
 async function playSingle(page: Page, cardName: RegExp): Promise<void> {
@@ -154,7 +154,7 @@ test.describe("rulebook authority contracts", () => {
       await roomRow
         .getByRole("button", { name: `公開ホストの部屋 ${authority.roomId} を観戦` })
         .click();
-      await expect(spectator.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
+      await expect(spectator.page.getByRole("button", { name: "プレイヤー視点" })).toBeVisible();
       await spectator.page.getByRole("button", { name: "ログ／チャット" }).click();
       await spectator.page.getByPlaceholder("メッセージ").fill("観戦からよろしくお願いします");
       await spectator.page.getByRole("button", { name: "送信", exact: true }).click();
@@ -177,7 +177,7 @@ test.describe("rulebook authority contracts", () => {
       ).toBeVisible();
       const spectatorFallback = await view(authority, "spectator-ui");
       expect(spectatorFallback.focusedPlayerId).toBe("host-ui");
-      await expect(player.page.getByText("プレイヤー視点", { exact: true })).toBeVisible();
+      await expect(player.page.getByRole("button", { name: "プレイヤー視点" })).toBeVisible();
       const finishedView = await view(authority, "player-ui");
       expect(finishedView.role).toBe("spectator");
       expect(finishedView.rankings).toContainEqual({
@@ -186,7 +186,7 @@ test.describe("rulebook authority contracts", () => {
         reason: "finished",
       });
       await player.page.getByRole("button", { name: "退出", exact: true }).click();
-      await expect(player.page.getByRole("heading", { name: "今夜の円卓を選ぶ" })).toBeVisible();
+      await expect(player.page.getByRole("heading", { name: "参加する部屋を選ぶ" })).toBeVisible();
       await expect(view(authority, "player-ui")).rejects.toThrow(/部屋のメンバーではありません/);
     } finally {
       await Promise.all(contexts.map((context) => context.close().catch(() => undefined)));

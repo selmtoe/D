@@ -1,7 +1,12 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { checkStateInvariants } from "@daifugo/rules";
 import { describe, expect, it } from "vitest";
-import { chooseCpuDecision, legalCpuCandidates } from "../network/cpuPlayer";
+import {
+  chooseCpuDecision,
+  legalCpuCandidates,
+  riskFilteredCpuCandidates,
+  type CpuCandidate,
+} from "../network/cpuPlayer";
 import { cpuPolicyMetadata, scoreCpuCandidates } from "../network/cpuPolicyRuntime";
 import { SparkAuthority } from "../network/sparkAuthority";
 
@@ -28,6 +33,24 @@ describe("trained browser CPU policy", () => {
     ]);
     expect(scores[0]).toBeCloseTo(-1.543562650680542, 5);
     expect(scores[1]).toBeCloseTo(-1.543562650680542, 5);
+  });
+
+  it("lets the NN consider blind plays only when every legal choice is blind", () => {
+    const visible: CpuCandidate = {
+      kind: "play",
+      commandName: "submitPlay",
+      payload: { cardIds: ["visible"] },
+    };
+    const blind: CpuCandidate = {
+      kind: "play",
+      commandName: "submitPlay",
+      payload: { cardIds: ["blind"], blindConfirmed: true },
+      authorityJudgedBlind: true,
+    };
+    const pass: CpuCandidate = { kind: "pass", commandName: "submitPass", payload: {} };
+
+    expect(riskFilteredCpuCandidates([blind, visible, pass])).toEqual([visible, pass]);
+    expect(riskFilteredCpuCandidates([blind])).toEqual([blind]);
   });
 
   it("adds/removes host-controlled CPU seats and projects them explicitly", () => {

@@ -7,11 +7,19 @@ import {
   DirectEffectControls,
   eligibleEffectTargetPlayerIds,
   selectableEffectCardIds,
+  shouldKeepOwnHandBright,
 } from "../screens/GameScreen";
 
 afterEach(cleanup);
 
 describe("direct effect card eligibility", () => {
+  it("keeps the hand bright while choosing Q bomber or K collect", () => {
+    expect(shouldKeepOwnHandBright("bomber")).toBe(true);
+    expect(shouldKeepOwnHandBright("collect")).toBe(true);
+    expect(shouldKeepOwnHandBright("give")).toBe(false);
+    expect(shouldKeepOwnHandBright(undefined)).toBe(false);
+  });
+
   it("temporarily excludes a K-recovery card that is still moving into discard", () => {
     const selectable = selectableEffectCardIds(["moving", "ready"], "collect", new Set(["moving"]));
 

@@ -6,15 +6,27 @@ import type { CueEvent, SpectatorPoseCue } from "./peerCues";
 export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
   const [mode, setMode] = useState<"connecting" | "webrtc" | "firebase" | "offline">("connecting");
   const [lastCue, setLastCue] = useState<{ cue: CueEvent; sender: string }>();
+  const [recentEmotes, setRecentEmotes] = useState<
+    Array<{ cue: Extract<CueEvent, { type: "emote" }>; sender: string }>
+  >([]);
   const [spectatorPoses, setSpectatorPoses] = useState<ReadonlyMap<string, SpectatorPoseCue>>(
     () => new Map(),
   );
   const latestSpectatorPoseAtMs = useRef(new Map<string, number>());
+  const receivedCueIds = useRef(new Set<string>());
   const peerKey = peerIds.join("|");
 
   const receiveCue = useCallback((cue: CueEvent, sender: string) => {
     if (cue.type !== "spectatorPose") {
+      if (receivedCueIds.current.has(cue.eventId)) return;
+      receivedCueIds.current.add(cue.eventId);
+      if (receivedCueIds.current.size > 256) {
+        receivedCueIds.current.delete(receivedCueIds.current.values().next().value!);
+      }
       setLastCue({ cue, sender });
+      if (cue.type === "emote") {
+        setRecentEmotes((current) => [...current, { cue, sender }].slice(-8));
+      }
       return;
     }
 
@@ -32,6 +44,8 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
 
   useEffect(() => {
     latestSpectatorPoseAtMs.current.clear();
+    receivedCueIds.current.clear();
+    setRecentEmotes([]);
     setSpectatorPoses(new Map());
   }, [roomId, uid]);
 
@@ -88,5 +102,5 @@ export function usePeerCues(roomId: string, uid: string, peerIds: string[]) {
     },
     [roomId, uid],
   );
-  return { mode, lastCue, spectatorPoses, send };
+  return { mode, lastCue, recentEmotes, spectatorPoses, send };
 }

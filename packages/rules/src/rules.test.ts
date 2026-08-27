@@ -98,7 +98,7 @@ describe("deck, deal, and blind assignment", () => {
     assertStateInvariants(state);
   });
 
-  it("marks exactly the requested count, keeps blinds at the end, and does not exempt diamond three", () => {
+  it("marks the requested count, keeps blinds at the end, and always exposes diamond three", () => {
     const state = createInitialGameState(["a", "b", "c"], {
       mode: "blind",
       blindCount: 10,
@@ -114,7 +114,7 @@ describe("deck, deal, and blind assignment", () => {
     )!;
     expect(
       owner.hand.find((entry) => entry.card.suit === "diamond" && entry.card.rank === "3")?.blind,
-    ).toBe(true);
+    ).toBe(false);
     expect(owner.hand.find((entry) => entry.blind)?.card.id).not.toMatch(
       /spade|heart|diamond|club|joker/i,
     );
@@ -228,6 +228,29 @@ describe("state transitions and rank effects", () => {
     state.firstPlay = true;
     expect(() => validatePlayForState(state, "p1", ["heart-3"])).toThrow(/diamond three/);
     expect(validatePlayForState(state, "p1", ["diamond-3", "heart-3"]).kind).toBe("group");
+  });
+
+  it("recovers a legacy blind diamond three by playing it safely on opening timeout", () => {
+    const state = rig(["p1", "p2", "p3"], {
+      p1: [["diamond-3", true], "club-4"],
+      p2: ["spade-5"],
+      p3: ["spade-6"],
+    });
+    state.mode = "blind";
+    state.blindCount = 1;
+    state.firstPlay = true;
+
+    const result = applyGameCommand(state, {
+      type: "timeout",
+      actionId: "blind-opening-timeout",
+      expectedVersion: state.version,
+      playerId: "p1",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.players.find((player) => player.id === "p1")?.status).toBe("active");
+    expect(result.state.pile?.cards[0]?.card).toMatchObject({ suit: "diamond", rank: "3" });
   });
 
   it("four fours revolutionize but do not reverse", () => {

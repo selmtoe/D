@@ -55,6 +55,21 @@ describe("peer cue hook", () => {
     expect(result.current.mode).toBe("offline");
   });
 
+  it("queues a locally echoed reaction once and rejects the same event id twice", async () => {
+    const cue = emoteCue("applause");
+    peer.sendCue.mockImplementationOnce(async (sentCue) => {
+      peer.state.cueListener?.(sentCue, "viewer");
+    });
+    const { result } = renderHook(() => usePeerCues("ABCDE", "viewer", ["viewer", "host"]));
+
+    await act(async () => {
+      await result.current.send(cue);
+    });
+    act(() => peer.state.cueListener?.(cue, "viewer"));
+
+    expect(result.current.recentEmotes).toEqual([{ cue, sender: "viewer" }]);
+  });
+
   it("tracks the latest active spectator pose by trusted sender", () => {
     const { result } = renderHook(() => usePeerCues("ABCDE", "viewer", ["viewer", "host"]));
     const first = spectatorPoseCue(

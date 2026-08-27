@@ -61,7 +61,7 @@ export function EffectPanel({
         (!["steal", "give"].includes(effect.kind) || assigned);
   return (
     <section className="effect-panel" aria-labelledby="effect-title">
-      <p className="eyebrow">FORCED EFFECT</p>
+      <p className="eyebrow">カード効果</p>
       <h2 id="effect-title">
         {
           {

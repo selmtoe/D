@@ -38,6 +38,15 @@ const COLLECT_RANK_ORDER = [
 ] as const;
 const COLLECT_SUIT_ORDER = ["spade", "heart", "diamond", "club"] as const;
 
+function stackJitter(index: number, salt: number): number {
+  const value = Math.sin((index + 1) * 12.9898 + salt * 78.233) * 43_758.5453;
+  return (value - Math.floor(value)) * 2 - 1;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function sortCardsForCollectRack(cards: readonly CardView[]): CardView[] {
   const rankIndexes = new Map<string, number>(
     COLLECT_RANK_ORDER.map((rank, index) => [rank, index]),
@@ -83,13 +92,16 @@ export function fieldCardPlacement(
 } {
   const centeredPlay = playIndex - (Math.max(1, playCount) - 1) / 2;
   const centeredCard = cardIndex - (Math.max(1, cardCount) - 1) / 2;
+  const cardSpread = Math.min(0.2, 0.44 / Math.max(1, cardCount - 1));
+  const jitterX = stackJitter(layerIndex, 1) * 0.3;
+  const jitterZ = stackJitter(layerIndex, 2) * 0.24;
   return {
     position: [
-      centeredPlay * 0.38 + centeredCard * 0.54,
+      clamp(jitterX + centeredCard * cardSpread, -0.58, 0.58),
       0.16 + layerIndex * FIELD_LAYER_SPACING,
-      centeredPlay * 0.5 + Math.abs(centeredCard) * 0.025,
+      clamp(jitterZ + centeredPlay * 0.035, -0.38, 0.38),
     ],
-    rotation: [-Math.PI / 2, 0, centeredPlay * 0.018 + centeredCard * 0.022],
+    rotation: [-Math.PI / 2, 0, stackJitter(layerIndex, 3) * 0.09],
     scale: FIELD_CARD_SCALE,
     renderOrder: 100 + layerIndex,
   };
@@ -100,8 +112,12 @@ export function discardStackPlacement(cardIndex: number): {
   rotation: [number, number, number];
 } {
   return {
-    position: [2.9, 0.15 + cardIndex * DISCARD_LAYER_SPACING, -1.45],
-    rotation: [-Math.PI / 2, 0, ((cardIndex % 5) - 2) * 0.018],
+    position: [
+      2.9 + stackJitter(cardIndex, 4) * 0.12,
+      0.15 + cardIndex * DISCARD_LAYER_SPACING,
+      -1.45 + stackJitter(cardIndex, 5) * 0.09,
+    ],
+    rotation: [-Math.PI / 2, 0, stackJitter(cardIndex, 6) * 0.08],
   };
 }
 

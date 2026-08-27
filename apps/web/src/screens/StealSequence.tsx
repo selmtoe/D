@@ -116,6 +116,12 @@ export function StealSequence({
     if (cue?.type !== "animation" || cue.cue !== "steal" || lastCue?.sender !== effect.actorId)
       return;
     const isVictim = cue.targetPlayerId === room.viewerId;
+    const observerCards =
+      room.role === "spectator"
+        ? (room.players.find((player) => player.id === cue.targetPlayerId)?.cards ?? [])
+            .filter((card) => !effect.eligibleCardIds || effect.eligibleCardIds.includes(card.id))
+            .slice(0, cue.cardCount)
+        : undefined;
     onVisual({
       stage: cue.stage,
       perspective: isVictim ? "victim" : "observer",
@@ -126,6 +132,7 @@ export function StealSequence({
       ...(cue.slot === undefined ? {} : { slot: cue.slot }),
       ...(cue.pointerX === undefined ? {} : { pointerX: cue.pointerX }),
       ...(cue.selectedSlots ? { selectedSlots: cue.selectedSlots } : {}),
+      ...(observerCards ? { cards: observerCards } : {}),
     });
     if (isVictim) {
       const actorName = room.players.find((player) => player.id === effect.actorId)?.name ?? "相手";
@@ -135,7 +142,16 @@ export function StealSequence({
           : `${actorName}があなたの札を選んでいます`,
       );
     }
-  }, [actor, effect.actorId, lastCue, onVisual, room.players, room.viewerId]);
+  }, [
+    actor,
+    effect.actorId,
+    effect.eligibleCardIds,
+    lastCue,
+    onVisual,
+    room.players,
+    room.role,
+    room.viewerId,
+  ]);
 
   const updateAllocation = (playerId: string, delta: number) => {
     setAllocations((current) => {
@@ -291,7 +307,7 @@ export function StealSequence({
     if (!status) return null;
     return (
       <section className="steal-panel victim" aria-live="polite">
-        <p className="eyebrow">A STEAL · LIVE</p>
+        <p className="eyebrow">A奪い・相手が選択中</p>
         <h2>相手が札を選択中</h2>
         <p>{status}</p>
         <p className="steal-victim-note">相手の指先は卓上に表示されます。操作は必要ありません。</p>
@@ -301,7 +317,7 @@ export function StealSequence({
 
   return (
     <section className="steal-panel" aria-labelledby="steal-title">
-      <p className="eyebrow">FORCED EFFECT · A STEAL</p>
+      <p className="eyebrow">カード効果・A奪い</p>
       <h2 id="steal-title">A奪い</h2>
       <p>{effect.message}</p>
       <ol className="steal-progress" aria-label="A奪いの進行">

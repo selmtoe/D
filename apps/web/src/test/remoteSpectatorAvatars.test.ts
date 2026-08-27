@@ -21,7 +21,17 @@ function room(): RoomView {
         cardCount: 0,
         connection: "online",
         status: "finished",
+        rank: 1,
         host: true,
+      },
+      {
+        id: "disqualified",
+        name: "失格者",
+        avatar: defaultAvatar,
+        cardCount: 0,
+        connection: "online",
+        status: "disqualified",
+        host: false,
       },
       {
         id: "departed",
@@ -60,13 +70,20 @@ describe("remote free-roam spectators", () => {
       ["self-watcher", active(1)],
       ["other-watcher", active(2)],
       ["player", active(3)],
-      ["departed", active(4)],
-      ["forged-outsider", active(5)],
+      ["disqualified", active(4)],
+      ["departed", active(5)],
+      ["forged-outsider", active(6)],
     ]);
 
     const participants = remoteSpectatorParticipants(room(), poses);
 
-    expect(participants.map((participant) => participant.id)).toEqual(["other-watcher", "player"]);
+    expect(participants.map((participant) => participant.id)).toEqual([
+      "other-watcher",
+      "player",
+      "disqualified",
+    ]);
     expect(participants[0]?.avatar).toEqual(defaultAvatar);
+    expect(participants[1]?.rank).toBe(1);
+    expect(participants[2]?.disqualified).toBe(true);
   });
 });

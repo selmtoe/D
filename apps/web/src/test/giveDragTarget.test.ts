@@ -3,6 +3,7 @@ import { Group, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { CardView, PlayerView } from "../app/model";
 import {
+  canInspectSpectatorOpponentHand,
   containFreeRoamCamera,
   collectCardInteractionLayout,
   handCardHitArea,
@@ -13,6 +14,7 @@ import {
   nearestGiveTarget,
   opponentHandCardForDisplay,
   opponentHandRackPresentation,
+  shouldShowOpponentFaceFromBack,
   playersAtTable,
   playersForPerspective,
   resetFreeRoamInput,
@@ -39,6 +41,13 @@ const players: PlayerView[] = ["self", "right", "opposite", "left"].map((id) => 
 }));
 
 describe("7-give drag target", () => {
+  it("lets a following spectator inspect only hands other than the possessed player", () => {
+    expect(canInspectSpectatorOpponentHand("spectator", "follow", "right", "self")).toBe(true);
+    expect(canInspectSpectatorOpponentHand("spectator", "follow", "self", "self")).toBe(false);
+    expect(canInspectSpectatorOpponentHand("spectator", "free", "right", "self")).toBe(false);
+    expect(canInspectSpectatorOpponentHand("player", "follow", "right", "self")).toBe(false);
+  });
+
   it("accepts only an eligible seat near the drop point", () => {
     const eligible = new Set(["right", "opposite"]);
     expect(nearestGiveTarget(players, eligible, [-5.35, 1.2, 0.1])).toBe("right");
@@ -135,6 +144,19 @@ describe("opponent hand ownership orientation", () => {
     });
     expect(opponentHandCardForDisplay(face, true)).toBe(face);
   });
+
+  it("keeps a blind opponent card face visible because blind faces are public", () => {
+    const blindFace: CardView = {
+      id: "opponent-blind",
+      visibility: "face",
+      suit: "diamond",
+      rank: "9",
+      blind: true,
+    };
+
+    expect(opponentHandCardForDisplay(blindFace, false)).toBe(blindFace);
+    expect(shouldShowOpponentFaceFromBack(blindFace, false)).toBe(true);
+  });
 });
 
 describe("hand card hit areas", () => {
@@ -196,15 +218,15 @@ describe("K-collect card hit areas", () => {
 });
 
 describe("free-roam camera bounds", () => {
-  it("keeps the third-person camera in front of the solid salon walls", () => {
-    const behindLeftWall = { x: -12, z: 3 };
-    const behindRightAndRearWalls = { x: 11, z: -13 };
+  it("lets the third-person camera cross the former walls and caps only distant travel", () => {
+    const formerWalls = { x: -12, z: -13 };
+    const distant = { x: 19, z: -21 };
 
-    containFreeRoamCamera(behindLeftWall);
-    containFreeRoamCamera(behindRightAndRearWalls);
+    containFreeRoamCamera(formerWalls);
+    containFreeRoamCamera(distant);
 
-    expect(behindLeftWall).toEqual({ x: -6.62, z: 3 });
-    expect(behindRightAndRearWalls).toEqual({ x: 6.62, z: -7.62 });
+    expect(formerWalls).toEqual({ x: -12, z: -13 });
+    expect(distant).toEqual({ x: 15, z: -15 });
   });
 });
 
@@ -212,8 +234,8 @@ describe("3D frame scheduling", () => {
   it("keeps full frame rates only for active scene motion", () => {
     expect(sceneFrameRate(false, true, false)).toBe(60);
     expect(sceneFrameRate(true, true, false)).toBe(30);
-    expect(sceneFrameRate(false, false, true)).toBe(30);
-    expect(sceneFrameRate(true, false, true)).toBe(24);
+    expect(sceneFrameRate(false, false, true)).toBe(60);
+    expect(sceneFrameRate(true, false, true)).toBe(30);
     expect(sceneFrameRate(false, false, false)).toBe(8);
     expect(sceneFrameRate(true, false, false)).toBe(1);
   });

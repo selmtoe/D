@@ -37,11 +37,11 @@ test("rules dialog traps focus and Escape returns it to the opener", async ({ pa
   await expect(opener).toBeFocused();
 });
 
-test("avatar atelier exposes real catalog choices and restores focus", async ({ page }) => {
+test("avatar editor exposes real catalog choices and restores focus", async ({ page }) => {
   await openOfflineEntrance(page);
-  const opener = page.getByRole("button", { name: "アバターを仕立てる" });
+  const opener = page.getByRole("button", { name: "アバターを編集" });
   await opener.click();
-  const dialog = page.getByRole("dialog", { name: "アバターを仕立てる" });
+  const dialog = page.getByRole("dialog", { name: "アバターを編集" });
   await expect(dialog).toBeVisible({ timeout: 20_000 });
   await expect(
     dialog.getByRole("region", { name: "3Dアバタープレビュー" }).locator("canvas"),

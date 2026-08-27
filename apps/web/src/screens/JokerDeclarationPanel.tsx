@@ -33,7 +33,7 @@ export function JokerDeclarationPanel({
   };
   return (
     <section className="effect-panel joker-declaration" aria-labelledby="joker-declaration-title">
-      <p className="eyebrow">BLIND JOKER REVEALED</p>
+      <p className="eyebrow">ブラインドJokerを公開</p>
       <h2 id="joker-declaration-title">Jokerの擬態を宣言</h2>
       <p>
         ブラインドJokerが公開されました。組合せ依存を保った合法候補セットから一つ選んでください。
