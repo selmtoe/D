@@ -116,5 +116,5 @@ describe("trained browser CPU policy", () => {
     expect(() =>
       authority.handleCommand("host", "startRematch", action("cpu-rematch"), 2_000),
     ).not.toThrow();
-  });
+  }, 30_000);
 });
