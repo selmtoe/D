@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReplayFrame } from "../app/replay";
-import { replayElapsedMs, replayFrameSummary } from "../app/replay";
+import {
+  replayElapsedMs,
+  replayFrameSummary,
+  replayPerspectivePlayerId,
+  replayRoomForPerspective,
+} from "../app/replay";
 import { SalonScene } from "../game-3d/SalonScene";
 import { deriveCardMotions, type CardMotionEvent } from "../game-3d/cardMotion";
 
@@ -28,12 +33,20 @@ export function ReplayDialog({
   const [playing, setPlaying] = useState(!reducedMotion && frames.length > 1);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [cardMotions, setCardMotions] = useState<CardMotionEvent[]>([]);
+  const [perspectivePlayerId, setPerspectivePlayerId] = useState<string>();
   const previousIndex = useRef(0);
   const dialog = useRef<HTMLElement>(null);
   const playButton = useRef<HTMLButtonElement>(null);
   const frame = frames[frameIndex] ?? frames[0];
   const elapsed = replayElapsedMs(frames, frameIndex);
   const totalElapsed = replayElapsedMs(frames, Math.max(0, frames.length - 1));
+  const resolvedPerspectivePlayerId = frame
+    ? replayPerspectivePlayerId(frame, perspectivePlayerId)
+    : undefined;
+  const replayRoom = useMemo(
+    () => (frame ? replayRoomForPerspective(frame, resolvedPerspectivePlayerId) : undefined),
+    [frame, resolvedPerspectivePlayerId],
+  );
 
   useEffect(() => {
     playButton.current?.focus();
@@ -50,15 +63,21 @@ export function ReplayDialog({
     return () => window.clearTimeout(timer);
   }, [frameIndex, frames, playing, speed]);
   useEffect(() => {
-    const previous = frames[previousIndex.current]?.room;
-    const next = frames[frameIndex]?.room;
+    const previousFrame = frames[previousIndex.current];
+    const nextFrame = frames[frameIndex];
+    const previous = previousFrame
+      ? replayRoomForPerspective(previousFrame, resolvedPerspectivePlayerId)
+      : undefined;
+    const next = nextFrame
+      ? replayRoomForPerspective(nextFrame, resolvedPerspectivePlayerId)
+      : undefined;
     const movingForward = frameIndex === previousIndex.current + 1;
     previousIndex.current = frameIndex;
     setCardMotions(previous && next && movingForward ? deriveCardMotions(previous, next) : []);
-  }, [frameIndex, frames]);
+  }, [frameIndex, frames, resolvedPerspectivePlayerId]);
 
   const summary = useMemo(() => (frame ? replayFrameSummary(frame) : "記録なし"), [frame]);
-  if (!frame) return null;
+  if (!frame || !replayRoom) return null;
 
   const seek = (index: number) => {
     setFrameIndex(Math.max(0, Math.min(frames.length - 1, index)));
@@ -107,12 +126,12 @@ export function ReplayDialog({
           </button>
         </header>
         <p id="replay-description" className="replay-description">
-          対局中にあなたの画面から見えていた内容を再生します。伏せられていた札は後からも公開しません。
+          視点を選んで対局を再生できます。他の人の手札は、その人のカードにカーソルを近づけるかタップすると確認できます。記録時に伏せられていた札は後からも公開しません。
         </p>
         <div className="replay-stage" aria-label="3D対局リプレイ">
           <div className="replay-canvas" aria-hidden="true">
             <SalonScene
-              room={frame.room}
+              room={replayRoom}
               lowPower={lowPower}
               reducedMotion={reducedMotion}
               handReadOnly
@@ -177,6 +196,25 @@ export function ReplayDialog({
           >
             次へ
           </button>
+          <label>
+            視点
+            <select
+              value={resolvedPerspectivePlayerId ?? ""}
+              aria-label="リプレイ視点"
+              onChange={(event) => {
+                setPlaying(false);
+                setPerspectivePlayerId(event.currentTarget.value);
+              }}
+            >
+              {frame.room.players
+                .filter((player) => player.present !== false)
+                .map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.name}
+                  </option>
+                ))}
+            </select>
+          </label>
           <label>
             速度
             <select

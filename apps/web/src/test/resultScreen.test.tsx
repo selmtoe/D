@@ -8,7 +8,14 @@ vi.mock("../avatar-3d/AvatarPortrait", () => ({
   AvatarPortrait: ({ label }: { label: string }) => <span aria-label={label} />,
 }));
 vi.mock("../game-3d/SalonScene", () => ({
-  SalonScene: () => <div data-testid="replay-scene" />,
+  SalonScene: ({ room }: { room: RoomView }) => (
+    <div
+      data-testid="replay-scene"
+      data-role={room.role}
+      data-viewpoint={room.focusedPlayerId}
+      data-hand={room.hand.map((card) => card.id).join(",")}
+    />
+  ),
 }));
 
 afterEach(cleanup);
@@ -209,7 +216,7 @@ describe("result rankings", () => {
       suitLock: [],
       field: [],
       discard: [],
-      hand: [],
+      hand: [{ id: "p1-card", visibility: "face", suit: "spade", rank: "3", blind: false }],
       pendingEffects: [],
       rankings: [],
       log: [],
@@ -227,7 +234,15 @@ describe("result rankings", () => {
     fireEvent.click(screen.getByRole("button", { name: "リプレイを見る" }));
     expect(screen.getByRole("dialog", { name: "リプレイ" })).toBeInTheDocument();
     expect(screen.getByText(/伏せられていた札は後からも公開しません/)).toBeInTheDocument();
-    expect(screen.getByTestId("replay-scene")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "リプレイ視点" })).toHaveValue("p1");
+    expect(screen.getByTestId("replay-scene")).toHaveAttribute("data-role", "spectator");
+    expect(screen.getByTestId("replay-scene")).toHaveAttribute("data-viewpoint", "p1");
+    expect(screen.getByTestId("replay-scene")).toHaveAttribute("data-hand", "p1-card");
+    fireEvent.change(screen.getByRole("combobox", { name: "リプレイ視点" }), {
+      target: { value: "p2" },
+    });
+    expect(screen.getByTestId("replay-scene")).toHaveAttribute("data-viewpoint", "p2");
+    expect(screen.getByTestId("replay-scene")).toHaveAttribute("data-hand", "");
     fireEvent.click(screen.getByRole("button", { name: "リプレイを閉じる" }));
     expect(screen.queryByRole("dialog", { name: "リプレイ" })).toBeNull();
   });

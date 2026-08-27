@@ -6,6 +6,9 @@ import {
   replayElapsedMs,
   replayFrameSummary,
   replayGameKey,
+  replayPerspectivePlayerId,
+  replayPlayerHands,
+  replayRoomForPerspective,
 } from "../app/replay";
 
 const room = (revision: number, gameId = "game-1"): RoomView => ({
@@ -26,6 +29,16 @@ const room = (revision: number, gameId = "game-1"): RoomView => ({
       connection: "online",
       status: "active",
       host: true,
+    },
+    {
+      id: "other",
+      name: "相手",
+      avatar: defaultAvatar,
+      cardCount: 1,
+      cards: [{ id: "other-back", visibility: "hidden", blind: false }],
+      connection: "online",
+      status: "active",
+      host: false,
     },
   ],
   spectators: [],
@@ -49,6 +62,10 @@ describe("client-view replay recording", () => {
     const frames = appendReplayFrame([], projected, 1_000);
     projected.hand.splice(0, 1);
     expect(frames[0]?.room.hand).toEqual([{ id: "secret", visibility: "hidden", blind: true }]);
+    expect(frames[0]?.playerHands).toEqual({
+      me: [{ id: "secret", visibility: "hidden", blind: true }],
+      other: [{ id: "other-back", visibility: "hidden", blind: false }],
+    });
   });
 
   it("deduplicates revisions and resets when a new game starts", () => {
@@ -77,5 +94,33 @@ describe("client-view replay recording", () => {
 
   it("does not retain waiting-room snapshots", () => {
     expect(appendReplayFrame([], { ...room(1), phase: "waiting" })).toEqual([]);
+  });
+
+  it("builds a read-only spectator room for a selected player without revealing hidden cards", () => {
+    const source = room(1);
+    const frame = appendReplayFrame([], source, 1_000)[0]!;
+    const replayRoom = replayRoomForPerspective(frame, "other");
+
+    expect(replayRoom.role).toBe("spectator");
+    expect(replayRoom.viewerId).not.toBe("me");
+    expect(replayRoom.focusedPlayerId).toBe("other");
+    expect(replayRoom.hand).toEqual([{ id: "other-back", visibility: "hidden", blind: false }]);
+    expect(replayRoom.players.find((player) => player.id === "me")?.cards).toEqual([
+      { id: "secret", visibility: "hidden", blind: true },
+    ]);
+    expect(source.role).toBe("player");
+    expect(source.focusedPlayerId).toBeUndefined();
+  });
+
+  it("supports legacy frames without playerHands and falls back to an available perspective", () => {
+    const legacyFrame = { capturedAtMs: 1_000, room: room(1) };
+    expect(replayPlayerHands(legacyFrame)).toMatchObject({
+      me: [{ id: "secret", visibility: "hidden", blind: true }],
+      other: [{ id: "other-back", visibility: "hidden", blind: false }],
+    });
+    expect(replayPerspectivePlayerId(legacyFrame, "missing")).toBe("me");
+    expect(replayRoomForPerspective(legacyFrame, "missing").hand).toEqual([
+      { id: "secret", visibility: "hidden", blind: true },
+    ]);
   });
 });
