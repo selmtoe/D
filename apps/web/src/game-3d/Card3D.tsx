@@ -1,15 +1,48 @@
 import { RoundedBox } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CanvasTexture, Color, Plane, SRGBColorSpace, Vector3, type Group } from "three";
+import {
+  CanvasTexture,
+  Color,
+  Plane,
+  SRGBColorSpace,
+  Vector3,
+  type Group,
+  type Object3D,
+} from "three";
 import type { CardView } from "../app/model";
 
 const suitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
 type PointerCaptureTarget = EventTarget & {
-  setPointerCapture: (pointerId: number) => void;
-  hasPointerCapture: (pointerId: number) => boolean;
-  releasePointerCapture: (pointerId: number) => void;
+  setPointerCapture?: (pointerId: number) => void;
+  hasPointerCapture?: (pointerId: number) => boolean;
+  releasePointerCapture?: (pointerId: number) => void;
 };
+
+function capturePointer(target: PointerCaptureTarget | undefined, pointerId: number): void {
+  try {
+    target?.setPointerCapture?.(pointerId);
+  } catch {
+    // A synthetic or cancelled pointer may no longer be capturable.
+  }
+}
+
+function releasePointer(target: PointerCaptureTarget | undefined, pointerId: number): void {
+  try {
+    if (target?.hasPointerCapture?.(pointerId)) target.releasePointerCapture?.(pointerId);
+  } catch {
+    // Pointer capture can disappear before pointercancel reaches React Three Fiber.
+  }
+}
+
+export function dragPointInParentSpace(
+  parent: Object3D | null | undefined,
+  worldPoint: Vector3,
+): [number, number, number] {
+  const localPoint = worldPoint.clone();
+  parent?.worldToLocal(localPoint);
+  return [localPoint.x, localPoint.y, localPoint.z];
+}
 
 export function hitAreaCounterRotation(
   rotation: readonly [number, number, number],
@@ -167,7 +200,8 @@ export function Card3D({
   hitAreaOffsetX?: number | undefined;
   e2eProjectionAttribute?: string | undefined;
 }) {
-  const dragging = useRef(false);
+  const root = useRef<Group>(null);
+  const dragging = useRef<number | null>(null);
   const captureTarget = useRef<PointerCaptureTarget | undefined>(undefined);
   const [dragPosition, setDragPosition] = useState<[number, number, number]>();
   const dragPlane = useMemo(() => new Plane(new Vector3(0, 1, 0), -dragPlaneY), [dragPlaneY]);
@@ -213,6 +247,7 @@ export function Card3D({
   ];
   return (
     <group
+      ref={root}
       renderOrder={renderOrder}
       visible={!hidden}
       position={dragPosition ?? restingPosition}
@@ -222,42 +257,41 @@ export function Card3D({
         event.stopPropagation();
         if (inactive) return;
         if (onDragEnd) {
-          dragging.current = true;
+          if (dragging.current !== null) return;
+          dragging.current = event.pointerId;
           captureTarget.current = event.target as PointerCaptureTarget;
-          captureTarget.current?.setPointerCapture(event.pointerId);
+          capturePointer(captureTarget.current, event.pointerId);
           onDragStart?.();
         } else {
           onSelect?.();
         }
       }}
       onPointerMove={(event) => {
-        if (!dragging.current) return;
+        if (dragging.current !== event.pointerId) return;
         event.stopPropagation();
         if (event.ray.intersectPlane(dragPlane, dragPoint)) {
-          setDragPosition([dragPoint.x, dragPlaneY, dragPoint.z]);
+          setDragPosition(dragPointInParentSpace(root.current?.parent, dragPoint));
         }
       }}
       onPointerUp={(event) => {
-        if (!dragging.current) return;
+        if (dragging.current !== event.pointerId) return;
         event.stopPropagation();
-        dragging.current = false;
-        if (captureTarget.current?.hasPointerCapture(event.pointerId)) {
-          captureTarget.current.releasePointerCapture(event.pointerId);
-        }
+        dragging.current = null;
+        releasePointer(captureTarget.current, event.pointerId);
         const finalPoint = event.ray.intersectPlane(dragPlane, dragPoint)
           ? ([dragPoint.x, dragPlaneY, dragPoint.z] as [number, number, number])
-          : (dragPosition ?? restingPosition);
+          : root.current
+            ? (root.current.getWorldPosition(dragPoint).toArray() as [number, number, number])
+            : (dragPosition ?? restingPosition);
         setDragPosition(undefined);
         captureTarget.current = undefined;
         onDragEnd?.(finalPoint);
       }}
       onPointerCancel={(event) => {
-        if (!dragging.current) return;
+        if (dragging.current !== event.pointerId) return;
         event.stopPropagation();
-        dragging.current = false;
-        if (captureTarget.current?.hasPointerCapture(event.pointerId)) {
-          captureTarget.current.releasePointerCapture(event.pointerId);
-        }
+        dragging.current = null;
+        releasePointer(captureTarget.current, event.pointerId);
         captureTarget.current = undefined;
         setDragPosition(undefined);
       }}

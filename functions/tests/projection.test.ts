@@ -86,11 +86,13 @@ describe("viewer-specific projection", () => {
       },
     };
     room.members.alice!.avatar = avatar;
+    room.members.watcher!.avatar = avatar;
     const view = projectRoomForViewer(room, "alice");
     const alice = (view.players as Array<Record<string, unknown>>).find(
       (player) => player.id === "alice",
     );
     expect(alice?.avatar).toEqual(avatar);
+    expect(view.spectators).toContainEqual({ id: "watcher", name: "watcher", avatar });
     expect(projectPublicRoom(room).hostAvatar).toEqual(avatar);
   });
 

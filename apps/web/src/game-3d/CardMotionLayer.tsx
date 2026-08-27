@@ -6,6 +6,8 @@ import { Card3D } from "./Card3D";
 import {
   cardMotionsForDisplay,
   collectCardRackPlacement,
+  discardStackPlacement,
+  fieldCardPlacement,
   type CardAnchor,
   type CardMotionEvent,
 } from "./cardMotion";
@@ -16,8 +18,29 @@ export function cardAnchorPosition(
   mobile: boolean,
 ): [number, number, number] {
   if (anchor.kind === "hand") return [0, 1.15, mobile ? 3.75 : 4.15];
-  if (anchor.kind === "field") return [0, 0.28, 0];
-  if (anchor.kind === "discard") return [2.9, 0.23, -1.45];
+  if (anchor.kind === "field") {
+    if (
+      anchor.playIndex !== undefined &&
+      anchor.playCount !== undefined &&
+      anchor.cardIndex !== undefined &&
+      anchor.cardCount !== undefined &&
+      anchor.layerIndex !== undefined
+    ) {
+      return fieldCardPlacement(
+        anchor.playIndex,
+        anchor.playCount,
+        anchor.cardIndex,
+        anchor.cardCount,
+        anchor.layerIndex,
+      ).position;
+    }
+    return [0, 0.28, 0];
+  }
+  if (anchor.kind === "discard") {
+    return anchor.cardIndex === undefined
+      ? [2.9, 0.23, -1.45]
+      : discardStackPlacement(anchor.cardIndex).position;
+  }
   if (anchor.kind === "deck") return [-2.9, 0.28, -1.45];
   if (anchor.kind === "discardRack") {
     return collectCardRackPlacement(anchor.cardIndex, anchor.cardCount, mobile).position;

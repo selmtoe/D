@@ -1,7 +1,18 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { CardView, RoomView } from "../app/model";
-import { cardMotionsForDisplay, deriveCardMotions } from "../game-3d/cardMotion";
+import {
+  CARD_BODY_THICKNESS,
+  cardMotionsForDisplay,
+  collectCardRackPlacement,
+  deriveCardMotions,
+  DISCARD_LAYER_SPACING,
+  discardStackPlacement,
+  FIELD_CARD_SCALE,
+  FIELD_LAYER_SPACING,
+  fieldCardPlacement,
+  sortCardsForCollectRack,
+} from "../game-3d/cardMotion";
 
 const card = (id: string): CardView => ({
   id,
@@ -67,7 +78,11 @@ describe("card motion projection diff", () => {
     const motions = deriveCardMotions(view(1, [ace], []), view(2, [], [ace]));
     expect(motions).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "play", from: { kind: "hand" }, to: { kind: "field" } }),
+        expect.objectContaining({
+          kind: "play",
+          from: { kind: "hand" },
+          to: expect.objectContaining({ kind: "field" }),
+        }),
       ]),
     );
   });
@@ -82,9 +97,52 @@ describe("card motion projection diff", () => {
 
     const motions = deriveCardMotions(previous, next);
     expect(motions).toContainEqual(
-      expect.objectContaining({ kind: "play", card: newPlay, to: { kind: "field" } }),
+      expect.objectContaining({
+        kind: "play",
+        card: newPlay,
+        to: expect.objectContaining({ kind: "field" }),
+      }),
     );
     expect(motions.some((motion) => motion.card.id === oldPlay.id)).toBe(false);
+    const targets = motions
+      .filter((motion) => motion.kind === "play" && motion.to.kind === "field")
+      .map((motion) => motion.to);
+    expect(targets).toEqual([
+      expect.objectContaining({ playIndex: 1, cardIndex: 0, layerIndex: 1 }),
+    ]);
+  });
+
+  it("gives every card in consecutive pair plays a distinct physical field layer", () => {
+    const oldPair = [card("old-1"), card("old-2")];
+    const nines = [card("nine-1"), card("nine-2")];
+    const previous = view(2, nines, oldPair);
+    previous.fieldPlays = [oldPair];
+    const next = view(3, [], nines);
+    next.fieldPlays = [oldPair, nines];
+
+    const playMotions = deriveCardMotions(previous, next).filter(
+      (motion) => motion.kind === "play" && motion.to.kind === "field",
+    );
+    expect(playMotions).toHaveLength(2);
+    expect(playMotions.map((motion) => motion.to)).toEqual([
+      expect.objectContaining({ playIndex: 1, cardIndex: 0, layerIndex: 2 }),
+      expect.objectContaining({ playIndex: 1, cardIndex: 1, layerIndex: 3 }),
+    ]);
+    const positions = playMotions.map((motion) => {
+      const target = motion.to;
+      if (target.kind !== "field") throw new Error("expected a field target");
+      return fieldCardPlacement(
+        target.playIndex!,
+        target.playCount!,
+        target.cardIndex!,
+        target.cardCount!,
+        target.layerIndex!,
+      ).position;
+    });
+    expect(positions[0]).not.toEqual(positions[1]);
+    expect(positions[1]![1] - positions[0]![1]).toBeGreaterThan(
+      CARD_BODY_THICKNESS * FIELD_CARD_SCALE,
+    );
   });
 
   it("moves a cleared field to discard and a stolen card from its seat to hand", () => {
@@ -133,6 +191,65 @@ describe("card motion projection diff", () => {
       }),
     );
   });
+
+  it("sorts the K-recovery rack by rank and suit while preserving equal-card order", () => {
+    const cards: CardView[] = [
+      { id: "hidden-1", visibility: "hidden", blind: false },
+      { id: "heart-3-a", visibility: "face", suit: "heart", rank: "3", blind: false },
+      { id: "spade-2", visibility: "face", suit: "spade", rank: "2", blind: false },
+      { id: "spade-3", visibility: "face", suit: "spade", rank: "3", blind: false },
+      { id: "joker", visibility: "face", joker: "monochrome", blind: false },
+      { id: "club-10", visibility: "face", suit: "club", rank: "10", blind: false },
+      { id: "heart-3-b", visibility: "face", suit: "heart", rank: "3", blind: false },
+      { id: "diamond-a", visibility: "face", suit: "diamond", rank: "A", blind: false },
+      { id: "hidden-2", visibility: "hidden", blind: true },
+    ];
+
+    expect(sortCardsForCollectRack(cards).map((entry) => entry.id)).toEqual([
+      "spade-3",
+      "heart-3-a",
+      "heart-3-b",
+      "club-10",
+      "diamond-a",
+      "spade-2",
+      "joker",
+      "hidden-1",
+      "hidden-2",
+    ]);
+  });
+
+  it("uses the same sorted K-rack index as the visible collect layout", () => {
+    const three = { ...card("three"), rank: "3" as const };
+    const ace = { ...card("ace"), rank: "A" as const };
+    const ten = { ...card("ten"), rank: "10" as const };
+    const previous = view(4, [], [], [ace, ten, three]);
+    const next = view(5, [ten], [], [ace, three]);
+    const sorted = sortCardsForCollectRack(previous.discard);
+
+    expect(deriveCardMotions(previous, next)).toContainEqual(
+      expect.objectContaining({
+        kind: "collect",
+        card: ten,
+        from: {
+          kind: "discardRack",
+          cardIndex: sorted.findIndex((entry) => entry.id === ten.id),
+          cardCount: sorted.length,
+        },
+      }),
+    );
+  });
+
+  it.each([false, true])(
+    "lays a multi-row K-recovery rack out from top to bottom (mobile=%s)",
+    (mobile) => {
+      const cardCount = mobile ? 20 : 32;
+      const columns = mobile ? 7 : 14;
+      const firstRow = collectCardRackPlacement(0, cardCount, mobile);
+      const secondRow = collectCardRackPlacement(columns, cardCount, mobile);
+
+      expect(firstRow.position[1]).toBeGreaterThan(secondRow.position[1]);
+    },
+  );
 
   it("does not treat revision-scoped opponent backs as newly acquired cards", () => {
     const previous = view(8, [card("mine")], []);
@@ -200,5 +317,50 @@ describe("card motion projection diff", () => {
     );
     expect(afterPlay.active).toEqual(flushes);
     expect(afterPlay.queued).toEqual([]);
+  });
+
+  it("keeps a direct 10-discard card visible while its motion batch is queued", () => {
+    const discarded = { ...card("ten-discard"), rank: "6" as const };
+    const previous = view(20, [discarded], []);
+    const next = view(21, [], [], [discarded]);
+    next.log = [{ id: "effect-21", atMs: 21, kind: "effect", text: "10捨て" }];
+    const discardMotion = deriveCardMotions(previous, next).find(
+      (motion) => motion.kind === "discard" && motion.card.id === discarded.id,
+    );
+
+    expect(discardMotion).toMatchObject({
+      from: { kind: "hand" },
+      to: { kind: "discard", cardIndex: 0, cardCount: 1 },
+      holdMs: 220,
+      showWhileQueued: true,
+    });
+    const blockingMotion = {
+      ...discardMotion!,
+      id: "blocking",
+      batchId: "blocking-batch",
+      card: card("blocking-card"),
+      kind: "play" as const,
+      showWhileQueued: false,
+    };
+    expect(cardMotionsForDisplay([blockingMotion, discardMotion!]).queued).toEqual([discardMotion]);
+  });
+});
+
+describe("physical card stack placement", () => {
+  it("separates field layers by more than the scaled card body thickness", () => {
+    const lower = fieldCardPlacement(0, 2, 0, 2, 0);
+    const upper = fieldCardPlacement(0, 2, 1, 2, 1);
+
+    expect(FIELD_LAYER_SPACING).toBeGreaterThan(CARD_BODY_THICKNESS * FIELD_CARD_SCALE);
+    expect(upper.position[1] - lower.position[1]).toBeCloseTo(FIELD_LAYER_SPACING);
+    expect(upper.position[0]).not.toBe(lower.position[0]);
+  });
+
+  it("separates discard layers enough for both static and moving cards", () => {
+    const lower = discardStackPlacement(0);
+    const upper = discardStackPlacement(1);
+
+    expect(DISCARD_LAYER_SPACING).toBeGreaterThan(CARD_BODY_THICKNESS * 0.74);
+    expect(upper.position[1] - lower.position[1]).toBeCloseTo(DISCARD_LAYER_SPACING);
   });
 });

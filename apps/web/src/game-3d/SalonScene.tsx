@@ -12,11 +12,18 @@ import {
 import type { CardView, PlayerView, RoomView } from "../app/model";
 import { useVisualViewport } from "../app/visualViewport";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
+import type { SpectatorPoseCue } from "../network/peerCues";
 import { Card3D } from "./Card3D";
 import { CardMotionLayer } from "./CardMotionLayer";
+import { RemoteSpectatorAvatars } from "./RemoteSpectatorAvatars";
 import {
   collectCardRackGeometry,
   collectCardRackPlacement,
+  DISCARD_CARD_SCALE,
+  DISCARD_VISIBLE_LIMIT,
+  discardStackPlacement,
+  fieldCardPlacement,
+  sortCardsForCollectRack,
   type CardMotionEvent,
 } from "./cardMotion";
 import { StealVisualLayer } from "./StealVisualLayer";
@@ -32,8 +39,45 @@ export interface TableEffectInteraction {
   giveCards: readonly CardView[];
 }
 
+export type FreeRoamPose = Pick<SpectatorPoseCue, "x" | "y" | "z" | "yaw" | "moving">;
+
+const emptySpectatorPoses: ReadonlyMap<string, SpectatorPoseCue> = new Map();
+
 export function playersAtTable(players: readonly PlayerView[]): PlayerView[] {
   return players.filter((player) => player.present !== false);
+}
+
+export function playersForPerspective(
+  players: readonly PlayerView[],
+  role: RoomView["role"],
+  viewerId: string | undefined,
+): PlayerView[] {
+  const visiblePlayers = playersAtTable(players);
+  if (role !== "player" || !viewerId) return visiblePlayers;
+  const viewerIndex = visiblePlayers.findIndex((player) => player.id === viewerId);
+  if (viewerIndex <= 0) return visiblePlayers;
+  return [...visiblePlayers.slice(viewerIndex), ...visiblePlayers.slice(0, viewerIndex)];
+}
+
+export function opponentHandRackPresentation(effectKind?: TableEffectInteraction["kind"]): {
+  cameraFacing: boolean;
+  position: [number, number, number];
+  rotation: [number, number, number];
+} {
+  const cameraFacing = effectKind === "steal";
+  return {
+    cameraFacing,
+    position: [0, 1.14, 1.35],
+    // A seat group's local +Z points toward the table. Turning the card front
+    // toward local -Z makes it face its owner on the outer side of the rack.
+    rotation: cameraFacing ? [0, 0, 0] : [0, Math.PI, 0],
+  };
+}
+
+export function opponentHandCardForDisplay(card: CardView, cameraFacing: boolean): CardView {
+  if (cameraFacing) return card;
+  const hidden: CardView = { id: card.id, visibility: "hidden", blind: false };
+  return card.selected === undefined ? hidden : { ...hidden, selected: card.selected };
 }
 
 function FrameScheduler({ fps }: { fps: number }) {
@@ -220,6 +264,7 @@ function FreeRoamAvatar({
   lowPower,
   reducedMotion,
   controlsPaused,
+  onPoseChange,
   onExit,
 }: {
   mobileInput: FreeRoamInput;
@@ -229,6 +274,7 @@ function FreeRoamAvatar({
   lowPower: boolean;
   reducedMotion: boolean;
   controlsPaused: boolean;
+  onPoseChange: (pose: FreeRoamPose) => void;
   onExit: () => void;
 }) {
   const camera = useThree((state) => state.camera) as PerspectiveCamera;
@@ -255,6 +301,10 @@ function FreeRoamAvatar({
   controlsPausedRef.current = controlsPaused;
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
+  const poseChangeRef = useRef(onPoseChange);
+  poseChangeRef.current = onPoseChange;
+  const lastPoseSentAt = useRef(Number.NEGATIVE_INFINITY);
+  const lastReportedPose = useRef<FreeRoamPose | undefined>(undefined);
 
   useEffect(() => {
     const initialBehind = mobile ? 5.9 : 5.25;
@@ -442,6 +492,32 @@ function FreeRoamAvatar({
     gl.domElement.dataset.freeRoamPose = [nextX, nextY, nextZ, yaw.current, pitch.current]
       .map((value) => value.toFixed(3))
       .join(",");
+    const normalizedYaw = Math.atan2(Math.sin(yaw.current), Math.cos(yaw.current));
+    const previousPose = lastReportedPose.current;
+    const poseChanged =
+      !previousPose ||
+      Math.hypot(nextX - previousPose.x, nextY - previousPose.y, nextZ - previousPose.z) > 0.025 ||
+      Math.abs(
+        Math.atan2(
+          Math.sin(normalizedYaw - previousPose.yaw),
+          Math.cos(normalizedYaw - previousPose.yaw),
+        ),
+      ) > 0.02;
+    const moving =
+      !controlsPaused &&
+      (Math.abs(forward) > 0.01 ||
+        Math.abs(strafe) > 0.01 ||
+        Math.abs(mobileInput.turn) > 0.01 ||
+        Math.abs(verticalVelocity.current) > 0.05 ||
+        poseChanged);
+    const nowMs = performance.now();
+    const sendIntervalMs = poseChanged || moving ? 100 : 1_000;
+    if (nowMs - lastPoseSentAt.current >= sendIntervalMs || previousPose?.moving !== moving) {
+      const pose = { x: nextX, y: nextY, z: nextZ, yaw: normalizedYaw, moving };
+      lastPoseSentAt.current = nowMs;
+      lastReportedPose.current = pose;
+      poseChangeRef.current(pose);
+    }
     const behind = mobile ? 5.9 : 5.25;
     const shoulder = mobile ? 1.25 : 1.1;
     desiredCamera.current.set(
@@ -549,6 +625,7 @@ function seats(
   effectInteraction?: TableEffectInteraction,
   onEffectCardSelect: (card: CardView, ownerId: string) => void = () => undefined,
   onEffectPlayerSelect: (playerId: string) => void = () => undefined,
+  onGiveCardReturn: (card: CardView) => void = () => undefined,
   interactionReadOnly = false,
 ) {
   const stealLayout = stealCardInteractionLayout(mobile);
@@ -566,6 +643,45 @@ function seats(
             (card) => effectInteraction.giveTargets[card.id] === player.id,
           )
         : [];
+    const rackPresentation = opponentHandRackPresentation(effectInteraction?.kind);
+    const opponentCards = (player.cards ?? []).map((card, cardIndex) => {
+      const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
+      const stealHitArea = stealCardHitArea(cardIndex, player.cards?.length ?? 0, mobile);
+      const spacing = Math.min(
+        mobile ? 0.19 : 0.24,
+        (mobile ? 2.55 : 3.2) / Math.max(player.cards?.length ?? 1, 1),
+      );
+      return (
+        <Card3D
+          key={card.id}
+          card={opponentHandCardForDisplay(card, rackPresentation.cameraFacing)}
+          selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
+          dimmed={
+            effectInteraction?.kind === "steal" && !effectInteraction.selectableIds.has(card.id)
+          }
+          hidden={movingToSeats.get(player.id)?.has(card.id) ?? false}
+          {...(!interactionReadOnly &&
+          effectInteraction?.kind === "steal" &&
+          effectInteraction.selectableIds.has(card.id)
+            ? {
+                onSelect: () => onEffectCardSelect(card, player.id),
+                hitAreaWidth: stealHitArea.width,
+                hitAreaOffsetX: stealHitArea.offsetX,
+                ...(e2eProjectionProbe ? { e2eProjectionAttribute: "data-effect-steal-card" } : {}),
+              }
+            : {})}
+          position={[
+            centered * (effectInteraction?.kind === "steal" ? stealLayout.spacing : spacing),
+            Math.abs(centered) * 0.008,
+            cardIndex * 0.012,
+          ]}
+          rotation={[0, 0, -centered * 0.035]}
+          scale={effectInteraction?.kind === "steal" ? stealLayout.scale : mobile ? 0.32 : 0.36}
+          selectedLift={0.42}
+          selectedDepth={-0.3}
+        />
+      );
+    });
     return (
       <group
         key={player.id}
@@ -591,52 +707,23 @@ function seats(
           />
         )}
         {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
-          <Billboard position={[0, 1.14, 1.35]} follow lockX={false} lockY={false} lockZ={false}>
-            {(player.cards ?? []).map((card, cardIndex) => {
-              const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
-              const stealHitArea = stealCardHitArea(cardIndex, player.cards?.length ?? 0, mobile);
-              const spacing = Math.min(
-                mobile ? 0.19 : 0.24,
-                (mobile ? 2.55 : 3.2) / Math.max(player.cards?.length ?? 1, 1),
-              );
-              return (
-                <Card3D
-                  key={card.id}
-                  card={card}
-                  selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
-                  dimmed={
-                    effectInteraction?.kind === "steal" &&
-                    !effectInteraction.selectableIds.has(card.id)
-                  }
-                  hidden={movingToSeats.get(player.id)?.has(card.id) ?? false}
-                  {...(!interactionReadOnly &&
-                  effectInteraction?.kind === "steal" &&
-                  effectInteraction.selectableIds.has(card.id)
-                    ? {
-                        onSelect: () => onEffectCardSelect(card, player.id),
-                        hitAreaWidth: stealHitArea.width,
-                        hitAreaOffsetX: stealHitArea.offsetX,
-                        ...(e2eProjectionProbe
-                          ? { e2eProjectionAttribute: "data-effect-steal-card" }
-                          : {}),
-                      }
-                    : {})}
-                  position={[
-                    centered *
-                      (effectInteraction?.kind === "steal" ? stealLayout.spacing : spacing),
-                    Math.abs(centered) * 0.008,
-                    cardIndex * 0.012,
-                  ]}
-                  rotation={[0, 0, -centered * 0.035]}
-                  scale={
-                    effectInteraction?.kind === "steal" ? stealLayout.scale : mobile ? 0.32 : 0.36
-                  }
-                  selectedLift={0.42}
-                  selectedDepth={-0.3}
-                />
-              );
-            })}
-          </Billboard>
+          <>
+            {rackPresentation.cameraFacing ? (
+              <Billboard
+                position={rackPresentation.position}
+                follow
+                lockX={false}
+                lockY={false}
+                lockZ={false}
+              >
+                {opponentCards}
+              </Billboard>
+            ) : (
+              <group position={rackPresentation.position} rotation={rackPresentation.rotation}>
+                {opponentCards}
+              </group>
+            )}
+          </>
         )}
         {assignedGiveCards.length > 0 && (
           <Billboard position={[0, 2.65, 0.42]} follow lockX={false} lockY={false} lockZ={false}>
@@ -659,6 +746,17 @@ function seats(
                   <Card3D
                     card={card}
                     selected
+                    {...(e2eProjectionProbe
+                      ? { e2eProjectionAttribute: "data-effect-give-return-card" }
+                      : {})}
+                    {...(!interactionReadOnly
+                      ? {
+                          onDragEnd: (point: [number, number, number]) => {
+                            if (isGiveCardReturnTarget(point, mobile)) onGiveCardReturn(card);
+                          },
+                          dragPlaneY: 1.32,
+                        }
+                      : {})}
                     rotation={[0, 0, -centered * 0.07]}
                     scale={0.48}
                     selectedLift={0}
@@ -753,6 +851,14 @@ export function nearestGiveTarget(
   return nearest && nearest.distance <= threshold ? nearest.id : undefined;
 }
 
+export function isGiveCardReturnTarget(
+  point: readonly [number, number, number],
+  mobile: boolean,
+): boolean {
+  const halfWidth = mobile ? 3.9 : 5.2;
+  return Math.abs(point[0]) <= halfWidth && point[2] >= 3.05 && point[2] <= 5.85;
+}
+
 export function stealCardInteractionLayout(mobile: boolean): {
   spacing: number;
   scale: number;
@@ -815,24 +921,26 @@ function nonOverlappingHitAreaWidth(spacing: number, scale: number): number {
 
 function fieldCards(plays: CardView[][], movingToField: ReadonlySet<string>) {
   return plays.flatMap((play, playIndex) => {
-    const stackX = ((playIndex % 3) - 1) * 0.1;
-    const stackZ = ((playIndex % 4) - 1.5) * 0.065;
-    const stackRotation = ((playIndex % 5) - 2) * 0.025;
+    const firstLayerIndex = plays
+      .slice(0, playIndex)
+      .reduce((cardCount, previousPlay) => cardCount + previousPlay.length, 0);
     return play.map((card, cardIndex) => {
-      const centered = cardIndex - (play.length - 1) / 2;
+      const placement = fieldCardPlacement(
+        playIndex,
+        plays.length,
+        cardIndex,
+        play.length,
+        firstLayerIndex + cardIndex,
+      );
       return (
         <Card3D
           key={card.id}
           card={card}
           hidden={movingToField.has(card.id)}
-          position={[
-            stackX + centered * 0.43,
-            0.16 + playIndex * 0.018 + cardIndex * 0.002,
-            stackZ + Math.abs(centered) * 0.018,
-          ]}
-          rotation={[-Math.PI / 2, 0, stackRotation + centered * 0.018]}
-          scale={0.72}
-          renderOrder={playIndex * 10 + cardIndex}
+          position={placement.position}
+          rotation={placement.rotation}
+          scale={placement.scale}
+          renderOrder={placement.renderOrder}
         />
       );
     });
@@ -850,10 +958,11 @@ function discardStack(
   const collecting = effectInteraction?.kind === "collect";
   const collectLayout = collectCardInteractionLayout(mobile);
   const visibleStack = collecting
-    ? cards.filter((card) => !movingToDiscard.has(card.id))
-    : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-12);
+    ? sortCardsForCollectRack(cards.filter((card) => !movingToDiscard.has(card.id)))
+    : cards.filter((card) => !movingToDiscard.has(card.id)).slice(-DISCARD_VISIBLE_LIMIT);
   return visibleStack.map((card, index) => {
     const rackPlacement = collectCardRackPlacement(index, visibleStack.length, mobile);
+    const stackPlacement = discardStackPlacement(index);
     return (
       <Card3D
         key={card.id}
@@ -866,13 +975,9 @@ function discardStack(
               hitAreaHeight: collectLayout.hitAreaHeight,
             }
           : {})}
-        position={collecting ? rackPlacement.position : [2.9, 0.15 + index * 0.012, -1.45]}
-        rotation={
-          collecting
-            ? [0, 0, rackPlacement.rotationZ]
-            : [-Math.PI / 2, 0, ((index % 5) - 2) * 0.018]
-        }
-        scale={collecting ? collectLayout.scale : 0.62}
+        position={collecting ? rackPlacement.position : stackPlacement.position}
+        rotation={collecting ? [0, 0, rackPlacement.rotationZ] : stackPlacement.rotation}
+        scale={collecting ? collectLayout.scale : DISCARD_CARD_SCALE}
         renderOrder={(collecting ? 700 : 500) + index}
         selectedLift={collecting ? 0.22 : 0.5}
         selectedDepth={collecting ? -0.24 : 0}
@@ -935,21 +1040,13 @@ function EffectProjectionProbe({
       }
     }
     if (effectInteraction?.kind === "collect") {
-      const cards = room.discard.filter((card) => effectInteraction.selectableIds.has(card.id));
-      const columns = Math.min(mobile ? 7 : 14, Math.max(1, cards.length));
-      const collectLayout = collectCardInteractionLayout(mobile);
+      const cards = sortCardsForCollectRack(
+        room.discard.filter((card) => effectInteraction.selectableIds.has(card.id)),
+      );
       canvas.dataset.effectCardPoints = cards
         .map((_, index) => {
-          const column = index % columns;
-          const row = Math.floor(index / columns);
-          const centeredColumn = column - (Math.min(columns, cards.length - row * columns) - 1) / 2;
-          return project(
-            new Vector3(
-              centeredColumn * (mobile ? 0.46 : 0.48),
-              (mobile ? 0.72 : 0.88) + row * collectLayout.rowSpacing,
-              1.48 - row * (mobile ? 0.035 : 0.06),
-            ),
-          ).join(":");
+          const placement = collectCardRackPlacement(index, cards.length, mobile);
+          return project(new Vector3(...placement.position)).join(":");
         })
         .join(";");
     }
@@ -1061,9 +1158,12 @@ export function SalonScene({
   onEffectCardSelect = () => undefined,
   onEffectPlayerSelect = () => undefined,
   onGiveCardDrop = () => undefined,
+  onGiveCardReturn = () => undefined,
+  remoteSpectatorPoses = emptySpectatorPoses,
   spectatorMode = "follow",
   freeRoamAvatar,
   freeRoamControlsPaused = false,
+  onFreeRoamPose = () => undefined,
   onExitFreeRoam = () => undefined,
 }: {
   room?: RoomView;
@@ -1082,9 +1182,12 @@ export function SalonScene({
   onEffectCardSelect?: ((card: CardView, ownerId?: string) => void) | undefined;
   onEffectPlayerSelect?: ((playerId: string) => void) | undefined;
   onGiveCardDrop?: ((card: CardView, playerId: string) => void) | undefined;
+  onGiveCardReturn?: ((card: CardView) => void) | undefined;
+  remoteSpectatorPoses?: ReadonlyMap<string, SpectatorPoseCue> | undefined;
   spectatorMode?: "follow" | "free" | undefined;
   freeRoamAvatar?: PlayerView["avatar"] | undefined;
   freeRoamControlsPaused?: boolean | undefined;
+  onFreeRoamPose?: ((pose: FreeRoamPose) => void) | undefined;
   onExitFreeRoam?: (() => void) | undefined;
 }) {
   const viewport = useVisualViewport();
@@ -1099,7 +1202,13 @@ export function SalonScene({
   const [contextLost, setContextLost] = useState(false);
   const [cameraTransitionActive, setCameraTransitionActive] = useState(false);
   const sceneRoom = useMemo(
-    () => (room ? { ...room, players: playersAtTable(room.players) } : undefined),
+    () =>
+      room
+        ? {
+            ...room,
+            players: playersForPerspective(room.players, room.role, room.viewerId),
+          }
+        : undefined,
     [room],
   );
   const cameraTransitionKey = [
@@ -1123,7 +1232,11 @@ export function SalonScene({
     return () => window.clearTimeout(timer);
   }, [cameraTransitionKey, pageVisible, reducedMotion]);
   const continuousSceneMotion =
-    cameraTransitionActive || dealing || cardMotions.length > 0 || Boolean(stealVisual);
+    cameraTransitionActive ||
+    dealing ||
+    cardMotions.length > 0 ||
+    Boolean(stealVisual) ||
+    remoteSpectatorPoses.size > 0;
   const [freeRoamInput, setFreeRoamInput] = useState<FreeRoamInput>({
     forward: 0,
     strafe: 0,
@@ -1275,6 +1388,7 @@ export function SalonScene({
                 effectInteraction,
                 onEffectCardSelect,
                 onEffectPlayerSelect,
+                onGiveCardReturn,
                 handReadOnly,
               )
             : previewAvatar && (
@@ -1282,6 +1396,13 @@ export function SalonScene({
                   <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
                 </group>
               )}
+          {sceneRoom && (
+            <RemoteSpectatorAvatars
+              room={sceneRoom}
+              poses={remoteSpectatorPoses}
+              lowPower={lowPower}
+            />
+          )}
           {!dealing &&
             fieldCards(
               sceneRoom?.fieldPlays ?? (sceneRoom?.field.length ? [sceneRoom.field] : []),
@@ -1348,6 +1469,7 @@ export function SalonScene({
             lowPower={lowPower}
             reducedMotion={reducedMotion}
             controlsPaused={freeRoamControlsPaused}
+            onPoseChange={onFreeRoamPose}
             onExit={onExitFreeRoam}
           />
         ) : (

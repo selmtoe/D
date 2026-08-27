@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decodeCueWire, encodeCueWire, parseCue, stealAnimationCue } from "../network/peerCues";
+import {
+  decodeCueWire,
+  encodeCueWire,
+  parseCue,
+  spectatorPoseCue,
+  stealAnimationCue,
+} from "../network/peerCues";
 
 describe("non-authoritative peer cues", () => {
   it("accepts the strict cosmetic schema", () =>
@@ -47,5 +53,30 @@ describe("non-authoritative peer cues", () => {
     expect(parseCue({ ...cue, slot: 54 })).toBeNull();
     expect(parseCue({ ...cue, stage: "complete", slot: 3 })).toBeNull();
     expect(parseCue({ ...cue, pointerX: 2 })).toBeNull();
+  });
+  it("accepts a strict spectator pose without a spoofable sender id", () => {
+    const cue = spectatorPoseCue({
+      x: 6.5,
+      y: 3,
+      z: -7.25,
+      yaw: Math.PI / 2,
+      moving: true,
+      freeSpectating: true,
+    });
+
+    expect(parseCue(cue)).toEqual(cue);
+    expect(cue).not.toHaveProperty("sender");
+    expect(parseCue({ ...cue, senderUid: "another-player" })).toBeNull();
+    expect(parseCue({ ...cue, x: Number.NaN })).toBeNull();
+    expect(parseCue({ ...cue, y: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(parseCue({ ...cue, z: 16.001 })).toBeNull();
+    expect(parseCue({ ...cue, y: -0.001 })).toBeNull();
+    expect(parseCue({ ...cue, yaw: Math.PI + 0.001 })).toBeNull();
+    expect(parseCue({ ...cue, atMs: 1.5 })).toBeNull();
+    expect(parseCue({ ...cue, atMs: Date.now() + 60_000 })).toBeNull();
+    expect(parseCue({ ...cue, moving: "yes" })).toBeNull();
+    expect(parseCue({ ...cue, freeSpectating: false, moving: true })).toBeNull();
+    const { yaw: _yaw, ...withoutYaw } = cue;
+    expect(parseCue(withoutYaw)).toBeNull();
   });
 });

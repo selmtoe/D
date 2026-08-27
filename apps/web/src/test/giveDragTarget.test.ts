@@ -1,15 +1,19 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { Group, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import type { PlayerView } from "../app/model";
+import type { CardView, PlayerView } from "../app/model";
 import {
   containFreeRoamCamera,
   collectCardInteractionLayout,
   handCardHitArea,
   handCardInteractionLayout,
   isFreeRoamControlActivationKey,
+  isGiveCardReturnTarget,
   nearestGiveTarget,
+  opponentHandCardForDisplay,
+  opponentHandRackPresentation,
   playersAtTable,
+  playersForPerspective,
   resetFreeRoamInput,
   sceneFrameRate,
   shouldExitFreeRoam,
@@ -18,7 +22,7 @@ import {
   stealCardHitArea,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
-import { hitAreaCounterRotation } from "../game-3d/Card3D";
+import { dragPointInParentSpace, hitAreaCounterRotation } from "../game-3d/Card3D";
 
 const players: PlayerView[] = ["self", "right", "opposite", "left"].map((id) => ({
   id,
@@ -37,6 +41,31 @@ describe("7-give drag target", () => {
     expect(nearestGiveTarget(players, eligible, [0, 1.2, -5.3])).toBe("opposite");
     expect(nearestGiveTarget(players, eligible, [5.4, 1.2, 0])).toBeUndefined();
     expect(nearestGiveTarget(players, eligible, [0, 1.2, 0])).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    "returns an assigned card only inside the own-hand region (mobile=%s)",
+    (mobile) => {
+      expect(isGiveCardReturnTarget([0, 1.32, 4.1], mobile)).toBe(true);
+      expect(isGiveCardReturnTarget([0, 1.32, 2.9], mobile)).toBe(false);
+      expect(isGiveCardReturnTarget([0, 1.32, 6.1], mobile)).toBe(false);
+      expect(isGiveCardReturnTarget([mobile ? 4 : 5.3, 1.32, 4.1], mobile)).toBe(false);
+    },
+  );
+
+  it("converts nested assigned-card dragging back into its parent coordinate space", () => {
+    const parent = new Group();
+    parent.position.set(-4, 0.5, 2);
+    parent.rotation.y = Math.PI / 2;
+    parent.updateMatrixWorld(true);
+    const localPoint = new Vector3(0.75, 1.32, -0.4);
+    const worldPoint = localPoint.clone().applyMatrix4(parent.matrixWorld);
+
+    expect(dragPointInParentSpace(parent, worldPoint)).toEqual([
+      expect.closeTo(localPoint.x),
+      expect.closeTo(localPoint.y),
+      expect.closeTo(localPoint.z),
+    ]);
   });
 });
 
@@ -65,6 +94,42 @@ describe("A-steal card hit areas", () => {
     expect((first.offsetX + first.width / 2) * layout.scale).toBeCloseTo(centerHalfWorld);
     expect((last.offsetX - last.width / 2) * layout.scale).toBeCloseTo(-centerHalfWorld);
     expect((last.offsetX + last.width / 2) * layout.scale).toBeCloseTo(cardHalfWorld);
+  });
+});
+
+describe("opponent hand ownership orientation", () => {
+  it("uses a fixed inner-table rack whose front faces back toward its owner", () => {
+    const presentation = opponentHandRackPresentation();
+
+    expect(presentation.cameraFacing).toBe(false);
+    expect(presentation.position[2]).toBeGreaterThan(0);
+    expect(presentation.rotation).toEqual([0, Math.PI, 0]);
+  });
+
+  it("allows a camera-facing rack only while A-steal interaction is active", () => {
+    expect(opponentHandRackPresentation("steal")).toMatchObject({
+      cameraFacing: true,
+      rotation: [0, 0, 0],
+    });
+    expect(opponentHandRackPresentation("give").cameraFacing).toBe(false);
+    expect(opponentHandRackPresentation("collect").cameraFacing).toBe(false);
+  });
+
+  it("forces a normal opponent rack to card backs even if face data is present", () => {
+    const face: CardView = {
+      id: "opponent-secret",
+      visibility: "face",
+      suit: "heart",
+      rank: "2",
+      blind: false,
+    };
+
+    expect(opponentHandCardForDisplay(face, false)).toEqual({
+      id: face.id,
+      visibility: "hidden",
+      blind: false,
+    });
+    expect(opponentHandCardForDisplay(face, true)).toBe(face);
   });
 });
 
@@ -209,5 +274,12 @@ describe("3D table membership", () => {
     expect(
       playersAtTable([players[0]!, departed, reconnecting]).map((player) => player.id),
     ).toEqual(["self", "opposite"]);
+  });
+
+  it("rotates a player view so the viewer owns the front seat", () => {
+    expect(playersForPerspective(players, "player", "opposite").map((player) => player.id)).toEqual(
+      ["opposite", "left", "self", "right"],
+    );
+    expect(playersForPerspective(players, "spectator", "opposite")).toEqual(players);
   });
 });

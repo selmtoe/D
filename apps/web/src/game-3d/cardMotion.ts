@@ -1,9 +1,109 @@
 import type { CardView, RoomView } from "../app/model";
 
 export type CardAnchor =
-  | { kind: "hand" | "field" | "discard" | "deck" }
+  | { kind: "hand" | "deck" }
+  | {
+      kind: "field";
+      playIndex?: number;
+      playCount?: number;
+      cardIndex?: number;
+      cardCount?: number;
+      layerIndex?: number;
+    }
+  | { kind: "discard"; cardIndex?: number; cardCount?: number }
   | { kind: "discardRack"; cardIndex: number; cardCount: number }
   | { kind: "seat"; playerId: string };
+
+export const CARD_BODY_THICKNESS = 0.075;
+export const FIELD_CARD_SCALE = 0.72;
+export const FIELD_LAYER_SPACING = 0.066;
+export const DISCARD_CARD_SCALE = 0.62;
+export const DISCARD_LAYER_SPACING = 0.058;
+export const DISCARD_VISIBLE_LIMIT = 12;
+
+const COLLECT_RANK_ORDER = [
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "J",
+  "Q",
+  "K",
+  "A",
+  "2",
+] as const;
+const COLLECT_SUIT_ORDER = ["spade", "heart", "diamond", "club"] as const;
+
+export function sortCardsForCollectRack(cards: readonly CardView[]): CardView[] {
+  const rankIndexes = new Map<string, number>(
+    COLLECT_RANK_ORDER.map((rank, index) => [rank, index]),
+  );
+  const suitIndexes = new Map<string, number>(
+    COLLECT_SUIT_ORDER.map((suit, index) => [suit, index]),
+  );
+  return cards
+    .map((card, originalIndex) => {
+      if (card.visibility === "hidden") {
+        return { card, originalIndex, rankIndex: COLLECT_RANK_ORDER.length + 2, suitIndex: 0 };
+      }
+      const rankIndex = card.joker
+        ? COLLECT_RANK_ORDER.length
+        : (rankIndexes.get(card.rank ?? "") ?? COLLECT_RANK_ORDER.length + 1);
+      return {
+        card,
+        originalIndex,
+        rankIndex,
+        suitIndex: suitIndexes.get(card.suit ?? "") ?? COLLECT_SUIT_ORDER.length,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.rankIndex - right.rankIndex ||
+        left.suitIndex - right.suitIndex ||
+        left.originalIndex - right.originalIndex,
+    )
+    .map(({ card }) => card);
+}
+
+export function fieldCardPlacement(
+  playIndex: number,
+  playCount: number,
+  cardIndex: number,
+  cardCount: number,
+  layerIndex: number,
+): {
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: number;
+  renderOrder: number;
+} {
+  const centeredPlay = playIndex - (Math.max(1, playCount) - 1) / 2;
+  const centeredCard = cardIndex - (Math.max(1, cardCount) - 1) / 2;
+  return {
+    position: [
+      centeredPlay * 0.38 + centeredCard * 0.54,
+      0.16 + layerIndex * FIELD_LAYER_SPACING,
+      centeredPlay * 0.5 + Math.abs(centeredCard) * 0.025,
+    ],
+    rotation: [-Math.PI / 2, 0, centeredPlay * 0.018 + centeredCard * 0.022],
+    scale: FIELD_CARD_SCALE,
+    renderOrder: 100 + layerIndex,
+  };
+}
+
+export function discardStackPlacement(cardIndex: number): {
+  position: [number, number, number];
+  rotation: [number, number, number];
+} {
+  return {
+    position: [2.9, 0.15 + cardIndex * DISCARD_LAYER_SPACING, -1.45],
+    rotation: [-Math.PI / 2, 0, ((cardIndex % 5) - 2) * 0.018],
+  };
+}
 
 export function collectCardRackGeometry(mobile: boolean): {
   rowSpacing: number;
@@ -21,12 +121,13 @@ export function collectCardRackPlacement(
   const columns = Math.min(mobile ? 7 : 14, Math.max(1, cardCount));
   const column = cardIndex % columns;
   const row = Math.floor(cardIndex / columns);
+  const rowCount = Math.ceil(Math.max(1, cardCount) / columns);
   const centeredColumn =
     column - (Math.min(columns, Math.max(0, cardCount - row * columns)) - 1) / 2;
   return {
     position: [
       centeredColumn * (mobile ? 0.46 : 0.48),
-      (mobile ? 0.72 : 0.88) + row * collectCardRackGeometry(mobile).rowSpacing,
+      (mobile ? 0.72 : 0.88) + (rowCount - row - 1) * collectCardRackGeometry(mobile).rowSpacing,
       1.48 - row * (mobile ? 0.035 : 0.06),
     ],
     rotationZ: centeredColumn * 0.012,
@@ -72,6 +173,43 @@ const cardsAtSeats = (room: RoomView) =>
 export const cardsOnTable = (room: RoomView): CardView[] =>
   (room.fieldPlays ?? (room.field.length > 0 ? [room.field] : [])).flat();
 
+const fieldPlays = (room: RoomView): CardView[][] =>
+  room.fieldPlays ?? (room.field.length > 0 ? [room.field] : []);
+
+function fieldAnchors(room: RoomView): Map<string, Extract<CardAnchor, { kind: "field" }>> {
+  const plays = fieldPlays(room);
+  const anchors = new Map<string, Extract<CardAnchor, { kind: "field" }>>();
+  let layerIndex = 0;
+  for (const [playIndex, play] of plays.entries()) {
+    for (const [cardIndex, card] of play.entries()) {
+      anchors.set(card.id, {
+        kind: "field",
+        playIndex,
+        playCount: plays.length,
+        cardIndex,
+        cardCount: play.length,
+        layerIndex,
+      });
+      layerIndex += 1;
+    }
+  }
+  return anchors;
+}
+
+function discardAnchor(
+  cards: readonly CardView[],
+  cardId: string,
+): Extract<CardAnchor, { kind: "discard" }> {
+  const index = cards.findIndex((card) => card.id === cardId);
+  if (index < 0) return { kind: "discard" };
+  const firstVisibleIndex = Math.max(0, cards.length - DISCARD_VISIBLE_LIMIT);
+  return {
+    kind: "discard",
+    cardIndex: Math.max(0, index - firstVisibleIndex),
+    cardCount: Math.min(DISCARD_VISIBLE_LIMIT, cards.length),
+  };
+}
+
 export function cardMotionPerspectiveChanged(previous: RoomView, next: RoomView): boolean {
   return (
     previous.roomId !== next.roomId ||
@@ -99,8 +237,12 @@ export function deriveCardMotions(
   const nextTable = cardsOnTable(next);
   const previousField = new Map(previousTable.map((card) => [card.id, card]));
   const nextField = new Map(nextTable.map((card) => [card.id, card]));
+  const previousFieldAnchors = fieldAnchors(previous);
+  const nextFieldAnchors = fieldAnchors(next);
   const previousDiscard = new Map(previous.discard.map((card) => [card.id, card]));
-  const visiblePreviousDiscard = previous.discard.filter((card) => !movingToDiscard.has(card.id));
+  const visiblePreviousDiscard = sortCardsForCollectRack(
+    previous.discard.filter((card) => !movingToDiscard.has(card.id)),
+  );
   const visibleDiscardIndexes = new Map(
     visiblePreviousDiscard.map((card, index) => [card.id, index]),
   );
@@ -135,7 +277,9 @@ export function deriveCardMotions(
   );
 
   if (playedStraightToDiscard.length) {
-    for (const card of playedStraightToDiscard) {
+    const immediatePlayIndex = fieldPlays(previous).length;
+    const immediatePlayCount = immediatePlayIndex + 1;
+    for (const [cardIndex, card] of playedStraightToDiscard.entries()) {
       push({
         card,
         from: previousHand.has(card.id)
@@ -143,7 +287,14 @@ export function deriveCardMotions(
           : previous.currentPlayerId
             ? { kind: "seat", playerId: previous.currentPlayerId }
             : { kind: "deck" },
-        to: { kind: "field" },
+        to: {
+          kind: "field",
+          playIndex: immediatePlayIndex,
+          playCount: immediatePlayCount,
+          cardIndex,
+          cardCount: playedStraightToDiscard.length,
+          layerIndex: previousTable.length + cardIndex,
+        },
         kind: "play",
         batchId: `${next.revision}-immediate-play`,
         holdMs: 1000,
@@ -152,8 +303,19 @@ export function deriveCardMotions(
     for (const card of [...previousTable, ...playedStraightToDiscard]) {
       push({
         card,
-        from: { kind: "field" },
-        to: { kind: "discard" },
+        from:
+          previousFieldAnchors.get(card.id) ??
+          (playedStraightToDiscard.includes(card)
+            ? {
+                kind: "field",
+                playIndex: immediatePlayIndex,
+                playCount: immediatePlayCount,
+                cardIndex: playedStraightToDiscard.indexOf(card),
+                cardCount: playedStraightToDiscard.length,
+                layerIndex: previousTable.length + playedStraightToDiscard.indexOf(card),
+              }
+            : { kind: "field" }),
+        to: discardAnchor(next.discard, card.id),
         kind: "flush",
         batchId: `${next.revision}-immediate-flush`,
         showWhileQueued: previousField.has(card.id),
@@ -173,7 +335,7 @@ export function deriveCardMotions(
           : previous.currentPlayerId
             ? { kind: "seat", playerId: previous.currentPlayerId }
             : { kind: "deck" },
-      to: { kind: "field" },
+      to: nextFieldAnchors.get(card.id) ?? { kind: "field" },
       kind: "play",
     });
   }
@@ -181,7 +343,12 @@ export function deriveCardMotions(
   for (const card of previousTable) {
     if (nextField.has(card.id)) continue;
     if (immediateFlushIds.has(card.id)) continue;
-    push({ card, from: { kind: "field" }, to: { kind: "discard" }, kind: "flush" });
+    push({
+      card,
+      from: previousFieldAnchors.get(card.id) ?? { kind: "field" },
+      to: discardAnchor(next.discard, card.id),
+      kind: "flush",
+    });
   }
 
   for (const card of next.hand) {
@@ -199,9 +366,9 @@ export function deriveCardMotions(
               cardCount: visiblePreviousDiscard.length,
             }
           : previousDiscard.has(card.id)
-            ? { kind: "discard" }
+            ? discardAnchor(previous.discard, card.id)
             : previousField.has(card.id)
-              ? { kind: "field" }
+              ? (previousFieldAnchors.get(card.id) ?? { kind: "field" })
               : { kind: "deck" },
       to: { kind: "hand" },
       kind: seated ? "acquire" : previousDiscard.has(card.id) ? "collect" : "acquire",
@@ -220,7 +387,14 @@ export function deriveCardMotions(
         kind: "give",
       });
     } else if (nextDiscard.has(card.id)) {
-      push({ card, from: { kind: "hand" }, to: { kind: "discard" }, kind: "discard" });
+      push({
+        card,
+        from: { kind: "hand" },
+        to: discardAnchor(next.discard, card.id),
+        kind: "discard",
+        holdMs: 220,
+        showWhileQueued: true,
+      });
     }
   }
 
@@ -229,9 +403,9 @@ export function deriveCardMotions(
     const card = seated.card;
     if (previousHand.has(cardId)) continue;
     const from: CardAnchor = previousDiscard.has(cardId)
-      ? { kind: "discard" }
+      ? discardAnchor(previous.discard, cardId)
       : previousField.has(cardId)
-        ? { kind: "field" }
+        ? (previousFieldAnchors.get(cardId) ?? { kind: "field" })
         : { kind: "deck" };
     push({ card, from, to: { kind: "seat", playerId: seated.playerId }, kind: "acquire" });
   }

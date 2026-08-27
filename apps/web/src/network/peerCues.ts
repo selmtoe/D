@@ -1,3 +1,16 @@
+export type SpectatorPoseCue = {
+  version: 1;
+  type: "spectatorPose";
+  eventId: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  moving: boolean;
+  freeSpectating: boolean;
+  atMs: number;
+};
+
 export type CueEvent =
   | {
       version: 1;
@@ -27,7 +40,14 @@ export type CueEvent =
       pointerX?: number;
       selectedSlots?: number[];
       atMs: number;
-    };
+    }
+  | SpectatorPoseCue;
+
+const SPECTATOR_HORIZONTAL_LIMIT = 16;
+const SPECTATOR_Y_MIN = 0;
+const SPECTATOR_Y_MAX = 12;
+const SPECTATOR_YAW_LIMIT = Math.PI;
+const SPECTATOR_FUTURE_CLOCK_SKEW_MS = 30_000;
 
 const exactKeys: Record<CueEvent["type"], string[]> = {
   emote: ["version", "type", "eventId", "emote", "atMs"],
@@ -46,14 +66,30 @@ const exactKeys: Record<CueEvent["type"], string[]> = {
     "selectedSlots",
     "atMs",
   ],
+  spectatorPose: [
+    "version",
+    "type",
+    "eventId",
+    "x",
+    "y",
+    "z",
+    "yaw",
+    "moving",
+    "freeSpectating",
+    "atMs",
+  ],
 };
+
+function isFiniteInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
 
 export function parseCue(value: unknown): CueEvent | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
   if (
     item.version !== 1 ||
-    !["emote", "focus", "animation"].includes(String(item.type)) ||
+    !["emote", "focus", "animation", "spectatorPose"].includes(String(item.type)) ||
     typeof item.eventId !== "string" ||
     item.eventId.length > 128 ||
     typeof item.atMs !== "number"
@@ -62,6 +98,23 @@ export function parseCue(value: unknown): CueEvent | null {
   }
   const type = item.type as CueEvent["type"];
   if (Object.keys(item).some((key) => !exactKeys[type].includes(key))) return null;
+  if (
+    type === "spectatorPose" &&
+    Object.keys(item).length === exactKeys.spectatorPose.length &&
+    item.eventId.length > 0 &&
+    isFiniteInRange(item.x, -SPECTATOR_HORIZONTAL_LIMIT, SPECTATOR_HORIZONTAL_LIMIT) &&
+    isFiniteInRange(item.y, SPECTATOR_Y_MIN, SPECTATOR_Y_MAX) &&
+    isFiniteInRange(item.z, -SPECTATOR_HORIZONTAL_LIMIT, SPECTATOR_HORIZONTAL_LIMIT) &&
+    isFiniteInRange(item.yaw, -SPECTATOR_YAW_LIMIT, SPECTATOR_YAW_LIMIT) &&
+    typeof item.moving === "boolean" &&
+    typeof item.freeSpectating === "boolean" &&
+    (item.freeSpectating || !item.moving) &&
+    Number.isSafeInteger(item.atMs) &&
+    Number(item.atMs) >= 0 &&
+    Number(item.atMs) <= Date.now() + SPECTATOR_FUTURE_CLOCK_SKEW_MS
+  ) {
+    return item as SpectatorPoseCue;
+  }
   if (type === "emote" && ["applause", "surprise", "thinking"].includes(String(item.emote))) {
     return item as CueEvent;
   }
@@ -140,6 +193,21 @@ export function decodeCueWire(value: Record<string, unknown>): CueEvent | null {
 
 export function emoteCue(emote: "applause" | "surprise" | "thinking"): CueEvent {
   return { version: 1, type: "emote", eventId: crypto.randomUUID(), emote, atMs: Date.now() };
+}
+
+export function spectatorPoseCue(
+  pose: Pick<SpectatorPoseCue, "x" | "y" | "z" | "yaw" | "moving" | "freeSpectating">,
+  atMs = Date.now(),
+): SpectatorPoseCue {
+  const cue: SpectatorPoseCue = {
+    version: 1,
+    type: "spectatorPose",
+    eventId: crypto.randomUUID(),
+    ...pose,
+    atMs,
+  };
+  if (!parseCue(cue)) throw new RangeError("Invalid spectator pose cue");
+  return cue;
 }
 
 export function stealAnimationCue(

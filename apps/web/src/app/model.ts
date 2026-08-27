@@ -63,7 +63,7 @@ export interface RoomView {
   viewerId: string;
   hostId: string;
   players: PlayerView[];
-  spectators: { id: string; name: string }[];
+  spectators: { id: string; name: string; avatar?: AvatarProfileV1 }[];
   settings: { mode: "normal" | "blind"; blindCount: number };
   currentPlayerId?: string;
   turnDeadlineMs?: number;

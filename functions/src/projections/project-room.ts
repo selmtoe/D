@@ -453,7 +453,7 @@ export function projectRoomForViewer(
     players: projectedPlayers,
     spectators: visibleMembers(room)
       .filter((member) => member.role === "spectator")
-      .map((member) => ({ id: member.uid, name: member.name })),
+      .map((member) => ({ id: member.uid, name: member.name, avatar: member.avatar })),
     settings: room.settings,
     ...(typeof game?.turnPlayerId === "string" ? { currentPlayerId: game.turnPlayerId } : {}),
     ...(room.turnDeadlineAt ? { turnDeadlineMs: room.turnDeadlineAt.toMillis() } : {}),

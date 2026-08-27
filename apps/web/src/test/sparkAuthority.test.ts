@@ -872,6 +872,11 @@ describe("Spark browser authority", () => {
     );
 
     expect(authority.project("watcher").focusedPlayerId).toBe("p2");
+    expect(authority.project("p1").spectators).toContainEqual({
+      id: "watcher",
+      name: "観戦者",
+      avatar: defaultAvatar,
+    });
     expect(authority.project("p1").chat?.at(-1)).toMatchObject({
       uid: "watcher",
       role: "spectator",

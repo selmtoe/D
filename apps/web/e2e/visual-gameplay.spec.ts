@@ -294,6 +294,13 @@ test.describe("single-canvas visual gameplay inspection", () => {
       "spectator",
       mobile ? { width: 412, height: 915 } : { width: 1280, height: 900 },
     );
+    const observer = await reconnectPage(
+      browser,
+      authority,
+      "uid-host",
+      "player",
+      mobile ? { width: 412, height: 915 } : { width: 1280, height: 900 },
+    );
     try {
       await expect(spectator.page.locator("canvas").first()).toBeVisible();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
@@ -317,6 +324,10 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
       const canvas = spectator.page.locator("canvas").first();
       await expect(canvas).toHaveAttribute("data-free-roam-pose", /.+/);
+      const observerCanvas = observer.page.locator("canvas").first();
+      await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "1", {
+        timeout: 15_000,
+      });
       expect(await spectator.page.evaluate(() => document.activeElement?.tagName)).toBe("CANVAS");
       const poseBeforeTurn = await readFreeRoamPose(spectator.page);
       const bounds = await canvas.boundingBox();
@@ -382,13 +393,18 @@ test.describe("single-canvas visual gameplay inspection", () => {
         .poll(async () => (await readFreeRoamPose(spectator.page)).y)
         .toBeGreaterThan(poseBeforeJump.y + 0.08);
       await capture(spectator.page, testInfo.outputPath("spectator-free-roam.png"));
+      await capture(observer.page, testInfo.outputPath("remote-spectator-visible.png"));
       expect(
         await spectator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       ).toBe(true);
       await spectator.page.keyboard.press("Escape");
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toBeVisible();
+      await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "0", {
+        timeout: 15_000,
+      });
     } finally {
       await closeContext(spectator.context);
+      await closeContext(observer.context);
     }
   });
 
@@ -492,6 +508,29 @@ test.describe("single-canvas visual gameplay inspection", () => {
       }
       await expect(giver.page.getByLabel("7渡しの割り当て")).toContainText("♠7 → プレイヤー2");
       await capture(giver.page, testInfo.outputPath("seven-give-assigned-seat.png"));
+      await expect(canvas).toHaveAttribute("data-effect-give-return-card", /\d/, {
+        timeout: 15_000,
+      });
+      const [returnX = 0, returnY = 0] = String(
+        await canvas.getAttribute("data-effect-give-return-card"),
+      )
+        .split(",")
+        .map(Number);
+      if (bounds) {
+        await giver.page.mouse.move(bounds.x + returnX, bounds.y + returnY);
+        await giver.page.mouse.down();
+        await giver.page.mouse.move(bounds.x + startX, bounds.y + startY, { steps: 12 });
+        await giver.page.mouse.up();
+      }
+      await expect(giver.page.getByLabel("7渡しの割り当て")).toHaveCount(0);
+      await expect(effect).toContainText("0/1枚");
+      if (bounds) {
+        await giver.page.mouse.move(bounds.x + startX, bounds.y + startY);
+        await giver.page.mouse.down();
+        await giver.page.mouse.move(bounds.x + endX, bounds.y + endY, { steps: 12 });
+        await giver.page.mouse.up();
+      }
+      await expect(giver.page.getByLabel("7渡しの割り当て")).toContainText("♠7 → プレイヤー2");
       await giver.page.getByRole("button", { name: "7渡しを確定" }).click();
       await expect(giver.page.getByRole("region", { name: "7渡し" })).toHaveCount(0, {
         timeout: 15_000,

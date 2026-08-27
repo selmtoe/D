@@ -1095,7 +1095,11 @@ export class SparkAuthority {
         })),
         spectators: Object.values(this.snapshot.members)
           .filter((candidate) => candidate.role === "spectator")
-          .map((candidate) => ({ id: candidate.uid, name: candidate.name })),
+          .map((candidate) => ({
+            id: candidate.uid,
+            name: candidate.name,
+            avatar: clone(candidate.avatar),
+          })),
         settings: clone(this.snapshot.settings),
         direction: 1,
         revolution: false,
@@ -1188,7 +1192,11 @@ export class SparkAuthority {
       players,
       spectators: Object.values(this.snapshot.members)
         .filter((candidate) => candidate.role === "spectator")
-        .map((candidate) => ({ id: candidate.uid, name: candidate.name })),
+        .map((candidate) => ({
+          id: candidate.uid,
+          name: candidate.name,
+          avatar: clone(candidate.avatar),
+        })),
       settings: clone(this.snapshot.settings),
       ...(game.turnPlayerId ? { currentPlayerId: game.turnPlayerId } : {}),
       ...(this.snapshot.turnDeadlineMs ? { turnDeadlineMs: this.snapshot.turnDeadlineMs } : {}),

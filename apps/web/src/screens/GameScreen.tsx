@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CardView, PendingEffectView, Rank, RoomView, Suit } from "../app/model";
 import {
   loadPersonalSettings,
@@ -11,10 +11,10 @@ import { AccessibleHand } from "../accessibility/AccessibleHand";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { PersonalSettingsDialog } from "../components/PersonalSettingsDialog";
-import { playersAtTable, SalonScene } from "../game-3d/SalonScene";
+import { playersAtTable, SalonScene, type FreeRoamPose } from "../game-3d/SalonScene";
 import { EffectPanel } from "./EffectPanel";
 import { feedback, primeFeedback } from "../components/feedback";
-import { emoteCue } from "../network/peerCues";
+import { emoteCue, spectatorPoseCue } from "../network/peerCues";
 import { usePeerCues } from "../network/usePeerCues";
 import { JokerDeclarationPanel } from "./JokerDeclarationPanel";
 import {
@@ -27,6 +27,7 @@ import { CommentDanmaku } from "./CommentDanmaku";
 import {
   cardMotionPerspectiveChanged,
   deriveCardMotions,
+  sortCardsForCollectRack,
   type CardMotionEvent,
 } from "../game-3d/cardMotion";
 
@@ -605,11 +606,32 @@ export function GameScreen({
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
   const presentPlayers = useMemo(() => playersAtTable(room.players), [room.players]);
-  const peerCues = usePeerCues(
-    room.roomId,
-    room.viewerId,
-    presentPlayers.map((player) => player.id),
+  const peerIds = useMemo(
+    () => [
+      ...new Set([
+        ...presentPlayers.map((player) => player.id),
+        ...room.spectators.map((spectator) => spectator.id),
+      ]),
+    ],
+    [presentPlayers, room.spectators],
   );
+  const peerCues = usePeerCues(room.roomId, room.viewerId, peerIds);
+  const lastFreeRoamPose = useRef<FreeRoamPose | undefined>(undefined);
+  const publishFreeRoamPose = useCallback(
+    (pose: FreeRoamPose) => {
+      lastFreeRoamPose.current = pose;
+      void peerCues.send(spectatorPoseCue({ ...pose, freeSpectating: true }));
+    },
+    [peerCues.send],
+  );
+  useEffect(() => {
+    if (room.role !== "spectator" || spectatorMode !== "free") return;
+    return () => {
+      const pose = lastFreeRoamPose.current;
+      if (!pose) return;
+      void peerCues.send(spectatorPoseCue({ ...pose, moving: false, freeSpectating: false }));
+    };
+  }, [peerCues.send, room.role, spectatorMode]);
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
   const readOnly = room.role === "spectator" || me?.status !== "active";
@@ -726,7 +748,7 @@ export function GameScreen({
     if (!directEffect) return [];
     const source =
       directEffect.kind === "collect"
-        ? room.discard
+        ? sortCardsForCollectRack(room.discard)
         : directEffect.kind === "steal"
           ? room.players
               .filter((player) => player.id !== room.viewerId)
@@ -850,6 +872,17 @@ export function GameScreen({
     setPendingGiveCardId(undefined);
     feedback("select", muted);
   };
+  const returnGiveCard = (card: CardView) => {
+    if (busy || directEffect?.kind !== "give" || !effectTargets[card.id]) return;
+    setEffectCardIds((ids) => ids.filter((id) => id !== card.id));
+    setEffectTargets((targets) => {
+      const next = { ...targets };
+      delete next[card.id];
+      return next;
+    });
+    if (pendingGiveCardId === card.id) setPendingGiveCardId(undefined);
+    feedback("select", muted);
+  };
   const previousTurn = useRef(room.currentPlayerId);
   const previousTrick = useRef(room.trickId);
   useEffect(() => {
@@ -928,7 +961,7 @@ export function GameScreen({
   };
   const autoPass = useAutoPass({
     eligible: canAutoPass({
-      enabled: personalSettings.autoPass,
+      enabled: personalSettings.autoPass && room.field.length > 0,
       myTurn,
       readOnly,
       busy,
@@ -1077,8 +1110,11 @@ export function GameScreen({
           onEffectCardSelect={toggleEffectCard}
           onEffectPlayerSelect={chooseEffectTarget}
           onGiveCardDrop={dropGiveCard}
+          onGiveCardReturn={returnGiveCard}
+          remoteSpectatorPoses={peerCues.spectatorPoses}
           freeRoamAvatar={localAvatar ?? me?.avatar ?? room.players[0]?.avatar}
-          freeRoamControlsPaused={logOpen}
+          freeRoamControlsPaused={logOpen || personalSettingsOpen}
+          onFreeRoamPose={publishFreeRoamPose}
           onExitFreeRoam={() => setSpectatorMode("follow")}
         />
       </div>
