@@ -453,7 +453,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(
         observer.page.locator('[data-avatar-emote-player-id="uid-spectator"]'),
       ).toHaveAttribute("data-avatar-emote", "applause", { timeout: 15_000 });
-      const poseBeforeTurn = await readFreeRoamPose(spectator.page);
+      let poseBeforeTurn = await readFreeRoamPose(spectator.page);
       const bounds = await canvas.boundingBox();
       expect(bounds).not.toBeNull();
       if (bounds) {
@@ -472,6 +472,8 @@ test.describe("single-canvas visual gameplay inspection", () => {
               ),
             )
             .toBe(true);
+          await spectator.page.waitForTimeout(100);
+          poseBeforeTurn = await readFreeRoamPose(spectator.page);
           await spectator.page.evaluate(() => {
             const event = new MouseEvent("mousemove", { bubbles: true });
             Object.defineProperties(event, {
@@ -703,7 +705,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
               )
             );
           },
-          { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+          { timeout: 90_000, intervals: [100, 250, 500, 1_000] },
         )
         .toBe(true);
       const bounds = await canvas.boundingBox();

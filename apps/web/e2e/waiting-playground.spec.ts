@@ -122,6 +122,7 @@ test.describe("3D waiting playground", () => {
         "data-pointer-locked",
         "true",
       );
+      await page.waitForTimeout(100);
       await page.keyboard.down("KeyW");
       try {
         await expect
@@ -137,6 +138,7 @@ test.describe("3D waiting playground", () => {
       // Absolute mouse moves under Pointer Lock are browser/runner dependent.
       // Dispatch one explicit delta to exercise the locked-mouse handler and
       // verify the same rightward look direction deterministically.
+      const beforeLook = poseOf(await waitForPose(page));
       await page.evaluate(() => {
         document.dispatchEvent(new MouseEvent("mousemove", { movementX: 90, movementY: 0 }));
       });
@@ -145,7 +147,7 @@ test.describe("3D waiting playground", () => {
           timeout: 5_000,
           intervals: [50, 100, 250],
         })
-        .toBeLessThan(initial.yaw);
+        .toBeLessThan(beforeLook.yaw);
       await page.keyboard.press("Escape");
       await expect(page.locator(".waiting-playground-viewport")).toHaveAttribute(
         "data-pointer-locked",
