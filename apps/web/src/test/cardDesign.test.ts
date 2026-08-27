@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Rank } from "../app/model";
-import { isCourtRank, standardPipLayout } from "../game-3d/cardDesign";
+import {
+  CARD_BODY_THICKNESS,
+  CARD_FACE_Z_OFFSET,
+  CARD_WORLD_WIDTH,
+  isCourtRank,
+  standardPipLayout,
+} from "../game-3d/cardDesign";
 
 describe("standard playing-card face layout", () => {
   it.each([
@@ -23,5 +29,10 @@ describe("standard playing-card face layout", () => {
       expect(isCourtRank(rank)).toBe(true);
       expect(standardPipLayout(rank)).toEqual([]);
     }
+  });
+
+  it("keeps the physical body thin while the face clears the edge", () => {
+    expect(CARD_BODY_THICKNESS / CARD_WORLD_WIDTH).toBeLessThan(0.015);
+    expect(CARD_FACE_Z_OFFSET).toBeGreaterThan(CARD_BODY_THICKNESS / 2);
   });
 });

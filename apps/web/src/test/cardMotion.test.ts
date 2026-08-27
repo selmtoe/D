@@ -1,7 +1,11 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { describe, expect, it } from "vitest";
 import type { CardView, RoomView } from "../app/model";
-import { cardAnchorPosition } from "../game-3d/CardMotionLayer";
+import {
+  cardAnchorPosition,
+  cardMotionEndpointPosition,
+  MOTION_SOURCE_CARD_SPACING,
+} from "../game-3d/CardMotionLayer";
 import {
   CARD_BODY_THICKNESS,
   cardMotionsForDisplay,
@@ -9,8 +13,8 @@ import {
   deriveCardMotions,
   DISCARD_LAYER_SPACING,
   discardStackPlacement,
+  FIELD_CARD_SPACING,
   FIELD_CARD_SCALE,
-  FIELD_LAYER_SPACING,
   fieldCardPlacement,
   sortCardsForCollectRack,
 } from "../game-3d/cardMotion";
@@ -113,7 +117,7 @@ describe("card motion projection diff", () => {
     ]);
   });
 
-  it("gives every card in consecutive pair plays a distinct physical field layer", () => {
+  it("gives every card in consecutive pair plays a distinct horizontal field position", () => {
     const oldPair = [card("old-1"), card("old-2")];
     const nines = [card("nine-1"), card("nine-2")];
     const previous = view(2, nines, oldPair);
@@ -140,10 +144,13 @@ describe("card motion projection diff", () => {
         target.layerIndex!,
       ).position;
     });
-    expect(positions[0]).not.toEqual(positions[1]);
-    expect(positions[1]![1] - positions[0]![1]).toBeGreaterThan(
-      CARD_BODY_THICKNESS * FIELD_CARD_SCALE,
+    expect(positions[1]![0] - positions[0]![0]).toBeCloseTo(FIELD_CARD_SPACING);
+    expect(positions[1]![1]).toBeCloseTo(positions[0]![1]);
+
+    const sourcePositions = playMotions.map((motion) =>
+      cardMotionEndpointPosition(motion, "from", previous, false, previous.viewerId),
     );
+    expect(sourcePositions[1]![0] - sourcePositions[0]![0]).toBeCloseTo(MOTION_SOURCE_CARD_SPACING);
   });
 
   it("moves a cleared field to discard and a stolen card from its seat to hand", () => {
@@ -360,28 +367,26 @@ describe("physical card stack placement", () => {
     ]);
   });
 
-  it("separates field layers by more than the scaled card body thickness", () => {
+  it("lays cards from one play side by side on the same physical layer", () => {
     const lower = fieldCardPlacement(0, 2, 0, 2, 0);
     const upper = fieldCardPlacement(0, 2, 1, 2, 1);
 
-    expect(FIELD_LAYER_SPACING).toBeGreaterThan(CARD_BODY_THICKNESS * FIELD_CARD_SCALE);
-    expect(upper.position[1] - lower.position[1]).toBeCloseTo(FIELD_LAYER_SPACING);
-    expect(upper.position[0]).not.toBe(lower.position[0]);
+    expect(upper.position[0] - lower.position[0]).toBeCloseTo(FIELD_CARD_SPACING);
+    expect(FIELD_CARD_SPACING).toBeGreaterThan(1.22 * FIELD_CARD_SCALE);
+    expect(upper.position[1]).toBeCloseTo(lower.position[1]);
+    expect(upper.rotation).toEqual(lower.rotation);
   });
 
-  it("keeps a large field pile clustered around the center without diagonal drift", () => {
-    const placements = Array.from({ length: 24 }, (_, layerIndex) =>
-      fieldCardPlacement(layerIndex % 5, 5, layerIndex % 3, 3, layerIndex),
-    );
+  it("raises only the next play above the previous horizontal row", () => {
+    const firstRow = [fieldCardPlacement(0, 2, 0, 2, 0), fieldCardPlacement(0, 2, 1, 2, 1)];
+    const secondRow = [fieldCardPlacement(1, 2, 0, 2, 2), fieldCardPlacement(1, 2, 1, 2, 3)];
 
-    expect(placements.every(({ position }) => Math.abs(position[0]) <= 0.58)).toBe(true);
-    expect(placements.every(({ position }) => Math.abs(position[2]) <= 0.38)).toBe(true);
-    const xSteps = placements
-      .slice(1)
-      .map((placement, index) =>
-        Number((placement.position[0] - placements[index]!.position[0]).toFixed(3)),
-      );
-    expect(new Set(xSteps).size).toBeGreaterThan(4);
+    expect(firstRow[0]!.position[1]).toBeCloseTo(firstRow[1]!.position[1]);
+    expect(secondRow[0]!.position[1]).toBeCloseTo(secondRow[1]!.position[1]);
+    expect(secondRow[0]!.position[1] - firstRow[0]!.position[1]).toBeGreaterThan(
+      CARD_BODY_THICKNESS * FIELD_CARD_SCALE,
+    );
+    expect(secondRow[1]!.position[0] - secondRow[0]!.position[0]).toBeCloseTo(FIELD_CARD_SPACING);
   });
 
   it("separates discard layers enough for both static and moving cards", () => {

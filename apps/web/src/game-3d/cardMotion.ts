@@ -1,4 +1,7 @@
 import type { CardView, RoomView } from "../app/model";
+import { CARD_WORLD_WIDTH } from "./cardDesign";
+
+export { CARD_BODY_THICKNESS } from "./cardDesign";
 
 export type CardAnchor =
   | { kind: "hand" | "deck" }
@@ -14,11 +17,12 @@ export type CardAnchor =
   | { kind: "discardRack"; cardIndex: number; cardCount: number }
   | { kind: "seat"; playerId: string };
 
-export const CARD_BODY_THICKNESS = 0.075;
 export const FIELD_CARD_SCALE = 0.72;
-export const FIELD_LAYER_SPACING = 0.066;
+export const FIELD_CARD_GAP = 0.08;
+export const FIELD_CARD_SPACING = CARD_WORLD_WIDTH * FIELD_CARD_SCALE + FIELD_CARD_GAP;
+export const FIELD_LAYER_SPACING = 0.012;
 export const DISCARD_CARD_SCALE = 0.62;
-export const DISCARD_LAYER_SPACING = 0.058;
+export const DISCARD_LAYER_SPACING = 0.013;
 export const DISCARD_VISIBLE_LIMIT = 12;
 
 const COLLECT_RANK_ORDER = [
@@ -92,16 +96,16 @@ export function fieldCardPlacement(
 } {
   const centeredPlay = playIndex - (Math.max(1, playCount) - 1) / 2;
   const centeredCard = cardIndex - (Math.max(1, cardCount) - 1) / 2;
-  const cardSpread = Math.min(0.2, 0.44 / Math.max(1, cardCount - 1));
-  const jitterX = stackJitter(layerIndex, 1) * 0.3;
-  const jitterZ = stackJitter(layerIndex, 2) * 0.24;
+  const playBaseLayerIndex = Math.max(0, layerIndex - cardIndex);
+  const rowOffsetX = stackJitter(playIndex, 1) * 0.045;
+  const rowOffsetZ = stackJitter(playIndex, 2) * 0.035;
   return {
     position: [
-      clamp(jitterX + centeredCard * cardSpread, -0.58, 0.58),
-      0.16 + layerIndex * FIELD_LAYER_SPACING,
-      clamp(jitterZ + centeredPlay * 0.035, -0.38, 0.38),
+      rowOffsetX + centeredCard * FIELD_CARD_SPACING,
+      0.16 + playBaseLayerIndex * FIELD_LAYER_SPACING,
+      clamp(rowOffsetZ + centeredPlay * 0.055, -0.32, 0.32),
     ],
-    rotation: [-Math.PI / 2, 0, stackJitter(layerIndex, 3) * 0.09],
+    rotation: [-Math.PI / 2, 0, stackJitter(playIndex, 3) * 0.025],
     scale: FIELD_CARD_SCALE,
     renderOrder: 100 + layerIndex,
   };

@@ -1,5 +1,19 @@
 import type { Rank } from "../app/model";
 
+/** Shared world-space dimensions for every physical playing card. */
+export const CARD_WORLD_WIDTH = 1.22;
+export const CARD_WORLD_HEIGHT = 1.78;
+export const CARD_FACE_WIDTH = 1.13;
+export const CARD_FACE_HEIGHT = 1.68;
+/**
+ * A real card is extremely thin. This is intentionally a little thicker than
+ * scale so its edge remains visible without making a small pile look like a
+ * stack of tiles.
+ */
+export const CARD_BODY_THICKNESS = 0.014;
+export const CARD_FACE_Z_OFFSET = CARD_BODY_THICKNESS / 2 + 0.001;
+export const CARD_EDGE_RADIUS = 0.006;
+
 export interface PipPlacement {
   x: number;
   y: number;

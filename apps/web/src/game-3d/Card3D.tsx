@@ -11,7 +11,18 @@ import {
   type Object3D,
 } from "three";
 import type { CardView } from "../app/model";
-import { isCourtRank, standardPipLayout, type PipPlacement } from "./cardDesign";
+import {
+  CARD_BODY_THICKNESS,
+  CARD_EDGE_RADIUS,
+  CARD_FACE_HEIGHT,
+  CARD_FACE_WIDTH,
+  CARD_FACE_Z_OFFSET,
+  CARD_WORLD_HEIGHT,
+  CARD_WORLD_WIDTH,
+  isCourtRank,
+  standardPipLayout,
+  type PipPlacement,
+} from "./cardDesign";
 
 const suitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
 type PointerCaptureTarget = EventTarget & {
@@ -397,8 +408,8 @@ export function Card3D({
       <RoundedBox
         raycast={() => undefined}
         renderOrder={renderOrder}
-        args={[1.22, 1.78, 0.075]}
-        radius={0.08}
+        args={[CARD_WORLD_WIDTH, CARD_WORLD_HEIGHT, CARD_BODY_THICKNESS]}
+        radius={CARD_EDGE_RADIUS}
         smoothness={3}
         castShadow
         receiveShadow
@@ -411,8 +422,12 @@ export function Card3D({
           opacity={inactive ? 0.55 : 1}
         />
       </RoundedBox>
-      <mesh raycast={() => undefined} renderOrder={renderOrder} position={[0, 0, 0.0405]}>
-        <planeGeometry args={[1.13, 1.68]} />
+      <mesh
+        raycast={() => undefined}
+        renderOrder={renderOrder}
+        position={[0, 0, CARD_FACE_Z_OFFSET]}
+      >
+        <planeGeometry args={[CARD_FACE_WIDTH, CARD_FACE_HEIGHT]} />
         <meshStandardMaterial
           map={front}
           color={inactive ? "#313534" : "#ffffff"}
@@ -424,10 +439,10 @@ export function Card3D({
       <mesh
         raycast={() => undefined}
         renderOrder={renderOrder}
-        position={[0, 0, -0.0405]}
+        position={[0, 0, -CARD_FACE_Z_OFFSET]}
         rotation={[0, Math.PI, 0]}
       >
-        <planeGeometry args={[1.13, 1.68]} />
+        <planeGeometry args={[CARD_FACE_WIDTH, CARD_FACE_HEIGHT]} />
         <meshStandardMaterial
           map={back}
           color={inactive ? "#313534" : "#ffffff"}

@@ -63,6 +63,37 @@ export function cardAnchorPosition(
   return [Math.cos(angle) * 4.1, 0.32, Math.sin(angle) * 4.1];
 }
 
+export const MOTION_SOURCE_CARD_SPACING = 0.34;
+
+/** Keeps a multi-card play readable from the first animation frame. */
+export function cardMotionEndpointPosition(
+  motion: CardMotionEvent,
+  endpoint: "from" | "to",
+  room: RoomView,
+  mobile: boolean,
+  handViewpointId?: string,
+): [number, number, number] {
+  const anchor = motion[endpoint];
+  const base = cardAnchorPosition(anchor, room, mobile, handViewpointId);
+  if (
+    endpoint !== "from" ||
+    anchor.kind === "field" ||
+    motion.kind !== "play" ||
+    motion.to.kind !== "field" ||
+    motion.to.cardIndex === undefined ||
+    motion.to.cardCount === undefined ||
+    motion.to.cardCount < 2
+  ) {
+    return base;
+  }
+
+  const centeredCard = motion.to.cardIndex - (motion.to.cardCount - 1) / 2;
+  const radius = Math.hypot(base[0], base[2]);
+  if (radius < 0.001) return base;
+  const offset = centeredCard * MOTION_SOURCE_CARD_SPACING;
+  return [base[0] + (base[2] / radius) * offset, base[1], base[2] - (base[0] / radius) * offset];
+}
+
 function MotionCard({
   motion,
   room,
@@ -81,12 +112,12 @@ function MotionCard({
   const arrivedAt = useRef<number | undefined>(undefined);
   const finished = useRef(false);
   const from = useMemo(
-    () => cardAnchorPosition(motion.from, room, mobile, handViewpointId),
-    [handViewpointId, mobile, motion.from, room],
+    () => cardMotionEndpointPosition(motion, "from", room, mobile, handViewpointId),
+    [handViewpointId, mobile, motion, room],
   );
   const to = useMemo(
-    () => cardAnchorPosition(motion.to, room, mobile, handViewpointId),
-    [handViewpointId, mobile, motion.to, room],
+    () => cardMotionEndpointPosition(motion, "to", room, mobile, handViewpointId),
+    [handViewpointId, mobile, motion, room],
   );
   useFrame(({ clock }) => {
     if (!root.current) return;
@@ -131,7 +162,7 @@ function QueuedMotionCard({
   mobile: boolean;
   handViewpointId?: string | undefined;
 }) {
-  const position = cardAnchorPosition(motion.from, room, mobile, handViewpointId);
+  const position = cardMotionEndpointPosition(motion, "from", room, mobile, handViewpointId);
   return (
     <group position={position}>
       <Card3D card={motion.card} scale={motion.kind === "flush" ? 0.66 : 0.74} />
