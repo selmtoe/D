@@ -103,9 +103,9 @@ describe("Spark P2P startup cleanup", () => {
       coordinatorPeerId: "old-peer",
       heartbeatAtMs: 1_000,
     };
-    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 75_999)).toBe(false);
-    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 76_001)).toBe(true);
-    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "guest", "new-peer", 100_000)).toBe(false);
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 300_999)).toBe(false);
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "host", "new-peer", 301_001)).toBe(true);
+    expect(sparkCoordinatorLeaseCanBeClaimed(directory, "guest", "new-peer", 400_000)).toBe(false);
   });
 
   test("rejects a fresh same-uid coordinator tab before it can restore authority", async () => {
@@ -168,7 +168,7 @@ describe("Spark P2P startup cleanup", () => {
     const prototype = SparkP2PSession.prototype as unknown as StartupInternals;
     vi.spyOn(prototype, "startCommon").mockResolvedValue();
     vi.spyOn(prototype, "persistAndBroadcast").mockResolvedValue();
-    vi.spyOn(Date, "now").mockReturnValue(100_000);
+    vi.spyOn(Date, "now").mockReturnValue(400_000);
 
     const session = await SparkP2PSession.connect(
       {} as never,
@@ -183,7 +183,7 @@ describe("Spark P2P startup cleanup", () => {
     expect(update.mock.calls[0]?.[1]).toMatchObject({
       coordinatorUid: "host",
       coordinatorPeerId: expect.not.stringContaining("host-peer"),
-      heartbeatAtMs: 100_000,
+      heartbeatAtMs: 400_000,
     });
     await session.stop(false);
   });
@@ -905,14 +905,14 @@ describe("Spark P2P startup cleanup", () => {
     internals.directory = { heartbeatAtMs: 9_999_999 };
     internals.directoryObservedAtMs = 1_000;
     const election = vi.spyOn(internals, "tryCoordinatorElection").mockResolvedValue();
-    const now = vi.spyOn(Date, "now").mockReturnValue(76_001);
+    const now = vi.spyOn(Date, "now").mockReturnValue(301_001);
 
     await internals.tick();
-    now.mockReturnValue(78_001);
+    now.mockReturnValue(303_001);
     await internals.tick();
 
     expect(election).toHaveBeenCalledOnce();
-    now.mockReturnValue(91_001);
+    now.mockReturnValue(316_001);
     await internals.tick();
     expect(election).toHaveBeenCalledTimes(2);
   });
@@ -936,7 +936,7 @@ describe("Spark P2P startup cleanup", () => {
     internals.directory = { heartbeatAtMs: 9_999_999 };
     internals.directoryObservedAtMs = 1_000;
     const heartbeat = vi.spyOn(internals, "persistDirectory").mockResolvedValue();
-    vi.spyOn(Date, "now").mockReturnValue(31_000);
+    vi.spyOn(Date, "now").mockReturnValue(121_000);
 
     await internals.tick();
 

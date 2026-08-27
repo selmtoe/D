@@ -320,7 +320,7 @@ describe("Spark-plan P2P storage boundary", () => {
       }),
     );
 
-    const oldHeartbeat = Timestamp.fromMillis(Date.now() - 76_000);
+    const oldHeartbeat = Timestamp.fromMillis(Date.now() - 301_000);
     await environment.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), "sparkRoomDirectory/P2P22"), {
         ...directory,

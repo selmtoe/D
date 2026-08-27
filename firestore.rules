@@ -145,7 +145,7 @@ service cloud.firestore {
             )
           )
           || (
-            request.time > resource.data.heartbeatAt + duration.value(75, 's')
+            request.time > resource.data.heartbeatAt + duration.value(300, 's')
             && request.resource.data.coordinatorUid == request.auth.uid
           )
         );

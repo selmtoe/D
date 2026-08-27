@@ -93,11 +93,14 @@ type PendingRequest = {
   fingerprint: string;
 };
 
-const HEARTBEAT_MS = 30_000;
+// Firestore's room/presence documents are only a recovery lease; live game,
+// emote, and spectator movement traffic travels over WebRTC. Keeping this at
+// two minutes cuts idle Firestore writes by 75% without adding input latency.
+const HEARTBEAT_MS = 120_000;
 const PEER_RECONNECT_MS = 30_000;
-const COORDINATOR_STALE_MS = 75_000;
+const COORDINATOR_STALE_MS = 300_000;
 const COORDINATOR_ELECTION_RETRY_MS = 15_000;
-const MEMBER_OFFLINE_MS = 70_000;
+const MEMBER_OFFLINE_MS = 300_000;
 const DISCONNECT_LIMIT_MS = 120_000;
 const RELAY_TTL_MS = 10 * 60_000;
 const EARLY_ICE_TTL_MS = 60_000;
