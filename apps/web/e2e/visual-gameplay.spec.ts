@@ -417,6 +417,75 @@ test.describe("single-canvas visual gameplay inspection", () => {
     }
   });
 
+  test("a finished player's old seat disappears while their spectator avatar remains", async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const authority = new AuthoritativeE2EServer();
+    await seedStartedRoom(authority);
+    authority.forceFinish("uid-player-3");
+    const spectator = await reconnectPage(browser, authority, "uid-player-3", "spectator");
+    try {
+      const oldSeatName = spectator.page
+        .locator(".character-name-tag--player")
+        .filter({ hasText: "プレイヤー3" });
+      await expect(oldSeatName).toHaveCount(0);
+
+      await spectator.page.getByRole("button", { name: "キャラ移動" }).click();
+      await expect(oldSeatName).toHaveCount(0);
+      await expect(
+        spectator.page.locator(".character-name-tag--spectator").filter({ hasText: "プレイヤー3" }),
+      ).toBeVisible();
+    } finally {
+      await closeContext(spectator.context);
+    }
+  });
+
+  test("player names remain above seated avatars and the turn marker follows play", async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const authority = new AuthoritativeE2EServer();
+    await seedStartedRoom(authority);
+    const player = await reconnectPage(browser, authority, "uid-player-3");
+    try {
+      const playerNames = player.page.locator(".character-name-tag--player");
+      await expect(playerNames.filter({ hasText: "ホスト" })).toBeVisible();
+      await expect(playerNames.filter({ hasText: "プレイヤー2" })).toBeVisible();
+      await expect(playerNames.filter({ hasText: "プレイヤー3" })).toHaveCount(0);
+      await expect(playerNames.filter({ hasText: "ホスト" })).toHaveAttribute(
+        "data-current-turn",
+        "true",
+      );
+
+      await authority.handle("uid-host", {
+        op: "command",
+        name: "submitPlay",
+        payload: {
+          ...(await roomBase(authority)),
+          clientActionId: "visual-turn-marker-play",
+          cardIds: ["c-a1"],
+          mimics: [],
+          blindConfirmed: false,
+        },
+      });
+      await expect
+        .poll(async () => (await roomView(authority, "uid-player-3")).currentPlayerId)
+        .toBe("uid-player-2");
+      await expect(playerNames.filter({ hasText: "プレイヤー2" })).toHaveAttribute(
+        "data-current-turn",
+        "true",
+        { timeout: 15_000 },
+      );
+      await expect(playerNames.filter({ hasText: "ホスト" })).not.toHaveAttribute(
+        "data-current-turn",
+        "true",
+      );
+    } finally {
+      await closeContext(player.context);
+    }
+  });
+
   test("K recovery floats in a readable rack", async ({ browser }, testInfo) => {
     test.setTimeout(240_000);
     const collectAuthority = new AuthoritativeE2EServer();

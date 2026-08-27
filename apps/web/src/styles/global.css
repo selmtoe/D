@@ -200,6 +200,53 @@ h2 {
   height: 100% !important;
   touch-action: none;
 }
+.character-name-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  max-width: 11rem;
+  padding: 0.3rem 0.62rem;
+  border: 1px solid rgb(236 222 183 / 48%);
+  border-radius: 999px;
+  color: #fff8e5;
+  background: rgb(5 16 15 / 82%);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 42%);
+  font-family:
+    "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, system-ui, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.character-name-tag > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.character-name-tag small {
+  flex: none;
+  padding: 0.18rem 0.32rem;
+  border-radius: 999px;
+  color: #221705;
+  background: #f4d47f;
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+}
+.character-name-tag--spectator {
+  border-color: rgb(120 216 255 / 58%);
+  color: #dff7ff;
+  background: rgb(4 27 36 / 82%);
+}
+.character-name-tag.is-current-turn {
+  border-color: #f4d47f;
+  color: #fff7d7;
+  background: rgb(42 30 8 / 90%);
+  box-shadow:
+    0 0 0 2px rgb(244 212 127 / 12%),
+    0 5px 22px rgb(244 212 127 / 28%);
+}
 .entrance-card {
   position: relative;
   z-index: 2;
@@ -519,6 +566,26 @@ h2 {
   justify-content: space-between;
   font-size: 1rem;
 }
+.players-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+.players-heading h2 {
+  flex: 1;
+  margin-block: 0.55rem;
+}
+.add-cpu {
+  flex: none;
+  min-height: 40px;
+  padding: 0.35rem 0.65rem;
+  color: #dff7e7;
+  border-color: #4f8268;
+  background: #163b2c;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
 .player-slots {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -537,6 +604,26 @@ h2 {
 .player-slot > div {
   display: grid;
   gap: 0.2rem;
+}
+.player-slot strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.player-slot .cpu-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.38rem;
+  color: #132219;
+  border: 1px solid #94d7aa;
+  border-radius: 999px;
+  background: #a9e7ba;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 .player-slot span {
   color: #9aa69e;

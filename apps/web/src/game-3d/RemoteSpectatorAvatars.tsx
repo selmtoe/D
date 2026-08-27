@@ -5,6 +5,7 @@ import { Vector3, type Group } from "three";
 import type { RoomView } from "../app/model";
 import type { SpectatorPoseCue } from "../network/peerCues";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
+import { CharacterNameTag } from "./PlayerPresentation";
 
 export interface RemoteSpectatorParticipant {
   id: string;
@@ -70,6 +71,7 @@ function RemoteSpectatorAvatar({
       rotation={[0, participant.pose.yaw + Math.PI, 0]}
     >
       <Avatar3D profile={participant.avatar} lowPower={lowPower} active={participant.pose.moving} />
+      <CharacterNameTag name={participant.name} kind="spectator" />
       <mesh position={[0, 0.032, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.66, 0.78, lowPower ? 18 : 32]} />
         <meshBasicMaterial color="#78d8ff" transparent opacity={0.74} />

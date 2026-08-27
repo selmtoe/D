@@ -803,6 +803,7 @@ export class SparkP2PSession {
     let changed = false;
     const snapshot = this.authority.exportSnapshot();
     for (const member of Object.values(snapshot.members)) {
+      if (member.cpu) continue;
       const presence = this.presenceSeen.get(member.uid);
       // A reloaded tab gets a new peer ID while an older tab can still deliver a delayed
       // heartbeat/pagehide write for the same UID. Never let that stale session replace or
@@ -830,6 +831,10 @@ export class SparkP2PSession {
         if (!authority) return;
         if (this.directory && now - this.directoryObservedAtMs >= HEARTBEAT_MS) {
           await this.persistDirectory(false).catch(() => this.setMode("offline"));
+        }
+        if (authority.advanceCpu(now)) {
+          await this.persistAndBroadcast();
+          return;
         }
         const snapshot = authority.exportSnapshot();
         if (
@@ -959,6 +964,7 @@ export class SparkP2PSession {
       );
     }
     for (const member of Object.values(snapshot.members)) {
+      if (member.cpu) continue;
       const view = this.authority.project(member.uid);
       if (member.uid === this.uid) this.acceptView(view);
       else if (member.online) {
@@ -1350,7 +1356,7 @@ export class SparkP2PSession {
     if (!this.authority) return;
     const snapshot = this.authority.exportSnapshot();
     for (const member of Object.values(snapshot.members)) {
-      if (member.uid !== senderUid && member.online) {
+      if (!member.cpu && member.uid !== senderUid && member.online) {
         await this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid }).catch(
           () => undefined,
         );

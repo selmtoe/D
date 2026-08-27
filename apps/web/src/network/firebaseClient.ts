@@ -50,6 +50,8 @@ export type CommandName =
   | "reconnectRoom"
   | "transferHost"
   | "kickMember"
+  | "addCpu"
+  | "removeCpu"
   | "updateRoomSettings"
   | "startGame"
   | "submitPlay"

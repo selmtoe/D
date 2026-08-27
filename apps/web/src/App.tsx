@@ -284,6 +284,10 @@ export default function App() {
         leave={leave}
         openRules={() => setSettings({ activeDialog: "rules" })}
         start={() => void command("startGame", commandBase(app.room!))}
+        addCpu={() => void command("addCpu", commandBase(app.room!))}
+        removeCpu={(targetUid) =>
+          void command("removeCpu", { ...commandBase(app.room!), targetUid })
+        }
         transferHost={(targetUid) =>
           void command("transferHost", { ...commandBase(app.room!), targetUid })
         }

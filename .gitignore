@@ -17,5 +17,8 @@ firebase-debug.log
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+__pycache__/
+*.py[cod]
 artifacts/qa/bot-match-evidence.json
 artifacts/qa/bot-match-evidence.md
+artifacts/ai/runs/

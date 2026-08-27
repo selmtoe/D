@@ -33,6 +33,7 @@ export interface PlayerView {
   id: string;
   name: string;
   avatar: AvatarProfileV1;
+  cpu?: boolean;
   cardCount: number;
   cards?: CardView[];
   connection: "online" | "grace" | "offline";

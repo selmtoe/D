@@ -7,6 +7,7 @@ import {
   collectCardInteractionLayout,
   handCardHitArea,
   handCardInteractionLayout,
+  hiddenSeatPlayerIdsForScene,
   isFreeRoamControlActivationKey,
   isGiveCardReturnTarget,
   nearestGiveTarget,
@@ -16,9 +17,12 @@ import {
   playersForPerspective,
   resetFreeRoamInput,
   sceneFrameRate,
+  shouldDimCollectRackCard,
+  shouldDimHandCard,
   shouldExitFreeRoam,
   shouldIgnoreFreeRoamKeyboardTarget,
   shouldResetFreeRoamInput,
+  shouldShowSeatedAvatar,
   stealCardHitArea,
   stealCardInteractionLayout,
 } from "../game-3d/SalonScene";
@@ -179,6 +183,16 @@ describe("K-collect card hit areas", () => {
       expect(layout.hitAreaHeight * layout.scale).toBeLessThan(layout.rowSpacing);
     },
   );
+
+  it("keeps the own hand bright while the collect rack decides eligibility separately", () => {
+    const noPlayableHandCards = new Set<string>();
+
+    expect(shouldDimHandCard("hand-card", noPlayableHandCards, "collect")).toBe(false);
+    expect(shouldDimHandCard("hand-card", noPlayableHandCards, "discard")).toBe(true);
+    expect(shouldDimHandCard("hand-card", new Set(["hand-card"]), undefined)).toBe(false);
+    expect(shouldDimCollectRackCard("rack-card", true, new Set())).toBe(true);
+    expect(shouldDimCollectRackCard("rack-card", true, new Set(["rack-card"]))).toBe(false);
+  });
 });
 
 describe("free-roam camera bounds", () => {
@@ -281,5 +295,37 @@ describe("3D table membership", () => {
       ["opposite", "left", "self", "right"],
     );
     expect(playersForPerspective(players, "spectator", "opposite")).toEqual(players);
+  });
+
+  it("hides a finished viewer's old avatar without removing its canonical seat", () => {
+    const finishedViewer = { ...players[1]!, status: "finished" as const };
+    const tablePlayers = playersAtTable([players[0]!, finishedViewer, players[2]!, players[3]!]);
+
+    expect(tablePlayers).toHaveLength(4);
+    const hiddenSeatPlayerIds = new Set([finishedViewer.id]);
+    expect(shouldShowSeatedAvatar(finishedViewer.id, hiddenSeatPlayerIds)).toBe(false);
+    expect(shouldShowSeatedAvatar(players[0]!.id, hiddenSeatPlayerIds)).toBe(true);
+  });
+
+  it("hides another finished player's old seat while their remote spectator pose is active", () => {
+    const remoteFreeRoamIds = new Set([players[2]!.id]);
+
+    expect(shouldShowSeatedAvatar(players[2]!.id, remoteFreeRoamIds)).toBe(false);
+    expect(shouldShowSeatedAvatar(players[3]!.id, remoteFreeRoamIds)).toBe(true);
+  });
+
+  it("hides both the finished viewer's old seat and the followed player's avatar", () => {
+    const hiddenSeatPlayerIds = hiddenSeatPlayerIdsForScene("finished-viewer", "followed-player", [
+      "remote-free-roamer",
+    ]);
+
+    expect([...hiddenSeatPlayerIds]).toEqual([
+      "finished-viewer",
+      "followed-player",
+      "remote-free-roamer",
+    ]);
+    expect(shouldShowSeatedAvatar("finished-viewer", hiddenSeatPlayerIds)).toBe(false);
+    expect(shouldShowSeatedAvatar("followed-player", hiddenSeatPlayerIds)).toBe(false);
+    expect(shouldShowSeatedAvatar("still-seated", hiddenSeatPlayerIds)).toBe(true);
   });
 });

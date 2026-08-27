@@ -1,4 +1,4 @@
-import { migrateAvatar, type AvatarProfileV1 } from "@daifugo/avatar-schema";
+import { defaultAvatar, migrateAvatar, type AvatarProfileV1 } from "@daifugo/avatar-schema";
 import {
   applyGameCommand,
   createInitialGameState,
@@ -22,6 +22,7 @@ import type {
   RoomView,
   Suit,
 } from "../app/model";
+import { chooseCpuDecision } from "./cpuPlayer";
 
 export interface SparkMember {
   uid: string;
@@ -31,6 +32,7 @@ export interface SparkMember {
   role: Role;
   joinedAtMs: number;
   online: boolean;
+  cpu?: true;
   focusPlayerId?: string;
   lastChatAtMs?: number;
 }
@@ -331,6 +333,10 @@ export class SparkAuthority {
       // Snapshot/profile data crosses a browser trust boundary. Migration keeps
       // old v1 profiles usable while dropping unknown or oversized paint data.
       member.avatar = migrateAvatar(member.avatar);
+      if (member.cpu) {
+        member.online = true;
+        continue;
+      }
       if (!isValidSparkPeerId(member.peerId)) {
         member.peerId = "";
         member.online = false;
@@ -384,12 +390,13 @@ export class SparkAuthority {
   }
 
   get isEmpty(): boolean {
-    return Object.keys(this.snapshot.members).length === 0;
+    return !Object.values(this.snapshot.members).some((member) => !member.cpu);
   }
 
   setCoordinator(uid: string, peerId: string, now = Date.now()): void {
     const member = this.snapshot.members[uid];
     if (!member) commandError("not-found", "移譲先が部屋にいません");
+    if (member.cpu) commandError("failed-precondition", "CPUは通信管理を引き継げません");
     if (!isValidSparkPeerId(peerId)) commandError("invalid-argument", "接続IDが不正です");
     member.peerId = peerId;
     member.online = true;
@@ -444,6 +451,7 @@ export class SparkAuthority {
       commandError("permission-denied", "この部屋からキックされています");
     }
     const existing = this.snapshot.members[request.uid];
+    if (existing?.cpu) commandError("permission-denied", "CPU席には接続できません");
     if (!existing) {
       if (request.role === "player") {
         if (this.snapshot.status !== "waiting") {
@@ -493,6 +501,14 @@ export class SparkAuthority {
       commandError("invalid-argument", "接続IDが不正です");
     }
     const member = this.snapshot.members[uid];
+    if (member?.cpu) {
+      if (!member.online) {
+        member.online = true;
+        this.commit(now);
+        return true;
+      }
+      return false;
+    }
     if (!member || (member.online === online && (!peerId || member.peerId === peerId)))
       return false;
     member.online = online;
@@ -510,7 +526,7 @@ export class SparkAuthority {
   disqualifyDisconnected(uid: string, now = Date.now()): boolean {
     const member = this.snapshot.members[uid];
     const player = this.snapshot.game?.players.find((candidate) => candidate.id === uid);
-    if (!member || member.online) return false;
+    if (!member || member.cpu || member.online) return false;
     if (this.snapshot.game && player?.status === "active") {
       const result = applyGameCommand(
         this.snapshot.game,
@@ -580,6 +596,32 @@ export class SparkAuthority {
     return true;
   }
 
+  /** Runs one trained-NN CPU decision. The coordinator tick supplies the visible think delay. */
+  advanceCpu(now = Date.now()): boolean {
+    const game = this.snapshot.game;
+    const actorId =
+      this.snapshot.pendingMimic?.actorUid ?? game?.pendingEffect?.actorId ?? game?.turnPlayerId;
+    if (!game || !actorId || this.snapshot.status !== "playing") return false;
+    const member = this.snapshot.members[actorId];
+    if (!member?.cpu) return false;
+    try {
+      const decision = chooseCpuDecision(game, this.project(actorId), actorId);
+      if (!decision) return this.timeoutCurrent(now);
+      this.handleCommand(
+        actorId,
+        decision.name,
+        {
+          ...decision.payload,
+          clientActionId: `cpu-${this.snapshot.generation}-${game.version}-${this.snapshot.revision}`,
+        },
+        now,
+      );
+      return true;
+    } catch {
+      return this.timeoutCurrent(now);
+    }
+  }
+
   handleCommand(
     uid: string,
     name: string,
@@ -638,6 +680,58 @@ export class SparkAuthority {
         this.finishRoomCommand(actionId, now);
         return response;
       }
+      case "addCpu": {
+        this.requireHost(uid);
+        if (this.snapshot.status !== "waiting") {
+          commandError("failed-precondition", "CPU席は待機室で追加してください");
+        }
+        const playerCount = Object.values(this.snapshot.members).filter(
+          (candidate) => candidate.role === "player",
+        ).length;
+        if (playerCount >= MAX_PLAYERS) {
+          commandError("resource-exhausted", "プレイヤーは6人までです");
+        }
+        const usedCpuNumbers = new Set(
+          Object.values(this.snapshot.members).flatMap((candidate) => {
+            const match = candidate.cpu ? /^CPU (\d+)$/.exec(candidate.name) : undefined;
+            return match?.[1] ? [Number(match[1])] : [];
+          }),
+        );
+        let cpuNumber = 1;
+        while (usedCpuNumbers.has(cpuNumber)) cpuNumber += 1;
+        const cpuUid = `cpu:${crypto.randomUUID()}`;
+        this.snapshot.members[cpuUid] = {
+          uid: cpuUid,
+          peerId: cpuUid,
+          name: `CPU ${cpuNumber}`,
+          avatar: clone(defaultAvatar),
+          role: "player",
+          joinedAtMs: now + cpuNumber,
+          online: true,
+          cpu: true,
+        };
+        this.snapshot.socialLog.push({
+          id: `cpu-add-${cpuUid}-${now}`,
+          atMs: now,
+          text: `CPU ${cpuNumber}を追加しました（学習済みNN）`,
+          kind: "system",
+        });
+        response = { cpuUid };
+        this.finishRoomCommand(actionId, now, response);
+        return response;
+      }
+      case "removeCpu": {
+        this.requireHost(uid);
+        if (this.snapshot.status !== "waiting") {
+          commandError("failed-precondition", "CPU席は待機室で削除してください");
+        }
+        const targetUid = String(payload.targetUid ?? "");
+        const target = this.snapshot.members[targetUid];
+        if (!target?.cpu) commandError("failed-precondition", "対象はCPU席ではありません");
+        this.removeMember(targetUid, now, `${target.name}を削除しました`);
+        this.finishRoomCommand(actionId, now);
+        return response;
+      }
       case "transferHost": {
         this.requireHost(uid);
         const targetUid = String(payload.targetUid ?? "");
@@ -645,6 +739,7 @@ export class SparkAuthority {
         const targetPlayer = this.snapshot.game?.players.find((player) => player.id === targetUid);
         if (
           !target ||
+          target.cpu ||
           target.role !== "player" ||
           !target.online ||
           targetPlayer?.status === "disqualified"
@@ -664,6 +759,9 @@ export class SparkAuthority {
         }
         if (!this.snapshot.members[targetUid]) {
           commandError("failed-precondition", "対象の参加者が見つかりません");
+        }
+        if (this.snapshot.members[targetUid]?.cpu) {
+          commandError("failed-precondition", "CPU席はCPU削除ボタンで外してください");
         }
         if (
           !this.snapshot.evictedUids?.includes(targetUid) &&
@@ -959,6 +1057,7 @@ export class SparkAuthority {
       );
       const eligiblePlayers = remaining.filter(
         (candidate) =>
+          !candidate.cpu &&
           candidate.role === "player" &&
           this.snapshot.game?.players.find((player) => player.id === candidate.uid)?.status !==
             "disqualified",
@@ -966,14 +1065,14 @@ export class SparkAuthority {
       this.snapshot.hostUid =
         eligiblePlayers.find((candidate) => candidate.online)?.uid ??
         eligiblePlayers[0]?.uid ??
-        remaining.find((candidate) => candidate.online)?.uid ??
-        remaining[0]?.uid ??
+        remaining.find((candidate) => !candidate.cpu && candidate.online)?.uid ??
+        remaining.find((candidate) => !candidate.cpu)?.uid ??
         "";
     }
     if (this.snapshot.coordinatorUid === uid) {
       this.snapshot.coordinatorUid =
         Object.values(this.snapshot.members)
-          .filter((candidate) => candidate.online)
+          .filter((candidate) => !candidate.cpu && candidate.online)
           .sort((left, right) => left.joinedAtMs - right.joinedAtMs)[0]?.uid ?? "";
     }
     this.snapshot.socialLog.push({
@@ -988,8 +1087,9 @@ export class SparkAuthority {
     const gamePlayer = this.snapshot.game?.players.find((player) => player.id === uid);
     if (
       this.snapshot.hostUid !== uid ||
+      this.snapshot.members[uid]?.cpu ||
       this.snapshot.members[uid]?.role !== "player" ||
-      gamePlayer?.status === "disqualified"
+      (this.snapshot.status === "playing" && gamePlayer?.status === "disqualified")
     ) {
       commandError("permission-denied", "プレイヤーホスト専用操作です");
     }
@@ -1051,6 +1151,7 @@ export class SparkAuthority {
       const eligiblePlayers = Object.values(this.snapshot.members)
         .filter(
           (member) =>
+            !member.cpu &&
             member.role === "player" &&
             this.snapshot.game?.players.find((player) => player.id === member.uid)?.status !==
               "disqualified",
@@ -1058,6 +1159,13 @@ export class SparkAuthority {
         .sort((left, right) => left.joinedAtMs - right.joinedAtMs);
       this.snapshot.hostUid =
         eligiblePlayers.find((member) => member.online)?.uid ?? eligiblePlayers[0]?.uid ?? "";
+      if (!this.snapshot.hostUid) {
+        const humanMembers = Object.values(this.snapshot.members)
+          .filter((member) => !member.cpu)
+          .sort((left, right) => left.joinedAtMs - right.joinedAtMs);
+        this.snapshot.hostUid =
+          humanMembers.find((member) => member.online)?.uid ?? humanMembers[0]?.uid ?? "";
+      }
     }
     this.commit(now);
   }
@@ -1087,6 +1195,7 @@ export class SparkAuthority {
           id: candidate.uid,
           name: candidate.name,
           avatar: clone(candidate.avatar),
+          ...(candidate.cpu ? { cpu: true } : {}),
           cardCount: 0,
           cards: [],
           connection: candidate.online ? "online" : "offline",
@@ -1143,6 +1252,7 @@ export class SparkAuthority {
         id: player.id,
         name: presentPlayerMember?.name ?? departedProfile?.name ?? "退出者",
         avatar: clone(presentPlayerMember?.avatar ?? departedProfile?.avatar ?? member.avatar),
+        ...(presentPlayerMember?.cpu ? { cpu: true } : {}),
         cardCount: projectedPlayer.hand.length,
         cards: projectedPlayer.hand.map((card) => cardView(card, projectedJokerStyles)),
         connection: roomMember?.online ? ("online" as const) : ("offline" as const),

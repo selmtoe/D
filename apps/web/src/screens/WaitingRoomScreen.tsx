@@ -7,6 +7,14 @@ export function canEditRoomSettings(isHost: boolean, busy: boolean): boolean {
   return isHost && !busy;
 }
 
+export function canAddCpu(isHost: boolean, busy: boolean, playerCount: number): boolean {
+  return isHost && !busy && playerCount < 6;
+}
+
+export function startablePlayerCount(room: RoomView): number {
+  return room.players.filter((player) => player.cpu || player.connection === "online").length;
+}
+
 export function WaitingRoomScreen({
   room,
   connection,
@@ -14,6 +22,8 @@ export function WaitingRoomScreen({
   error,
   leave,
   start,
+  addCpu,
+  removeCpu,
   transferHost,
   kick,
   updateSettings,
@@ -25,6 +35,8 @@ export function WaitingRoomScreen({
   error?: string | undefined;
   leave: () => void;
   start: () => void;
+  addCpu: () => void;
+  removeCpu: (targetUid: string) => void;
   transferHost: (targetUid: string) => void;
   kick: (targetUid: string) => void;
   updateSettings: (settings: RoomView["settings"]) => void;
@@ -34,7 +46,7 @@ export function WaitingRoomScreen({
   const me = room.players.find((player) => player.id === room.viewerId);
   const isHost = Boolean(me && room.hostId === room.viewerId);
   const settingsEditable = canEditRoomSettings(isHost, busy);
-  const connectedCount = room.players.filter((player) => player.connection === "online").length;
+  const readyPlayerCount = startablePlayerCount(room);
   const inviteUrl = `${location.origin}${location.pathname}?room=${room.roomId}`;
   const copyText = async (text: string) => {
     try {
@@ -104,9 +116,21 @@ export function WaitingRoomScreen({
         {tab === "people" ? (
           <div className="waiting-people">
             <section aria-labelledby="players-title">
-              <h2 id="players-title">
-                プレイヤー <span>{room.players.length}/6</span>
-              </h2>
+              <div className="players-heading">
+                <h2 id="players-title">
+                  プレイヤー <span>{room.players.length}/6</span>
+                </h2>
+                {isHost && room.players.length < 6 && (
+                  <button
+                    type="button"
+                    className="add-cpu"
+                    disabled={!canAddCpu(isHost, busy, room.players.length)}
+                    onClick={addCpu}
+                  >
+                    CPUを追加
+                  </button>
+                )}
+              </div>
               <div className="player-slots">
                 {Array.from({ length: 6 }, (_, index) => {
                   const player = room.players[index];
@@ -117,14 +141,20 @@ export function WaitingRoomScreen({
                         label={`${player.name}の3Dアバター`}
                       />
                       <div>
-                        <strong>{player.name}</strong>
+                        <strong>
+                          {player.name}
+                          {player.cpu && <span className="cpu-badge">AI・NN実験</span>}
+                        </strong>
                         <span>
-                          {player.host ? "ホスト · " : ""}
-                          {player.connection === "online"
-                            ? "接続中"
-                            : player.connection === "grace"
-                              ? "切断猶予中"
-                              : "切断"}
+                          {player.cpu
+                            ? "学習済みNN · 常時接続"
+                            : `${player.host ? "ホスト · " : ""}${
+                                player.connection === "online"
+                                  ? "接続中"
+                                  : player.connection === "grace"
+                                    ? "切断猶予中"
+                                    : "切断"
+                              }`}
                         </span>
                       </div>
                       {player.id === me?.id ? (
@@ -132,7 +162,7 @@ export function WaitingRoomScreen({
                       ) : (
                         isHost && (
                           <div className="host-actions">
-                            {player.connection === "online" && (
+                            {!player.cpu && player.connection === "online" && (
                               <button
                                 type="button"
                                 className="host-transfer"
@@ -148,12 +178,24 @@ export function WaitingRoomScreen({
                               className="host-kick"
                               disabled={busy}
                               onClick={() => {
-                                if (window.confirm(`${player.name}を部屋からキックしますか？`))
-                                  kick(player.id);
+                                if (
+                                  window.confirm(
+                                    player.cpu
+                                      ? `${player.name}を削除しますか？`
+                                      : `${player.name}を部屋からキックしますか？`,
+                                  )
+                                ) {
+                                  if (player.cpu) removeCpu(player.id);
+                                  else kick(player.id);
+                                }
                               }}
-                              aria-label={`${player.name}を部屋からキック`}
+                              aria-label={
+                                player.cpu
+                                  ? `${player.name}のCPU席を削除`
+                                  : `${player.name}を部屋からキック`
+                              }
                             >
-                              キック
+                              {player.cpu ? "CPUを削除" : "キック"}
                             </button>
                           </div>
                         )
@@ -254,16 +296,16 @@ export function WaitingRoomScreen({
         )}
         <footer>
           <p>
-            {connectedCount < 3
-              ? `開始には接続中プレイヤーがあと${3 - connectedCount}人必要です`
-              : `${connectedCount}人で開始できます`}
+            {readyPlayerCount < 3
+              ? `開始には参加プレイヤーがあと${3 - readyPlayerCount}人必要です`
+              : `${readyPlayerCount}人で開始できます`}
           </p>
           {isHost ? (
             <button
               type="button"
               className="primary"
               onClick={start}
-              disabled={connectedCount < 3 || busy}
+              disabled={readyPlayerCount < 3 || busy}
             >
               {busy ? "開始処理中…" : "ゲームを始める"}
             </button>

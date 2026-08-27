@@ -15,6 +15,7 @@ import { Avatar3D } from "../avatar-3d/Avatar3D";
 import type { SpectatorPoseCue } from "../network/peerCues";
 import { Card3D } from "./Card3D";
 import { CardMotionLayer } from "./CardMotionLayer";
+import { CharacterNameTag, CurrentTurnSpotlight } from "./PlayerPresentation";
 import { RemoteSpectatorAvatars } from "./RemoteSpectatorAvatars";
 import {
   collectCardRackGeometry,
@@ -78,6 +79,42 @@ export function opponentHandCardForDisplay(card: CardView, cameraFacing: boolean
   if (cameraFacing) return card;
   const hidden: CardView = { id: card.id, visibility: "hidden", blind: false };
   return card.selected === undefined ? hidden : { ...hidden, selected: card.selected };
+}
+
+export function shouldShowSeatedAvatar(
+  playerId: string,
+  hiddenSeatPlayerIds: ReadonlySet<string>,
+): boolean {
+  return !hiddenSeatPlayerIds.has(playerId);
+}
+
+export function hiddenSeatPlayerIdsForScene(
+  viewerId: string | undefined,
+  seatViewpointId: string | undefined,
+  remoteFreeRoamPlayerIds: Iterable<string>,
+): ReadonlySet<string> {
+  return new Set(
+    [viewerId, seatViewpointId, ...remoteFreeRoamPlayerIds].filter((playerId): playerId is string =>
+      Boolean(playerId),
+    ),
+  );
+}
+
+export function shouldDimHandCard(
+  cardId: string,
+  playableIds: ReadonlySet<string> | undefined,
+  effectKind: TableEffectInteraction["kind"] | undefined,
+): boolean {
+  if (effectKind === "collect") return false;
+  return Boolean(playableIds && !playableIds.has(cardId));
+}
+
+export function shouldDimCollectRackCard(
+  cardId: string,
+  collecting: boolean,
+  selectableIds: ReadonlySet<string> | undefined,
+): boolean {
+  return Boolean(collecting && selectableIds && !selectableIds.has(cardId));
 }
 
 function FrameScheduler({ fps }: { fps: number }) {
@@ -260,6 +297,7 @@ function FreeRoamAvatar({
   mobileInput,
   playerCount,
   mobile,
+  name,
   profile,
   lowPower,
   reducedMotion,
@@ -270,6 +308,7 @@ function FreeRoamAvatar({
   mobileInput: FreeRoamInput;
   playerCount: number;
   mobile: boolean;
+  name: string;
   profile: PlayerView["avatar"];
   lowPower: boolean;
   reducedMotion: boolean;
@@ -544,6 +583,7 @@ function FreeRoamAvatar({
   return (
     <group ref={avatar} position={position.current.toArray()}>
       <Avatar3D profile={profile} lowPower={lowPower} active />
+      <CharacterNameTag name={name} kind="spectator" mobile={mobile} />
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.66, 0.78, 32]} />
         <meshBasicMaterial color="#f4d47f" transparent opacity={0.68} />
@@ -619,13 +659,13 @@ function SalonRoom({ lowPower }: { lowPower: boolean }) {
 function seats(
   players: PlayerView[],
   viewerId: string | undefined,
+  hiddenSeatPlayerIds: ReadonlySet<string>,
   currentPlayerId?: string,
   lowPower = false,
   mobile = false,
   e2eProjectionProbe = false,
   movingToSeats = new Map<string, ReadonlySet<string>>(),
   hiddenCardPlayerId?: string,
-  hideViewerAvatar = true,
   effectInteraction?: TableEffectInteraction,
   onEffectCardSelect: (card: CardView, ownerId: string) => void = () => undefined,
   onEffectPlayerSelect: (playerId: string) => void = () => undefined,
@@ -648,6 +688,8 @@ function seats(
           )
         : [];
     const rackPresentation = opponentHandRackPresentation(effectInteraction?.kind);
+    const currentTurn = player.id === currentPlayerId;
+    const seatedAvatarVisible = shouldShowSeatedAvatar(player.id, hiddenSeatPlayerIds);
     const opponentCards = (player.cards ?? []).map((card, cardIndex) => {
       const centered = cardIndex - ((player.cards?.length ?? 1) - 1) / 2;
       const stealHitArea = stealCardHitArea(cardIndex, player.cards?.length ?? 0, mobile);
@@ -703,12 +745,16 @@ function seats(
           }
         }}
       >
-        {(!hideViewerAvatar || player.id !== viewerId) && (
-          <Avatar3D
-            profile={player.avatar}
-            active={player.id === currentPlayerId || giveTarget}
-            lowPower={lowPower}
-          />
+        {currentTurn && <CurrentTurnSpotlight lowPower={lowPower} mobile={mobile} />}
+        {seatedAvatarVisible && (
+          <>
+            <Avatar3D
+              profile={player.avatar}
+              active={currentTurn || giveTarget}
+              lowPower={lowPower}
+            />
+            <CharacterNameTag name={player.name} currentTurn={currentTurn} mobile={mobile} />
+          </>
         )}
         {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
           <>
@@ -796,7 +842,7 @@ function handCards(
         key={card.id}
         card={card}
         selected={selectedIds.includes(card.id)}
-        dimmed={Boolean(playableIds && !playableIds.has(card.id))}
+        dimmed={shouldDimHandCard(card.id, playableIds, effectInteraction?.kind)}
         hidden={
           movingToHand.has(card.id) ||
           (effectInteraction?.kind === "give" && Boolean(effectInteraction.giveTargets[card.id]))
@@ -972,7 +1018,7 @@ function discardStack(
         key={card.id}
         card={card}
         selected={Boolean(effectInteraction?.selectedIds.has(card.id))}
-        dimmed={collecting && !effectInteraction.selectableIds.has(card.id)}
+        dimmed={shouldDimCollectRackCard(card.id, collecting, effectInteraction?.selectableIds)}
         {...(!interactionReadOnly && collecting && effectInteraction.selectableIds.has(card.id)
           ? {
               onSelect: () => onEffectCardSelect(card),
@@ -1215,6 +1261,24 @@ export function SalonScene({
         : undefined,
     [room],
   );
+  const seatViewpointId = sceneRoom
+    ? sceneRoom.role === "spectator" && spectatorMode === "follow"
+      ? (sceneRoom.focusedPlayerId ?? sceneRoom.players[0]?.id)
+      : sceneRoom.viewerId
+    : undefined;
+  const hiddenSeatPlayerIds = useMemo(
+    () =>
+      hiddenSeatPlayerIdsForScene(
+        sceneRoom?.viewerId,
+        seatViewpointId,
+        remoteSpectatorPoses.keys(),
+      ),
+    [remoteSpectatorPoses, sceneRoom?.viewerId, seatViewpointId],
+  );
+  const freeRoamName =
+    sceneRoom?.players.find((player) => player.id === sceneRoom.viewerId)?.name ??
+    sceneRoom?.spectators.find((spectator) => spectator.id === sceneRoom.viewerId)?.name ??
+    "観戦者";
   const cameraTransitionKey = [
     room?.role ?? "",
     spectatorMode,
@@ -1379,16 +1443,14 @@ export function SalonScene({
           {sceneRoom
             ? seats(
                 sceneRoom.players,
-                sceneRoom.role === "spectator" && spectatorMode === "follow"
-                  ? (sceneRoom.focusedPlayerId ?? sceneRoom.players[0]?.id)
-                  : sceneRoom.viewerId,
+                seatViewpointId,
+                hiddenSeatPlayerIds,
                 sceneRoom.currentPlayerId,
                 lowPower,
                 mobile,
                 e2eProjectionProbe,
                 movingToSeats,
                 stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
-                sceneRoom.role !== "spectator" || spectatorMode === "follow",
                 effectInteraction,
                 onEffectCardSelect,
                 onEffectPlayerSelect,
@@ -1469,6 +1531,7 @@ export function SalonScene({
             mobileInput={freeRoamInput}
             playerCount={sceneRoom.players.length}
             mobile={mobile}
+            name={freeRoamName}
             profile={freeRoamAvatar}
             lowPower={lowPower}
             reducedMotion={reducedMotion}

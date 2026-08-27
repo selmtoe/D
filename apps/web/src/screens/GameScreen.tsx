@@ -30,6 +30,11 @@ import {
   sortCardsForCollectRack,
   type CardMotionEvent,
 } from "../game-3d/cardMotion";
+import {
+  canonicalPoseMapToView,
+  tablePerspectiveRotation,
+  viewPoseToCanonical,
+} from "../game-3d/spectatorCoordinates";
 
 const suitLabel = {
   spade: "スペード",
@@ -606,6 +611,9 @@ export function GameScreen({
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
   const presentPlayers = useMemo(() => playersAtTable(room.players), [room.players]);
+  const spectatorFocusId =
+    room.players.find((player) => player.id === room.focusedPlayerId && player.status === "active")
+      ?.id ?? room.players.find((player) => player.status === "active")?.id;
   const peerIds = useMemo(
     () => [
       ...new Set([
@@ -616,13 +624,29 @@ export function GameScreen({
     [presentPlayers, room.spectators],
   );
   const peerCues = usePeerCues(room.roomId, room.viewerId, peerIds);
+  const tableViewRotation = useMemo(
+    () =>
+      tablePerspectiveRotation(
+        room.players,
+        room.role,
+        room.viewerId,
+        spectatorFocusId,
+        spectatorMode,
+      ),
+    [room.players, room.role, room.viewerId, spectatorFocusId, spectatorMode],
+  );
+  const remoteSpectatorPoses = useMemo(
+    () => canonicalPoseMapToView(peerCues.spectatorPoses, tableViewRotation),
+    [peerCues.spectatorPoses, tableViewRotation],
+  );
   const lastFreeRoamPose = useRef<FreeRoamPose | undefined>(undefined);
   const publishFreeRoamPose = useCallback(
     (pose: FreeRoamPose) => {
-      lastFreeRoamPose.current = pose;
-      void peerCues.send(spectatorPoseCue({ ...pose, freeSpectating: true }));
+      const canonicalPose = viewPoseToCanonical(pose, tableViewRotation);
+      lastFreeRoamPose.current = canonicalPose;
+      void peerCues.send(spectatorPoseCue({ ...canonicalPose, freeSpectating: true }));
     },
-    [peerCues.send],
+    [peerCues.send, tableViewRotation],
   );
   useEffect(() => {
     if (room.role !== "spectator" || spectatorMode !== "free") return;
@@ -642,9 +666,6 @@ export function GameScreen({
     () => (personalSettings.autoSortHand ? sortHandWeakToStrong(room.hand) : room.hand),
     [personalSettings.autoSortHand, room.hand],
   );
-  const spectatorFocusId =
-    room.players.find((player) => player.id === room.focusedPlayerId && player.status === "active")
-      ?.id ?? room.players.find((player) => player.status === "active")?.id;
   const selectedCards = orderedHand.filter((card) => selectedIds.includes(card.id));
   const selection = useMemo(() => analyzeCardSelection(room, selectedIds), [room, selectedIds]);
   const playableIds = useMemo(
@@ -1111,7 +1132,7 @@ export function GameScreen({
           onEffectPlayerSelect={chooseEffectTarget}
           onGiveCardDrop={dropGiveCard}
           onGiveCardReturn={returnGiveCard}
-          remoteSpectatorPoses={peerCues.spectatorPoses}
+          remoteSpectatorPoses={remoteSpectatorPoses}
           freeRoamAvatar={localAvatar ?? me?.avatar ?? room.players[0]?.avatar}
           freeRoamControlsPaused={logOpen || personalSettingsOpen}
           onFreeRoamPose={publishFreeRoamPose}

@@ -12,7 +12,10 @@
     "lint": "eslint apps functions packages",
     "format:check": "prettier --check .",
     "dev": "pnpm --filter @daifugo/web dev",
-    "emulators": "firebase emulators:start"
+    "emulators": "firebase emulators:start",
+    "ai:dry-run": "python tools/ai/train.py --dry-run --device cpu",
+    "ai:smoke": "python tools/ai/train.py --device cpu --epochs 1 --max-matches 4 --run-name cpu-smoke",
+    "ai:export-web": "python tools/ai/export_web.py artifacts/ai/runs/rtx5060-imitation-v2/policy.pt apps/web/src/ai/cpu-policy-v2.json --sha256 43ea62ac3fbd4c8583cc2c2517a45eb903f2bf5dbbf82e6b03f641565f0b5c64"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
