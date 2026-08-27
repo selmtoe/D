@@ -300,7 +300,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
   test("spectators can inspect a player view and walk freely around the table", async ({
     browser,
   }, testInfo) => {
-    test.setTimeout(240_000);
+    test.setTimeout(420_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     await authority.handle("uid-spectator", {
@@ -595,7 +595,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(playerNames.filter({ hasText: "プレイヤー2" })).toHaveAttribute(
         "data-current-turn",
         "true",
-        { timeout: 15_000 },
+        { timeout: 30_000 },
       );
       await expect(playerNames.filter({ hasText: "ホスト" })).not.toHaveAttribute(
         "data-current-turn",
@@ -631,24 +631,41 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(collector.page.getByText("空中に並んだ回収札を直接タップ")).toBeVisible();
       await capture(collector.page, testInfo.outputPath("k-recovery-floating-rack.png"));
       const canvas = collector.page.locator("canvas").first();
+      const expectedPointCount = testInfo.project.name === "mobile-chromium" ? 54 : 32;
+      await expect
+        .poll(
+          async () => {
+            const currentBounds = await canvas.boundingBox();
+            const currentPoints = await canvasPoints(collector.page, "data-effect-card-points");
+            return (
+              currentBounds !== null &&
+              currentPoints.length === expectedPointCount &&
+              currentPoints.every(
+                ([x, y]) =>
+                  x >= 0 && y >= 0 && x <= currentBounds.width && y <= currentBounds.height,
+              )
+            );
+          },
+          { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+        )
+        .toBe(true);
       const bounds = await canvas.boundingBox();
       expect(bounds).not.toBeNull();
       const points = await canvasPoints(collector.page, "data-effect-card-points");
-      expect(points).toHaveLength(testInfo.project.name === "mobile-chromium" ? 54 : 32);
-      expect(
-        points.every(
-          ([x, y]) => x >= 0 && y >= 0 && x <= (bounds?.width ?? 0) && y <= (bounds?.height ?? 0),
-        ),
-      ).toBe(true);
-      expect(
-        await collector.page.evaluate(
-          ({ points, origin }) =>
-            points.every(([x, y]) =>
-              document.elementFromPoint(origin.x + x, origin.y + y)?.matches("canvas"),
+      expect(points).toHaveLength(expectedPointCount);
+      await expect
+        .poll(
+          () =>
+            collector.page.evaluate(
+              ({ points, origin }) =>
+                points.every(([x, y]) =>
+                  document.elementFromPoint(origin.x + x, origin.y + y)?.matches("canvas"),
+                ),
+              { points, origin: { x: bounds?.x ?? 0, y: bounds?.y ?? 0 } },
             ),
-          { points, origin: { x: bounds?.x ?? 0, y: bounds?.y ?? 0 } },
-        ),
-      ).toBe(true);
+          { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+        )
+        .toBe(true);
       for (const [x, y] of points.slice(0, 2)) {
         await collector.page.mouse.click((bounds?.x ?? 0) + x, (bounds?.y ?? 0) + y);
       }

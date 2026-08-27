@@ -58,8 +58,15 @@ jobs:
           "pnpm --filter @daifugo/functions test:emulator"
 
   browser-e2e:
+    name: browser-e2e (${{ matrix.project }})
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - desktop-chromium
+          - mobile-chromium
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -73,4 +80,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @daifugo/rules build
       - run: pnpm --filter @daifugo/web exec playwright install --with-deps chromium
-      - run: pnpm --filter @daifugo/web test:e2e
+      - run: pnpm --filter @daifugo/web exec playwright test --project "${{ matrix.project }}"
