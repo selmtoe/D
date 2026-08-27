@@ -42,6 +42,20 @@ describe("application state machine", () => {
     expect(authenticating.phase).toBe("AUTHENTICATING");
     expect(transition(authenticating, { type: "AUTH_OK" }).phase).toBe("ENTRANCE");
   });
+  it("does not tear down a running local room when Firebase authentication fails late", () => {
+    const localRoom = { ...room("playing"), localOnly: true };
+    const playing = transition(
+      { ...initialAppState, phase: "AUTHENTICATING" },
+      { type: "ROOM_VIEW", room: localRoom },
+    );
+    expect(transition(playing, { type: "AUTH_FAILED", message: "Firebaseへ接続できません" })).toBe(
+      playing,
+    );
+    expect(transition(playing, { type: "LEAVE_LOCAL_ROOM" })).toMatchObject({
+      phase: "ENTRANCE",
+      connection: "connected",
+    });
+  });
   it.each([
     ["waiting", "ROOM_WAITING"],
     ["dealing", "DEALING"],

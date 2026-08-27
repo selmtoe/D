@@ -5,12 +5,14 @@ import type { LocalProfile, Role, RoomView } from "./app/model";
 import { loadAvatar, saveAvatar } from "./avatar-3d/avatarStorage";
 import {
   clearRoomReconnect,
+  createOfflineCpuRoom,
   createRoom,
   firebaseErrorMessage,
   firebaseMode,
   getActiveSparkSession,
   getStoredRoomReconnect,
   isTerminalRoomReconnectError,
+  isOfflineCpuSession,
   joinRoom,
   reconnectWithToken,
   sendCommand,
@@ -123,6 +125,10 @@ export default function App() {
   useEffect(() => {
     const online = () => {
       const session = getActiveSparkSession();
+      if (isOfflineCpuSession(session) && session.roomId === activeRoomId) {
+        dispatch({ type: "CONNECTION", connection: "connected" });
+        return;
+      }
       const transportMode =
         session && session.roomId === activeRoomId ? session.currentMode() : undefined;
       dispatch({
@@ -130,8 +136,18 @@ export default function App() {
         connection: connectionStateOnBrowserOnline(Boolean(activeRoomId), transportMode),
       });
     };
-    const offline = () =>
-      dispatch({ type: "CONNECTION", connection: activeRoomId ? "grace" : "offline" });
+    const offline = () => {
+      const session = getActiveSparkSession();
+      dispatch({
+        type: "CONNECTION",
+        connection:
+          isOfflineCpuSession(session) && session.roomId === activeRoomId
+            ? "connected"
+            : activeRoomId
+              ? "grace"
+              : "offline",
+      });
+    };
     addEventListener("online", online);
     addEventListener("offline", offline);
     return () => {
@@ -210,6 +226,17 @@ export default function App() {
 
   const enter = (name: string, nextAvatar: AvatarProfileV1) =>
     dispatch({ type: "ENTER_SALON", profile: { name, avatar: nextAvatar } });
+  const enterCpuRoom = (name: string, nextAvatar: AvatarProfileV1) => {
+    const profile = { name, avatar: nextAvatar };
+    dispatch({ type: "RESTORE_PROFILE", profile });
+    void run(async () => {
+      const result = await createOfflineCpuRoom(profile);
+      setReplayFrames([]);
+      setActiveRoomId(result.roomId);
+      history.replaceState(null, "", location.pathname);
+      dispatch({ type: "CONNECTION", connection: "connected" });
+    });
+  };
   const connectToRoom = (roomId: string, role: Role) => {
     if (!app.profile) return;
     void run(async () => {
@@ -233,6 +260,7 @@ export default function App() {
   const leave = () => {
     const room = app.room;
     if (!room) return;
+    const localOnly = Boolean(room.localOnly);
     void run(async () => {
       try {
         await sendCommand("leaveRoom", commandBase(room));
@@ -243,10 +271,10 @@ export default function App() {
         setActiveRoomId(undefined);
         history.replaceState(null, "", location.pathname);
         setReplayFrames([]);
-        dispatch({ type: "LEAVE_ROOM" });
+        dispatch({ type: localOnly ? "LEAVE_LOCAL_ROOM" : "LEAVE_ROOM" });
         dispatch({
           type: "CONNECTION",
-          connection: navigator.onLine ? "connected" : "offline",
+          connection: localOnly || navigator.onLine ? "connected" : "offline",
         });
       }
     });
@@ -254,7 +282,7 @@ export default function App() {
   const command = async (name: string, payload: Record<string, unknown> = {}): Promise<boolean> =>
     (await run(() => sendCommand(name as CommandName, payload))) !== undefined;
 
-  if (app.phase === "BOOT" || app.phase === "AUTHENTICATING")
+  if (app.phase === "BOOT")
     return (
       <div className="boot-screen">
         <div className="brand-seal" aria-hidden="true">
@@ -265,7 +293,7 @@ export default function App() {
     );
 
   let screen: React.ReactNode;
-  if (app.phase === "ENTRANCE")
+  if (app.phase === "ENTRANCE" || app.phase === "AUTHENTICATING")
     screen = (
       <EntranceScreen
         app={app}
@@ -280,6 +308,7 @@ export default function App() {
         openEditor={() => setSettings({ editorOpen: true })}
         openRules={() => setSettings({ activeDialog: "rules" })}
         enter={enter}
+        enterCpuRoom={enterCpuRoom}
         reconnecting={busy && Boolean(reconnectRoomId)}
       />
     );
@@ -363,11 +392,15 @@ export default function App() {
 
   return (
     <>
-      {firebaseMode.emulator && (
+      {app.room?.localOnly ? (
+        <p className="emulator-banner local-room-banner" role="status">
+          CPU専用部屋・Firebase未使用
+        </p>
+      ) : firebaseMode.emulator ? (
         <p className="emulator-banner" role="status">
           Firebase Emulatorへ接続中（本番データではありません）
         </p>
-      )}
+      ) : null}
       {screen}
       <Suspense
         fallback={

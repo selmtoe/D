@@ -34,6 +34,7 @@ import {
   subscribeE2ERoomView,
 } from "./e2eTransport";
 import { cleanupStaleSparkRooms, SparkP2PSession } from "./sparkP2P";
+import { OfflineCpuSession } from "./offlineCpuSession";
 
 type FirebaseContext = {
   app: FirebaseApp;
@@ -99,7 +100,9 @@ if (requiredEnv.projectId && requiredEnv.projectId !== "daifugo-8e039") {
 
 let singleton: Promise<FirebaseContext> | undefined;
 let emulatorsConnected = false;
-let activeSession: SparkP2PSession | undefined;
+export type ActiveRoomSession = SparkP2PSession | OfflineCpuSession;
+
+let activeSession: ActiveRoomSession | undefined;
 
 export const firebaseMode = {
   projectId: requiredEnv.projectId || "未設定",
@@ -214,13 +217,19 @@ function freshToken(): string {
   return crypto.randomUUID();
 }
 
-async function replaceActiveSession(session: SparkP2PSession): Promise<void> {
+async function replaceActiveSession(session: ActiveRoomSession): Promise<void> {
   if (activeSession && activeSession !== session) await activeSession.stop(false);
   activeSession = session;
 }
 
-export function getActiveSparkSession(): SparkP2PSession | undefined {
+export function getActiveSparkSession(): ActiveRoomSession | undefined {
   return activeSession;
+}
+
+export function isOfflineCpuSession(
+  session: ActiveRoomSession | undefined,
+): session is OfflineCpuSession {
+  return session instanceof OfflineCpuSession;
 }
 
 export async function startRoomPresence(
@@ -289,6 +298,15 @@ export async function createRoom(profile: {
   const token = freshToken();
   saveReconnect({ roomId: session.roomId, token, role: "player", profile });
   return { roomId: session.roomId, reconnectToken: token };
+}
+
+export async function createOfflineCpuRoom(profile: {
+  name: string;
+  avatar: AvatarProfileV1;
+}): Promise<{ roomId: string }> {
+  const session = OfflineCpuSession.create(profile);
+  await replaceActiveSession(session);
+  return { roomId: session.roomId };
 }
 
 export async function joinRoom(

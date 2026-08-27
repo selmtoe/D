@@ -1339,7 +1339,7 @@ export function GameScreen({
           {!finishing && room.turnDeadlineMs && (
             <span className={seconds <= 10 ? "urgent" : ""}>残り {seconds}秒</span>
           )}
-          <ConnectionBadge state={connection} />
+          <ConnectionBadge state={connection} localOnly={Boolean(room.localOnly)} />
         </div>
         {me && (
           <div className="profile-chip">

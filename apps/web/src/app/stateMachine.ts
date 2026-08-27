@@ -32,7 +32,9 @@ export function transition(state: AppState, event: AppEvent): AppState {
         ? { ...state, phase: "ENTRANCE", connection: "connected", error: undefined }
         : state;
     case "AUTH_FAILED":
-      return { ...state, phase: "ENTRANCE", connection: "offline", error: event.message };
+      return state.phase === "AUTHENTICATING"
+        ? { ...state, phase: "ENTRANCE", connection: "offline", error: event.message }
+        : state;
     case "ENTER_SALON":
       return state.phase === "ENTRANCE"
         ? { ...state, phase: "SALON_LOBBY", profile: event.profile, error: undefined }
@@ -76,6 +78,8 @@ export function transition(state: AppState, event: AppEvent): AppState {
       return state.phase === "FINISHING" ? { ...state, phase: "FINISHED" } : state;
     case "LEAVE_ROOM":
       return { phase: "SALON_LOBBY", connection: state.connection, profile: state.profile };
+    case "LEAVE_LOCAL_ROOM":
+      return { phase: "ENTRANCE", connection: state.connection, profile: state.profile };
     case "EVICTED":
       return {
         phase: "SALON_LOBBY",

@@ -8,11 +8,18 @@ const labels: Record<ConnectionState, string> = {
   grace: "切断猶予中",
   offline: "オフライン",
 };
-export function ConnectionBadge({ state }: { state: ConnectionState }) {
+export function ConnectionBadge({
+  state,
+  localOnly = false,
+}: {
+  state: ConnectionState;
+  localOnly?: boolean;
+}) {
   return (
     <span className={`connection-badge ${state}`} role="status">
       <i aria-hidden="true" />
-      {labels[state]} · {firebaseMode.emulator ? "Emulator" : firebaseMode.projectId}
+      {labels[state]} ·{" "}
+      {localOnly ? "ローカルCPU" : firebaseMode.emulator ? "Emulator" : firebaseMode.projectId}
     </span>
   );
 }

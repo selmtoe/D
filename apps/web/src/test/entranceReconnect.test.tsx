@@ -25,6 +25,7 @@ describe("entrance reconnect guard", () => {
         openEditor={openEditor}
         openRules={() => undefined}
         enter={enter}
+        enterCpuRoom={() => undefined}
         reconnecting
       />,
     );
@@ -53,10 +54,41 @@ describe("entrance reconnect guard", () => {
         openEditor={() => undefined}
         openRules={() => undefined}
         enter={() => undefined}
+        enterCpuRoom={() => undefined}
       />,
     );
 
     fireEvent.click(screen.getByRole("checkbox", { name: "スマホ版" }));
     expect(setMobileMode).toHaveBeenCalledWith(true);
+  });
+
+  it("can enter a CPU room while Firebase authentication is still pending", () => {
+    const enter = vi.fn();
+    const enterCpuRoom = vi.fn();
+    render(
+      <EntranceScreen
+        app={{ phase: "AUTHENTICATING", connection: "connecting" }}
+        avatar={defaultAvatar}
+        setAvatar={() => undefined}
+        lowPower={false}
+        setLowPower={() => undefined}
+        mobileMode={false}
+        setMobileMode={() => undefined}
+        muted={false}
+        setMuted={() => undefined}
+        openEditor={() => undefined}
+        openRules={() => undefined}
+        enter={enter}
+        enterCpuRoom={enterCpuRoom}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "認証中…" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "プレイヤー名" }), {
+      target: { value: "ローカル太郎" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "CPU部屋（オフライン）" }));
+    expect(enter).not.toHaveBeenCalled();
+    expect(enterCpuRoom).toHaveBeenCalledWith("ローカル太郎", defaultAvatar);
   });
 });

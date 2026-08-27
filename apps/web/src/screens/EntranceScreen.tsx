@@ -18,6 +18,7 @@ export function EntranceScreen({
   openEditor,
   openRules,
   enter,
+  enterCpuRoom,
   reconnecting = false,
 }: {
   app: AppState;
@@ -32,22 +33,27 @@ export function EntranceScreen({
   openEditor: () => void;
   openRules: () => void;
   enter: (name: string, avatar: AvatarProfileV1) => void;
+  enterCpuRoom: (name: string, avatar: AvatarProfileV1) => void;
   reconnecting?: boolean | undefined;
 }) {
   const [name, setName] = useState(() => getStoredValue("local", "daifugo-player-name") ?? "");
   const [nameError, setNameError] = useState("");
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (reconnecting) return;
+  const startWith = (next: (name: string, avatar: AvatarProfileV1) => void) => {
     const trimmed = name.trim();
     if (!trimmed) {
       setNameError("プレイヤー名を入力してください");
-      return;
+      return false;
     }
     setNameError("");
     setStoredValue("local", "daifugo-player-name", trimmed);
     setAvatar(avatar);
-    enter(trimmed, avatar);
+    next(trimmed, avatar);
+    return true;
+  };
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (reconnecting) return;
+    startWith(enter);
   };
   return (
     <main id="main" className="entrance-screen">
@@ -93,6 +99,17 @@ export function EntranceScreen({
                 : "ロビーへ入る"}
           </button>
         </form>
+        <div className="cpu-room-entry">
+          <span>Firebaseを使わず、この端末だけでCPUと対戦・デバッグできます。</span>
+          <button
+            type="button"
+            className="secondary cpu-room-submit"
+            disabled={reconnecting}
+            onClick={() => startWith(enterCpuRoom)}
+          >
+            CPU部屋（オフライン）
+          </button>
+        </div>
         <button type="button" className="secondary" disabled={reconnecting} onClick={openEditor}>
           アバターを編集
         </button>

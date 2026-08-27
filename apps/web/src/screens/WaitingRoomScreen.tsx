@@ -94,7 +94,7 @@ export function WaitingRoomScreen({
     <main id="main" className="waiting-screen">
       <header className="topbar">
         <span className="brand-mark">大富豪</span>
-        <ConnectionBadge state={connection} />
+        <ConnectionBadge state={connection} localOnly={Boolean(room.localOnly)} />
         <button type="button" disabled={busy} onClick={leave}>
           退出する
         </button>

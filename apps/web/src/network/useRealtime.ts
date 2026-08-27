@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import {
   firebaseErrorMessage,
+  getActiveSparkSession,
   getFirebase,
   subscribePublicRooms,
   subscribeRoomView,
@@ -55,11 +56,16 @@ export function useRoomSubscription(
     if (!roomId) return;
     let alive = true;
     let unsubscribe: (() => void) | undefined;
-    getFirebase()
-      .then(({ user }) =>
+    const activeSession = getActiveSparkSession();
+    const viewerUid =
+      activeSession?.roomId === roomId
+        ? Promise.resolve(activeSession.uid)
+        : getFirebase().then(({ user }) => user.uid);
+    viewerUid
+      .then((uid) =>
         subscribeRoomView(
           roomId,
-          user.uid,
+          uid,
           (room) => alive && dispatch({ type: "ROOM_VIEW", room }),
           (error) => {
             if (!alive) return;

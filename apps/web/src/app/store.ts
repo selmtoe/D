@@ -50,7 +50,7 @@ export const useUiStore = create<UiState>((set) => ({
       selectedCardIds:
         event.type === "ROOM_VIEW"
           ? retainSelectedCardIds(state.selectedCardIds, state.app.room, event.room)
-          : event.type === "LEAVE_ROOM"
+          : event.type === "LEAVE_ROOM" || event.type === "LEAVE_LOCAL_ROOM"
             ? []
             : state.selectedCardIds,
     })),

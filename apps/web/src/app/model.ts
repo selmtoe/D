@@ -110,6 +110,8 @@ export interface AuthoritativeReplayFrameView {
 
 export interface RoomView {
   roomId: string;
+  /** True for the single-browser CPU room. No Firebase or WebRTC is used. */
+  localOnly?: boolean;
   revision: number;
   gameId?: string;
   trickId?: string;
@@ -185,6 +187,7 @@ export type AppEvent =
   | { type: "DEALING_DONE" }
   | { type: "FINISH_PRESENTATION_DONE" }
   | { type: "LEAVE_ROOM" }
+  | { type: "LEAVE_LOCAL_ROOM" }
   | { type: "EVICTED"; message: string }
   | { type: "CONNECTION"; connection: ConnectionState }
   | { type: "ERROR"; message: string }

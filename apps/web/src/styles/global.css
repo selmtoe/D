@@ -161,6 +161,11 @@ h2 {
   background: #765e12;
   white-space: nowrap;
 }
+.local-room-banner {
+  color: #eafff4;
+  background: #176447;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 28%);
+}
 
 .boot-screen {
   min-height: 100vh;
@@ -278,6 +283,24 @@ h2 {
 .entrance-card > .secondary {
   width: 100%;
   margin-top: 0.8rem;
+}
+.cpu-room-entry {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+.cpu-room-entry span {
+  color: #b8c8c0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.cpu-room-submit {
+  width: 100%;
+  border-color: rgb(111 221 170 / 45%);
+  color: #dcffed;
+  background: rgb(20 91 64 / 42%);
 }
 .quiet-settings {
   display: flex;
