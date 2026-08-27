@@ -22,7 +22,9 @@ export function markPwaUpdatePending(): void {
 }
 
 export function canApplyPwaUpdate(phase: AppPhase, busy: boolean, hasActiveRoom: boolean): boolean {
-  return phase === "SALON_LOBBY" && !busy && !hasActiveRoom;
+  const roomFreePhase =
+    phase === "AUTHENTICATING" || phase === "ENTRANCE" || phase === "SALON_LOBBY";
+  return roomFreePhase && !busy && !hasActiveRoom;
 }
 
 async function applyPendingPwaUpdate(): Promise<void> {
