@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CardView, PendingEffectView, Rank, RoomView, Suit } from "../app/model";
+import {
+  loadPersonalSettings,
+  savePersonalSettings,
+  type AutoPassDelayMode,
+  type PersonalSettings,
+} from "../app/browserStorage";
 import { useUiStore } from "../app/store";
 import { AccessibleHand } from "../accessibility/AccessibleHand";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
+import { PersonalSettingsDialog } from "../components/PersonalSettingsDialog";
 import { playersAtTable, SalonScene } from "../game-3d/SalonScene";
 import { EffectPanel } from "./EffectPanel";
 import { feedback, primeFeedback } from "../components/feedback";
@@ -86,6 +93,117 @@ export function canRequestSpectatorFocus(
 
 export function canShowLogControls(hasBlockingEffect: boolean): boolean {
   return !hasBlockingEffect;
+}
+
+export function autoPassDelayMs(
+  mode: AutoPassDelayMode,
+  random: () => number = Math.random,
+): number {
+  if (mode === "instant") return 0;
+  return Math.min(5000, Math.floor(Math.max(0, random()) * 5001));
+}
+
+export function canAutoPass({
+  enabled,
+  myTurn,
+  readOnly,
+  busy,
+  dealing,
+  playBlocked,
+  connected,
+  roomPhase,
+  handCount,
+  playableCardCount,
+}: {
+  enabled: boolean;
+  myTurn: boolean;
+  readOnly: boolean;
+  busy: boolean;
+  dealing: boolean;
+  playBlocked: boolean;
+  connected: boolean;
+  roomPhase: RoomView["phase"];
+  handCount: number;
+  playableCardCount: number;
+}): boolean {
+  return (
+    enabled &&
+    myTurn &&
+    !readOnly &&
+    !busy &&
+    !dealing &&
+    !playBlocked &&
+    connected &&
+    roomPhase === "playing" &&
+    handCount > 0 &&
+    playableCardCount === 0
+  );
+}
+
+export function useAutoPass({
+  eligible,
+  turnKey,
+  delayMode,
+  submitPass,
+  random = Math.random,
+}: {
+  eligible: boolean;
+  turnKey: string | undefined;
+  delayMode: AutoPassDelayMode;
+  submitPass: () => Promise<boolean>;
+  random?: () => number;
+}): {
+  schedule: { turnKey: string; dueAt: number } | undefined;
+  markHandled: () => void;
+} {
+  const submitRef = useRef(submitPass);
+  submitRef.current = submitPass;
+  const randomRef = useRef(random);
+  randomRef.current = random;
+  const activeTurnRef = useRef(turnKey);
+  activeTurnRef.current = turnKey;
+  const attemptedTurn = useRef<string | undefined>(undefined);
+  const timerRef = useRef<number | undefined>(undefined);
+  const [schedule, setSchedule] = useState<{ turnKey: string; dueAt: number }>();
+
+  const markHandled = () => {
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+    timerRef.current = undefined;
+    if (activeTurnRef.current) attemptedTurn.current = activeTurnRef.current;
+    setSchedule(undefined);
+  };
+
+  useEffect(() => {
+    if (!eligible || !turnKey || attemptedTurn.current === turnKey) {
+      setSchedule(undefined);
+      return;
+    }
+
+    const delay = autoPassDelayMs(delayMode, randomRef.current);
+    if (delay === 0) {
+      attemptedTurn.current = turnKey;
+      setSchedule(undefined);
+      void submitRef.current();
+      return;
+    }
+
+    const dueAt = Date.now() + delay;
+    setSchedule({ turnKey, dueAt });
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = undefined;
+      if (activeTurnRef.current !== turnKey) return;
+      attemptedTurn.current = turnKey;
+      setSchedule((current) => (current?.turnKey === turnKey ? undefined : current));
+      void submitRef.current();
+    }, delay);
+
+    return () => {
+      if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
+      timerRef.current = undefined;
+    };
+  }, [delayMode, eligible, turnKey]);
+
+  return { schedule, markHandled };
 }
 
 export function playersForDisplay(
@@ -478,8 +596,11 @@ export function GameScreen({
   const [effectTargets, setEffectTargets] = useState<Record<string, string>>({});
   const [pendingGiveCardId, setPendingGiveCardId] = useState<string>();
   const [spectatorMode, setSpectatorMode] = useState<"follow" | "free">("follow");
+  const [personalSettings, setPersonalSettings] = useState(loadPersonalSettings);
+  const [personalSettingsOpen, setPersonalSettingsOpen] = useState(false);
   const autoJokerDeclaration = useRef<string | undefined>(undefined);
   const playSubmissionPending = useRef(false);
+  const passSubmissionPending = useRef(false);
   const previousRoom = useRef<RoomView | undefined>(undefined);
   const seconds = useCountdown(room.turnDeadlineMs);
   const me = room.players.find((player) => player.id === room.viewerId);
@@ -495,16 +616,33 @@ export function GameScreen({
   const canManageTable = Boolean(
     me && me.status !== "disqualified" && room.hostId === room.viewerId,
   );
-  const sortedHand = useMemo(() => sortHandWeakToStrong(room.hand), [room.hand]);
+  const orderedHand = useMemo(
+    () => (personalSettings.autoSortHand ? sortHandWeakToStrong(room.hand) : room.hand),
+    [personalSettings.autoSortHand, room.hand],
+  );
   const spectatorFocusId =
     room.players.find((player) => player.id === room.focusedPlayerId && player.status === "active")
       ?.id ?? room.players.find((player) => player.status === "active")?.id;
-  const selectedCards = sortedHand.filter((card) => selectedIds.includes(card.id));
+  const selectedCards = orderedHand.filter((card) => selectedIds.includes(card.id));
   const selection = useMemo(() => analyzeCardSelection(room, selectedIds), [room, selectedIds]);
   const playableIds = useMemo(
     () => (!readOnly ? selectableCardIds(room, selectedIds) : undefined),
     [readOnly, room, selectedIds],
   );
+  const initiallyPlayableIds = useMemo(
+    () => (!readOnly ? selectableCardIds(room, []) : undefined),
+    [readOnly, room],
+  );
+  const autoPassTurn = useRef({ currentPlayerId: room.currentPlayerId, sequence: 0 });
+  if (autoPassTurn.current.currentPlayerId !== room.currentPlayerId) {
+    autoPassTurn.current = {
+      currentPlayerId: room.currentPlayerId,
+      sequence: autoPassTurn.current.sequence + 1,
+    };
+  }
+  const autoPassTurnKey = myTurn
+    ? `${room.gameId ?? room.generation}:${autoPassTurn.current.sequence}:${room.trickId ?? "field"}`
+    : undefined;
   const displayRoom = useMemo(() => {
     const players = playersForDisplay(
       room.players,
@@ -516,12 +654,12 @@ export function GameScreen({
     return {
       ...room,
       players,
-      hand: sortedHand,
+      hand: orderedHand,
       ...(room.role === "spectator" && spectatorMode === "follow" && spectatorFocusId
         ? { focusedPlayerId: spectatorFocusId }
         : {}),
     };
-  }, [room, sortedHand, spectatorFocusId, spectatorMode]);
+  }, [orderedHand, room, spectatorFocusId, spectatorMode]);
   const selectionHint = useMemo(() => {
     if (!selectedCards.length) return "出す札を選んでください";
     if (!selection.completable) return "この組み合わせでは出せません。札を選び直してください";
@@ -593,9 +731,9 @@ export function GameScreen({
           ? room.players
               .filter((player) => player.id !== room.viewerId)
               .flatMap((player) => player.cards ?? [])
-          : sortedHand;
+          : orderedHand;
     return source.filter((card) => effectSelectableIds.has(card.id));
-  }, [directEffect, effectSelectableIds, room.discard, room.players, room.viewerId, sortedHand]);
+  }, [directEffect, effectSelectableIds, orderedHand, room.discard, room.players, room.viewerId]);
   const payloadBase = useMemo(
     () => ({ roomId: room.roomId, gameId: room.gameId, expectedRevision: room.revision }),
     [room.gameId, room.revision, room.roomId],
@@ -661,6 +799,7 @@ export function GameScreen({
   };
   const selectCard = (card: CardView) => {
     if (busy) return;
+    if (!selectedIds.includes(card.id) && playableIds && !playableIds.has(card.id)) return;
     primeFeedback(muted);
     toggleCard(card);
     feedback("select", muted);
@@ -776,8 +915,42 @@ export function GameScreen({
       playSubmissionPending.current = false;
     }
   };
-  const pass = async () => {
-    if (await command("submitPass", payloadBase)) clearSelection();
+  const submitPass = async () => {
+    if (busy || passSubmissionPending.current) return false;
+    passSubmissionPending.current = true;
+    try {
+      const accepted = await command("submitPass", payloadBase);
+      if (accepted) clearSelection();
+      return accepted;
+    } finally {
+      passSubmissionPending.current = false;
+    }
+  };
+  const autoPass = useAutoPass({
+    eligible: canAutoPass({
+      enabled: personalSettings.autoPass,
+      myTurn,
+      readOnly,
+      busy,
+      dealing,
+      playBlocked,
+      connected: connection === "connected",
+      roomPhase: room.phase,
+      handCount: room.hand.length,
+      playableCardCount: initiallyPlayableIds?.size ?? room.hand.length,
+    }),
+    turnKey: autoPassTurnKey,
+    delayMode: personalSettings.autoPassDelay,
+    submitPass,
+  });
+  const autoPassSeconds = useCountdown(autoPass.schedule?.dueAt);
+  const pass = () => {
+    autoPass.markHandled();
+    return submitPass();
+  };
+  const changePersonalSettings = (settings: PersonalSettings) => {
+    setPersonalSettings(settings);
+    savePersonalSettings(settings);
   };
   const resolveEffect = (effect: PendingEffectView, payload: Record<string, unknown>) => {
     if (effect.kind === "clearField") return Promise.resolve(false);
@@ -859,14 +1032,20 @@ export function GameScreen({
   return (
     <main
       id="main"
-      className={`game-screen ${room.role}${room.role === "spectator" && spectatorMode === "free" ? " free-roam" : ""}${logOpen ? " log-open" : ""}`}
+      className={`game-screen ${room.role}${room.role === "spectator" && spectatorMode === "free" ? " free-roam" : ""}${logOpen ? " log-open" : ""}${personalSettings.dimUnplayableCards ? "" : " undim-unplayable"}`}
     >
       <div className="game-world">
         <SalonScene
           room={displayRoom}
           selectedIds={directEffect ? effectCardIds : selectedIds}
           playableIds={
-            directEffect ? effectSelectableIds : playBlocked ? noPlayableCards : playableIds
+            directEffect
+              ? effectSelectableIds
+              : personalSettings.dimUnplayableCards
+                ? playBlocked
+                  ? noPlayableCards
+                  : playableIds
+                : undefined
           }
           handReadOnly={readOnly || busy}
           onToggleCard={
@@ -908,6 +1087,14 @@ export function GameScreen({
           <span className="brand-mark">大富豪</span>
           <button type="button" disabled={busy} onClick={leave}>
             退出
+          </button>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={personalSettingsOpen}
+            onClick={() => setPersonalSettingsOpen(true)}
+          >
+            個人設定
           </button>
           {canManageTable && (
             <button
@@ -1072,6 +1259,11 @@ export function GameScreen({
           </button>
         </section>
       )}
+      {autoPass.schedule && (
+        <p className="auto-pass-status" role="status">
+          出せる札がないため、{autoPassSeconds}秒後に自動パスします
+        </p>
+      )}
       {canShowPlayControls(readOnly, dealing, Boolean(directEffect), logOpen) && (
         <div className="play-controls">
           <p id="play-reason" className="control-reason">
@@ -1103,7 +1295,7 @@ export function GameScreen({
       )}
       {!dealing && !directEffect && !(room.role === "spectator" && spectatorMode === "free") && (
         <AccessibleHand
-          cards={sortedHand}
+          cards={orderedHand}
           selectedIds={selectedIds}
           playableIds={playBlocked ? noPlayableCards : playableIds}
           onToggle={readOnly || busy ? () => undefined : selectCard}
@@ -1111,7 +1303,7 @@ export function GameScreen({
           readOnly={readOnly || busy}
           label={
             room.role === "spectator"
-              ? `${focusedSpectator?.name ?? "プレイヤー"}を観戦中の手札 ${sortedHand.length}枚`
+              ? `${focusedSpectator?.name ?? "プレイヤー"}を観戦中の手札 ${orderedHand.length}枚`
               : undefined
           }
         />
@@ -1210,6 +1402,13 @@ export function GameScreen({
           close={() => setPlayDialog(false)}
           submit={submit}
           busy={busy}
+        />
+      )}
+      {personalSettingsOpen && (
+        <PersonalSettingsDialog
+          settings={personalSettings}
+          close={() => setPersonalSettingsOpen(false)}
+          change={changePersonalSettings}
         />
       )}
     </main>

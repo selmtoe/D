@@ -1,5 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
-import { getStoredValue, removeStoredValue, setStoredValue } from "../app/browserStorage";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DEFAULT_PERSONAL_SETTINGS,
+  getStoredValue,
+  loadPersonalSettings,
+  PERSONAL_SETTINGS_STORAGE_KEY,
+  removeStoredValue,
+  savePersonalSettings,
+  setStoredValue,
+} from "../app/browserStorage";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+});
 
 describe("browser storage fallback", () => {
   it("keeps the app usable when privacy settings reject storage access", () => {
@@ -19,5 +32,45 @@ describe("browser storage fallback", () => {
     expect(get).toHaveBeenCalled();
     expect(set).toHaveBeenCalled();
     expect(remove).toHaveBeenCalled();
+  });
+});
+
+describe("personal settings storage", () => {
+  it("round-trips valid local settings", () => {
+    const settings = {
+      autoPass: true,
+      autoPassDelay: "random" as const,
+      dimUnplayableCards: false,
+      autoSortHand: false,
+    };
+
+    savePersonalSettings(settings);
+
+    expect(loadPersonalSettings()).toEqual(settings);
+  });
+
+  it("restores defaults from malformed JSON", () => {
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, "{not-json");
+    expect(loadPersonalSettings()).toEqual(DEFAULT_PERSONAL_SETTINGS);
+  });
+
+  it("falls back per field without trusting unknown or mistyped values", () => {
+    localStorage.setItem(
+      PERSONAL_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        autoPass: true,
+        autoPassDelay: "tomorrow",
+        dimUnplayableCards: "yes",
+        autoSortHand: false,
+        unexpected: true,
+      }),
+    );
+
+    expect(loadPersonalSettings()).toEqual({
+      autoPass: true,
+      autoPassDelay: DEFAULT_PERSONAL_SETTINGS.autoPassDelay,
+      dimUnplayableCards: DEFAULT_PERSONAL_SETTINGS.dimUnplayableCards,
+      autoSortHand: false,
+    });
   });
 });
