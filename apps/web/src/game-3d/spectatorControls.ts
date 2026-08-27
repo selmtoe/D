@@ -65,6 +65,22 @@ export function canRequestFreeRoamPointerLock(
   return !mobile && !controlsPaused && mouseButton === 0;
 }
 
+/** FPS-style look: moving the pointer right turns right; dragging up looks up. */
+export function applyFreeRoamLookDelta(
+  yaw: number,
+  pitch: number,
+  deltaX: number,
+  deltaY: number,
+  mobile: boolean,
+): { yaw: number; pitch: number } {
+  const yawSensitivity = mobile ? 0.004 : 0.0024;
+  const pitchSensitivity = mobile ? 0.003 : 0.002;
+  return {
+    yaw: yaw + deltaX * yawSensitivity,
+    pitch: Math.max(-0.62, Math.min(pitch - deltaY * pitchSensitivity, 0.52)),
+  };
+}
+
 export function mobileFreeRoamControlsStyle(mobile: boolean):
   | {
       left: string;

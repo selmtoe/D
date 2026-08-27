@@ -1,0 +1,284 @@
+.waiting-playground {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  overflow: hidden;
+  color: #f7f3df;
+  background: #102725;
+  isolation: isolate;
+}
+
+.waiting-playground-viewport,
+.waiting-playground-viewport > div,
+.waiting-playground-viewport canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.waiting-playground-viewport {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.waiting-playground-viewport[data-pointer-locked="true"] {
+  cursor: none;
+}
+
+.waiting-playground-toolbar {
+  position: absolute;
+  z-index: 4;
+  top: max(0.8rem, env(safe-area-inset-top));
+  left: max(0.8rem, env(safe-area-inset-left));
+  right: max(0.8rem, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: none;
+}
+
+.waiting-playground-toolbar h1,
+.waiting-playground-toolbar p {
+  margin: 0;
+  text-shadow: 0 2px 12px #000;
+}
+
+.waiting-playground-toolbar h1 {
+  font-size: clamp(1.25rem, 3vw, 2rem);
+}
+
+.waiting-playground-actions {
+  display: flex;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+
+.waiting-playground-actions button {
+  min-height: 44px;
+  border-color: rgba(255, 238, 187, 0.55);
+  background: rgba(10, 28, 25, 0.88);
+  backdrop-filter: blur(10px);
+}
+
+.waiting-playground-actions .waiting-playground-close {
+  color: #172118;
+  border-color: #f1d98f;
+  background: #f1d98f;
+  font-weight: 800;
+}
+
+.waiting-playground-guide {
+  position: absolute;
+  z-index: 3;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: 50%;
+  max-width: min(90vw, 580px);
+  padding: 0.62rem 0.9rem;
+  border: 1px solid rgba(207, 238, 224, 0.28);
+  border-radius: 999px;
+  background: rgba(4, 19, 17, 0.78);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.waiting-playground-guide p {
+  margin: 0;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.waiting-playground-roster {
+  position: absolute;
+  z-index: 3;
+  top: max(6rem, calc(env(safe-area-inset-top) + 5rem));
+  right: max(0.8rem, env(safe-area-inset-right));
+  display: grid;
+  gap: 0.3rem;
+  width: min(190px, 30vw);
+  pointer-events: none;
+}
+
+.waiting-playground-roster span {
+  overflow: hidden;
+  padding: 0.34rem 0.55rem;
+  border: 1px solid rgba(173, 222, 205, 0.2);
+  border-radius: 999px;
+  background: rgba(7, 27, 24, 0.72);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+
+.waiting-member-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: max-content;
+  padding: 0.32rem 0.52rem;
+  color: #fff9dc;
+  border: 1px solid rgba(242, 217, 135, 0.65);
+  border-radius: 999px;
+  background: rgba(8, 27, 24, 0.88);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none !important;
+}
+
+.waiting-member-label small {
+  color: #a9e7d3;
+  font-size: 0.54rem;
+}
+
+.waiting-movement-pad {
+  position: absolute;
+  z-index: 6;
+  bottom: max(1.2rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+  width: 132px;
+  aspect-ratio: 1;
+  display: none;
+  border: 2px solid rgba(232, 244, 238, 0.42);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(115, 169, 148, 0.22), rgba(4, 18, 16, 0.58));
+  box-shadow:
+    inset 0 0 28px rgba(0, 0, 0, 0.3),
+    0 8px 30px rgba(0, 0, 0, 0.24);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.waiting-pad-knob {
+  position: absolute;
+  top: calc(50% - 24px);
+  left: calc(50% - 24px);
+  width: 48px;
+  height: 48px;
+  border: 2px solid rgba(255, 243, 200, 0.8);
+  border-radius: 50%;
+  background: rgba(226, 193, 105, 0.72);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.38);
+  will-change: transform;
+}
+
+.waiting-pad-arrow {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.65rem;
+}
+
+.waiting-pad-arrow.up {
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.waiting-pad-arrow.right {
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+}
+
+.waiting-pad-arrow.down {
+  bottom: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.waiting-pad-arrow.left {
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+}
+
+.waiting-playground-loading {
+  position: fixed;
+  z-index: 101;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f7e4a8;
+  background: #102725;
+}
+
+@media (pointer: coarse), (max-width: 720px) {
+  .waiting-movement-pad {
+    display: block;
+  }
+
+  .waiting-playground-toolbar {
+    align-items: flex-start;
+  }
+
+  .waiting-playground-toolbar .eyebrow,
+  .waiting-playground-actions button:first-child,
+  .waiting-playground-roster {
+    display: none;
+  }
+
+  .waiting-playground-actions .waiting-playground-close {
+    min-height: 46px;
+    padding-inline: 0.75rem;
+    font-size: 0.72rem;
+  }
+
+  .waiting-playground-guide {
+    right: max(0.8rem, env(safe-area-inset-right));
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    left: auto;
+    width: min(52vw, 300px);
+    transform: none;
+  }
+}
+
+.daifugo-mobile-mode .waiting-movement-pad {
+  display: block;
+}
+
+.daifugo-mobile-mode .waiting-playground-toolbar {
+  align-items: flex-start;
+}
+
+.daifugo-mobile-mode .waiting-playground-toolbar .eyebrow,
+.daifugo-mobile-mode .waiting-playground-actions button:first-child,
+.daifugo-mobile-mode .waiting-playground-roster {
+  display: none;
+}
+
+.daifugo-mobile-mode .waiting-playground-actions .waiting-playground-close {
+  min-height: 46px;
+  padding-inline: 0.75rem;
+  font-size: 0.72rem;
+}
+
+.daifugo-mobile-mode .waiting-playground-guide {
+  right: max(0.8rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: auto;
+  width: min(52vw, 300px);
+  transform: none;
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .waiting-movement-pad {
+    width: 108px;
+  }
+
+  .waiting-playground-guide {
+    max-width: 48vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-pad-knob,
+  .waiting-playground-actions button {
+    transition: none;
+  }
+}

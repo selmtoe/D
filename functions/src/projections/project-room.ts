@@ -245,7 +245,11 @@ export function projectRoomForViewer(
         ) || null
       : viewerUid;
 
-  function cardView(card: unknown, forceFace = false): Record<string, unknown> {
+  function cardView(
+    card: unknown,
+    forceFace = false,
+    styles: ReadonlyMap<string, "monochrome" | "crimson"> = jokerStyles,
+  ): Record<string, unknown> {
     if (!isObject(card)) return { id: "invalid", visibility: "hidden", blind: false };
     const face = isObject(card.face) ? card.face : undefined;
     const cardObject = isObject(card.card) ? card.card : undefined;
@@ -260,7 +264,7 @@ export function projectRoomForViewer(
       id,
       visibility: "face",
       ...(rank === "JOKER"
-        ? { joker: jokerStyles.get(id) ?? "monochrome" }
+        ? { joker: styles.get(id) ?? "monochrome" }
         : { suit: String(suit), rank: String(rank) }),
       blind,
       ...(isObject(card.mimic) ? { mimic: card.mimic } : {}),
@@ -348,6 +352,70 @@ export function projectRoomForViewer(
           room.cardTokens,
         ) as JsonObject)
       : null;
+  const canViewAuthoritativeReplay = room.status === "finished";
+  const authoritativeReplay = canViewAuthoritativeReplay
+    ? (Array.isArray(room.authoritativeReplay) ? room.authoritativeReplay : [])
+        .slice(-96)
+        .flatMap((frame) => {
+          if (
+            !frame ||
+            !Number.isSafeInteger(frame.revision) ||
+            !Number.isFinite(frame.capturedAtMs) ||
+            !frame.game ||
+            frame.game.id !== room.gameId
+          ) {
+            return [];
+          }
+          const replayGame = tokenizeCardIdentifiers(frame.game, room.cardTokens) as JsonObject;
+          const replayPlayers = Array.isArray(replayGame.players)
+            ? replayGame.players.filter(isObject)
+            : [];
+          const replayPile = isObject(replayGame.pile) ? replayGame.pile : undefined;
+          const replayHistory = Array.isArray(replayGame.trickHistory)
+            ? replayGame.trickHistory.filter(isObject)
+            : [];
+          const replayStyles = projectedJokerStyles(frame.game, room.cardTokens);
+          const replayCardView = (card: unknown) => cardView(card, true, replayStyles);
+          return [
+            {
+              revision: frame.revision,
+              capturedAtMs: frame.capturedAtMs,
+              game: {
+                id: String(replayGame.id),
+                version: Number(replayGame.version),
+                phase: replayGame.phase === "finished" ? "finished" : "playing",
+                players: replayPlayers.map((player) => ({
+                  id: String(player.id),
+                  hand: Array.isArray(player.hand) ? player.hand.map(replayCardView) : [],
+                  status:
+                    player.status === "finished" || player.status === "disqualified"
+                      ? player.status
+                      : "active",
+                  ...(typeof player.rank === "number" ? { rank: player.rank } : {}),
+                  ...(typeof player.finishReason === "string"
+                    ? { finishReason: player.finishReason }
+                    : {}),
+                })),
+                ...(typeof replayGame.turnPlayerId === "string"
+                  ? { currentPlayerId: replayGame.turnPlayerId }
+                  : {}),
+                direction: replayGame.direction === -1 ? -1 : 1,
+                revolution: replayGame.revolution === true,
+                jackBack: replayGame.jackBack === true,
+                suitLock: Array.isArray(replayGame.binding) ? replayGame.binding : [],
+                firstPlay: replayGame.firstPlay === true,
+                fieldPlays: [...replayHistory, ...(replayPile ? [replayPile] : [])]
+                  .map((play) => (Array.isArray(play.cards) ? play.cards.map(replayCardView) : []))
+                  .filter((cards) => cards.length > 0),
+                field: Array.isArray(replayPile?.cards) ? replayPile.cards.map(replayCardView) : [],
+                discard: Array.isArray(replayGame.discard)
+                  ? replayGame.discard.map(replayCardView)
+                  : [],
+              },
+            },
+          ];
+        })
+    : undefined;
   const eventLabels: Record<string, string> = {
     played: "札を出しました",
     passed: "パスしました",
@@ -493,5 +561,6 @@ export function projectRoomForViewer(
     chat: room.publicChat,
     events: room.publicEvents,
     serverProjectedAtMs: room.updatedAt.toMillis(),
+    ...(authoritativeReplay ? { authoritativeReplay } : {}),
   };
 }

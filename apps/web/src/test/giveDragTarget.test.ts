@@ -3,6 +3,7 @@ import { Group, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { CardView, PlayerView } from "../app/model";
 import {
+  canInspectProjectedOpponentHand,
   canInspectSpectatorOpponentHand,
   containFreeRoamCamera,
   collectCardInteractionLayout,
@@ -46,6 +47,21 @@ describe("7-give drag target", () => {
     expect(canInspectSpectatorOpponentHand("spectator", "follow", "self", "self")).toBe(false);
     expect(canInspectSpectatorOpponentHand("spectator", "free", "right", "self")).toBe(false);
     expect(canInspectSpectatorOpponentHand("player", "follow", "right", "self")).toBe(false);
+  });
+
+  it("allows free spectators and blind-mode players to inspect projected opponent cards", () => {
+    expect(canInspectProjectedOpponentHand("spectator", "free", "normal", "right", "self")).toBe(
+      true,
+    );
+    expect(canInspectProjectedOpponentHand("player", "follow", "blind", "right", "self")).toBe(
+      true,
+    );
+    expect(canInspectProjectedOpponentHand("player", "follow", "normal", "right", "self")).toBe(
+      false,
+    );
+    expect(canInspectProjectedOpponentHand("player", "follow", "blind", "self", "self")).toBe(
+      false,
+    );
   });
 
   it("accepts only an eligible seat near the drop point", () => {

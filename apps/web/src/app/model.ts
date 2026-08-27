@@ -75,6 +75,39 @@ export interface RoomLogEntry {
   notice?: EffectNotice;
 }
 
+export interface AuthoritativeReplayPlayerView {
+  id: string;
+  hand: CardView[];
+  status: "active" | "finished" | "disqualified";
+  rank?: number;
+  finishReason?: "played" | "effect" | "last-standing" | "disqualified";
+}
+
+/**
+ * A card-safe projection of an authority-owned GameState. Unlike the live room
+ * projection, every recorded hand is face-up. Authorities must therefore omit
+ * this entire structure while the viewer is an active player.
+ */
+export interface AuthoritativeReplayFrameView {
+  revision: number;
+  capturedAtMs: number;
+  game: {
+    id: string;
+    version: number;
+    phase: "playing" | "finished";
+    players: AuthoritativeReplayPlayerView[];
+    currentPlayerId?: string;
+    direction: 1 | -1;
+    revolution: boolean;
+    jackBack: boolean;
+    suitLock: Suit[];
+    firstPlay: boolean;
+    fieldPlays: CardView[][];
+    field: CardView[];
+    discard: CardView[];
+  };
+}
+
 export interface RoomView {
   roomId: string;
   revision: number;
@@ -112,6 +145,8 @@ export interface RoomView {
   log: RoomLogEntry[];
   chat?: { id: string; uid: string; name: string; role: Role; text: string; atMs: number }[];
   focusedPlayerId?: string;
+  /** Present only after the room finishes, so live updates stay small and private. */
+  authoritativeReplay?: AuthoritativeReplayFrameView[];
 }
 
 export interface PublicRoom {

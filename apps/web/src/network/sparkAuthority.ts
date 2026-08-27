@@ -15,6 +15,7 @@ import {
   type ProjectedHandCard,
 } from "@daifugo/rules";
 import type {
+  AuthoritativeReplayFrameView,
   CardView,
   EffectNotice,
   PendingEffectView,
@@ -47,6 +48,12 @@ export interface SparkPendingMimic {
   actionId: string;
 }
 
+export interface SparkAuthorityReplayFrame {
+  revision: number;
+  capturedAtMs: number;
+  game: GameState;
+}
+
 export interface SparkRoomSnapshot {
   schemaVersion: 1;
   roomId: string;
@@ -60,6 +67,8 @@ export interface SparkRoomSnapshot {
   departedProfiles?: Record<string, { name: string; avatar: AvatarProfileV1 }>;
   evictedUids?: string[];
   game?: GameState;
+  /** Optional so snapshots written before authority replay support still restore. */
+  authoritativeReplay?: SparkAuthorityReplayFrame[];
   pendingMimic?: SparkPendingMimic;
   turnDeadlineMs?: number;
   createdAtMs: number;
@@ -87,7 +96,11 @@ const MAX_PLAYERS = 6;
 const MAX_SPECTATORS = 32;
 const MAX_EVICTED_UIDS = 256;
 const MAX_APPLIED_ROOM_ACTIONS = 200;
+export const MAX_SPARK_AUTHORITY_REPLAY_FRAMES = 96;
+export const MAX_SPARK_AUTHORITY_REPLAY_BYTES = 192_000;
+const MAX_SPARK_AUTHORITY_REPLAY_FRAME_BYTES = 96_000;
 const TURN_MS = 60_000;
+const replayFrameSizeCache = new WeakMap<object, number>();
 
 export function isValidRoomActionId(value: unknown): value is string {
   return (
@@ -108,6 +121,80 @@ function commandError(code: string, message: string): never {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function serializedBytes(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function replayFrameBytes(frame: SparkAuthorityReplayFrame): number {
+  const cached = replayFrameSizeCache.get(frame);
+  if (cached !== undefined) return cached;
+  const bytes = serializedBytes(frame);
+  replayFrameSizeCache.set(frame, bytes);
+  return bytes;
+}
+
+function compactAuthorityReplay(frames: SparkAuthorityReplayFrame[]): SparkAuthorityReplayFrame[] {
+  const compacted = frames.filter(
+    (frame) => replayFrameBytes(frame) <= MAX_SPARK_AUTHORITY_REPLAY_FRAME_BYTES,
+  );
+  let totalBytes = 2 + compacted.reduce((sum, frame) => sum + replayFrameBytes(frame) + 1, 0);
+  while (
+    compacted.length > MAX_SPARK_AUTHORITY_REPLAY_FRAMES ||
+    (compacted.length > 1 && totalBytes > MAX_SPARK_AUTHORITY_REPLAY_BYTES)
+  ) {
+    const removed = compacted.splice(compacted.length > 1 ? 1 : 0, 1)[0];
+    if (removed) totalBytes -= replayFrameBytes(removed) + 1;
+  }
+  return totalBytes <= MAX_SPARK_AUTHORITY_REPLAY_BYTES ? compacted : [];
+}
+
+function normalizeAuthorityReplay(value: unknown): SparkAuthorityReplayFrame[] {
+  if (!Array.isArray(value)) return [];
+  const byRevision = new Map<number, SparkAuthorityReplayFrame>();
+  for (const candidate of value.slice(-MAX_SPARK_AUTHORITY_REPLAY_FRAMES * 2)) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const frame = candidate as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(frame.revision) ||
+      Number(frame.revision) < 0 ||
+      !Number.isFinite(frame.capturedAtMs) ||
+      Number(frame.capturedAtMs) < 0 ||
+      !frame.game ||
+      typeof frame.game !== "object" ||
+      Array.isArray(frame.game)
+    ) {
+      continue;
+    }
+    const normalized = {
+      revision: Number(frame.revision),
+      capturedAtMs: Number(frame.capturedAtMs),
+      game: clone(frame.game),
+    } as SparkAuthorityReplayFrame;
+    byRevision.set(normalized.revision, normalized);
+  }
+  return compactAuthorityReplay(
+    [...byRevision.values()].sort((left, right) => left.revision - right.revision),
+  );
+}
+
+function appendAuthorityReplay(
+  previous: unknown,
+  game: GameState | undefined,
+  revision: number,
+  capturedAtMs: number,
+): SparkAuthorityReplayFrame[] {
+  if (!game) return [];
+  const sameGame = (Array.isArray(previous) ? previous : []).filter(
+    (frame) => frame.game.id === game.id && frame.revision < revision,
+  );
+  if (sameGame.at(-1)?.game.version === game.version) return compactAuthorityReplay(sameGame);
+  return compactAuthorityReplay([...sameGame, { revision, capturedAtMs, game: clone(game) }]);
 }
 
 function stringArray(value: unknown): string[] {
@@ -192,6 +279,40 @@ function plainGameCardView(
   styles: ReadonlyMap<string, "monochrome" | "crimson">,
 ): CardView {
   return gameCardView({ card }, styles);
+}
+
+function authorityReplayFrameView(frame: SparkAuthorityReplayFrame): AuthoritativeReplayFrameView {
+  const game = frame.game;
+  const projected = projectGame(game, { spectator: true });
+  const styles = jokerStyles(game);
+  const fieldPlays = [...game.trickHistory, ...(game.pile ? [game.pile] : [])].map((play) =>
+    play.cards.map((card) => gameCardView(card, styles)),
+  );
+  return {
+    revision: frame.revision,
+    capturedAtMs: frame.capturedAtMs,
+    game: {
+      id: game.id,
+      version: game.version,
+      phase: game.phase,
+      players: projected.players.map((player) => ({
+        id: player.id,
+        hand: player.hand.map((card) => cardView(card, styles)),
+        status: player.status,
+        ...(player.rank !== null ? { rank: player.rank } : {}),
+        ...(player.finishReason ? { finishReason: player.finishReason } : {}),
+      })),
+      ...(game.turnPlayerId ? { currentPlayerId: game.turnPlayerId } : {}),
+      direction: game.direction,
+      revolution: game.revolution,
+      jackBack: game.jackBack,
+      suitLock: [...game.binding],
+      firstPlay: game.firstPlay,
+      fieldPlays,
+      field: game.pile?.cards.map((card) => gameCardView(card, styles)) ?? [],
+      discard: game.discard.map((card) => plainGameCardView(card, styles)),
+    },
+  };
 }
 
 function requiredEffectCount(game: GameState, effect: PendingEffect): number {
@@ -423,12 +544,16 @@ export class SparkAuthority {
       ],
       appliedRoomActionIds: [],
       appliedRoomActionResults: {},
+      authoritativeReplay: [],
     });
   }
 
   static restore(snapshot: SparkRoomSnapshot): SparkAuthority {
     if (snapshot.schemaVersion !== 1) commandError("failed-precondition", "部屋形式が古すぎます");
-    const restored = clone(snapshot);
+    const restored = clone({
+      ...snapshot,
+      authoritativeReplay: normalizeAuthorityReplay(snapshot.authoritativeReplay),
+    });
     for (const member of Object.values(restored.members)) {
       // Snapshot/profile data crosses a browser trust boundary. Migration keeps
       // old v1 profiles usable while dropping unknown or oversized paint data.
@@ -478,11 +603,14 @@ export class SparkAuthority {
       evictedUids,
       appliedRoomActionIds,
       appliedRoomActionResults,
+      authoritativeReplay: normalizeAuthorityReplay(restored.authoritativeReplay),
     });
   }
 
-  exportSnapshot(): SparkRoomSnapshot {
-    return clone(this.snapshot);
+  exportSnapshot({ includeReplay = false }: { includeReplay?: boolean } = {}): SparkRoomSnapshot {
+    if (includeReplay) return clone(this.snapshot);
+    const { authoritativeReplay: _authoritativeReplay, ...liveSnapshot } = this.snapshot;
+    return clone(liveSnapshot);
   }
 
   get coordinatorUid(): string {
@@ -1304,6 +1432,12 @@ export class SparkAuthority {
   private commit(now: number): void {
     this.snapshot.revision += 1;
     this.snapshot.updatedAtMs = now;
+    this.snapshot.authoritativeReplay = appendAuthorityReplay(
+      this.snapshot.authoritativeReplay,
+      this.snapshot.game,
+      this.snapshot.revision,
+      now,
+    );
   }
 
   project(uid: string): RoomView {
@@ -1357,6 +1491,7 @@ export class SparkAuthority {
     const gamePlayer = game.players.find((player) => player.id === uid);
     const effectiveRole: Role =
       member.role === "spectator" || gamePlayer?.status !== "active" ? "spectator" : "player";
+    const canViewAuthoritativeReplay = this.snapshot.status === "finished";
     const requestedFocus = game.players.find(
       (player) => player.id === member.focusPlayerId && player.status === "active",
     )?.id;
@@ -1464,6 +1599,13 @@ export class SparkAuthority {
       log: clone(this.snapshot.socialLog),
       chat: clone(this.snapshot.chat),
       ...(focusPlayerId ? { focusedPlayerId: focusPlayerId } : {}),
+      ...(canViewAuthoritativeReplay
+        ? {
+            authoritativeReplay: normalizeAuthorityReplay(this.snapshot.authoritativeReplay).map(
+              authorityReplayFrameView,
+            ),
+          }
+        : {}),
     };
   }
 }

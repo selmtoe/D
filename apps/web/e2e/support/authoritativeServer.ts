@@ -226,6 +226,29 @@ export class AuthoritativeE2EServer {
     room.revision += 1;
   }
 
+  forceReadablePairField(): void {
+    const room = this.room(this.roomId);
+    const actor = this.member(room, "uid-player-3");
+    actor.hand = [
+      { id: "c-c2", suit: "diamond", rank: "9", blind: false },
+      { id: "c-c3", suit: "club", rank: "K", blind: false },
+      { id: "c-c4", suit: "spade", rank: "K", blind: false },
+      { id: "c-c5", suit: "heart", rank: "A", blind: false },
+    ];
+    const firstPair: AuthorityCard[] = [
+      { id: "field-nine-spade", suit: "spade", rank: "9", blind: false },
+      { id: "field-nine-heart", suit: "heart", rank: "9", blind: false },
+    ];
+    const secondPair: AuthorityCard[] = [
+      { id: "field-ten-club", suit: "club", rank: "10", blind: false },
+      { id: "field-ten-diamond", suit: "diamond", rank: "10", blind: false },
+    ];
+    room.fieldPlays = [firstPair, secondPair];
+    room.field = secondPair;
+    room.currentPlayerId = actor.uid;
+    room.revision += 1;
+  }
+
   forceCollectEffect(uid = "uid-player-3", discardCount = 32): void {
     const room = this.room(this.roomId);
     const ranks: Rank[] = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];

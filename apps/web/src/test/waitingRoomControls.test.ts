@@ -14,6 +14,22 @@ vi.mock("../avatar-3d/AvatarPortrait", () => ({
   AvatarPortrait: () => null,
 }));
 
+vi.mock("../waiting-3d/WaitingPlayground", () => ({
+  default: ({
+    members,
+    onClose,
+  }: {
+    members: Array<{ id: string; name: string }>;
+    onClose: () => void;
+  }) =>
+    createElement(
+      "section",
+      { role: "dialog", "aria-label": "3D待機室テスト" },
+      ...members.map((member) => createElement("span", { key: member.id }, member.name)),
+      createElement("button", { type: "button", onClick: onClose }, "待機画面へ戻る"),
+    ),
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -166,5 +182,23 @@ describe("waiting room controls", () => {
     renderWaitingRoom(readyRoom, { start: view.start });
     expect(screen.getByRole("button", { name: "ゲームを始める" })).toBeEnabled();
     expect(screen.getByText("3人で開始できます")).toBeVisible();
+  });
+
+  it("opens the 3D playground with waiting members and returns to the room screen", async () => {
+    renderWaitingRoom(
+      roomWith([
+        player("host", { name: "ホスト", host: true }),
+        player("guest", { name: "参加者" }),
+      ]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "3D待機室で遊ぶ" }));
+
+    const playground = await screen.findByRole("dialog", { name: "3D待機室テスト" });
+    expect(playground).toHaveTextContent("ホスト");
+    expect(playground).toHaveTextContent("参加者");
+
+    fireEvent.click(screen.getByRole("button", { name: "待機画面へ戻る" }));
+    expect(screen.queryByRole("dialog", { name: "3D待機室テスト" })).toBeNull();
   });
 });

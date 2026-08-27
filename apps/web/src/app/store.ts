@@ -8,6 +8,7 @@ interface UiState {
   publicRooms: PublicRoom[];
   selectedCardIds: string[];
   lowPower: boolean;
+  mobileMode: boolean;
   reducedMotion: boolean;
   soundMuted: boolean;
   logOpen: boolean;
@@ -19,7 +20,10 @@ interface UiState {
   clearSelection: () => void;
   setSettings: (
     settings: Partial<
-      Pick<UiState, "lowPower" | "soundMuted" | "logOpen" | "editorOpen" | "activeDialog">
+      Pick<
+        UiState,
+        "lowPower" | "mobileMode" | "soundMuted" | "logOpen" | "editorOpen" | "activeDialog"
+      >
     >,
   ) => void;
 }
@@ -34,6 +38,7 @@ export const useUiStore = create<UiState>((set) => ({
   publicRooms: [],
   selectedCardIds: [],
   lowPower: getStoredValue("local", "daifugo-low-power") === "true",
+  mobileMode: getStoredValue("local", "daifugo-mobile-mode") === "true",
   reducedMotion: mediaReduced,
   soundMuted: getStoredValue("local", "daifugo-muted") === "true",
   logOpen: false,
@@ -60,6 +65,8 @@ export const useUiStore = create<UiState>((set) => ({
   setSettings: (settings) => {
     if (settings.lowPower !== undefined)
       setStoredValue("local", "daifugo-low-power", String(settings.lowPower));
+    if (settings.mobileMode !== undefined)
+      setStoredValue("local", "daifugo-mobile-mode", String(settings.mobileMode));
     if (settings.soundMuted !== undefined)
       setStoredValue("local", "daifugo-muted", String(settings.soundMuted));
     set(settings);

@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { defaultAvatar } from "@daifugo/avatar-schema";
+import { lazy, Suspense, useMemo, useState } from "react";
 import type { RoomView } from "../app/model";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
+
+const WaitingPlayground = lazy(() => import("../waiting-3d/WaitingPlayground"));
 
 export function canEditRoomSettings(isHost: boolean, busy: boolean): boolean {
   return isHost && !busy;
@@ -43,11 +46,29 @@ export function WaitingRoomScreen({
   openRules: () => void;
 }) {
   const [tab, setTab] = useState<"people" | "settings">("people");
+  const [playgroundOpen, setPlaygroundOpen] = useState(false);
   const me = room.players.find((player) => player.id === room.viewerId);
   const isHost = Boolean(me && room.hostId === room.viewerId);
   const settingsEditable = canEditRoomSettings(isHost, busy);
   const readyPlayerCount = startablePlayerCount(room);
   const inviteUrl = `${location.origin}${location.pathname}?room=${room.roomId}`;
+  const playgroundMembers = useMemo(
+    () => [
+      ...room.players.map((player) => ({
+        id: player.id,
+        name: player.name,
+        avatar: player.avatar,
+        cpu: player.cpu,
+      })),
+      ...room.spectators.map((spectator) => ({
+        id: spectator.id,
+        name: spectator.name,
+        avatar: spectator.avatar ?? defaultAvatar,
+        spectator: true,
+      })),
+    ],
+    [room.players, room.spectators],
+  );
   const copyText = async (text: string) => {
     try {
       await navigator.clipboard?.writeText(text);
@@ -87,6 +108,14 @@ export function WaitingRoomScreen({
             </h1>
           </div>
           <div className="invite-actions">
+            <button
+              type="button"
+              className="waiting-playground-entry"
+              aria-haspopup="dialog"
+              onClick={() => setPlaygroundOpen(true)}
+            >
+              3D待機室で遊ぶ
+            </button>
             <button type="button" onClick={copy}>
               IDをコピー
             </button>
@@ -314,6 +343,17 @@ export function WaitingRoomScreen({
           )}
         </footer>
       </section>
+      {playgroundOpen && (
+        <Suspense
+          fallback={
+            <div className="waiting-playground-loading" role="status">
+              3D待機室を準備しています…
+            </div>
+          }
+        >
+          <WaitingPlayground members={playgroundMembers} onClose={() => setPlaygroundOpen(false)} />
+        </Suspense>
+      )}
     </main>
   );
 }

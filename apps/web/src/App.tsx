@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
 import { useUiStore } from "./app/store";
 import type { LocalProfile, Role, RoomView } from "./app/model";
@@ -31,7 +31,7 @@ import { feedback, primeFeedback } from "./components/feedback";
 import { getStoredValue, setStoredValue } from "./app/browserStorage";
 import { connectionStateOnBrowserOnline } from "./app/connectionState";
 import { canApplyPwaUpdate, useApplyPwaUpdateWhenSafe } from "./app/pwaUpdate";
-import { appendReplayFrame, type ReplayFrame } from "./app/replay";
+import { appendReplayFrame, authoritativeReplayFrames, type ReplayFrame } from "./app/replay";
 
 const AvatarEditor = lazy(() =>
   import("./avatar-3d/AvatarEditor").then((module) => ({ default: module.AvatarEditor })),
@@ -49,6 +49,7 @@ export default function App() {
   const rooms = useUiStore((state) => state.publicRooms);
   const dispatch = useUiStore((state) => state.dispatch);
   const lowPower = useUiStore((state) => state.lowPower);
+  const mobileMode = useUiStore((state) => state.mobileMode);
   const reducedMotion = useUiStore((state) => state.reducedMotion);
   const soundMuted = useUiStore((state) => state.soundMuted);
   const editorOpen = useUiStore((state) => state.editorOpen);
@@ -62,7 +63,16 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>([]);
+  const resultReplayFrames = useMemo(
+    () =>
+      app.room?.authoritativeReplay?.length ? authoritativeReplayFrames(app.room) : replayFrames,
+    [app.room, replayFrames],
+  );
   const operationsInFlight = useRef(0);
+  useEffect(() => {
+    document.documentElement.classList.toggle("daifugo-mobile-mode", mobileMode);
+    return () => document.documentElement.classList.remove("daifugo-mobile-mode");
+  }, [mobileMode]);
   useApplyPwaUpdateWhenSafe(canApplyPwaUpdate(app.phase, busy, Boolean(activeRoomId || app.room)));
   const handleRoomEvicted = useCallback((roomId: string) => {
     clearRoomReconnect(roomId);
@@ -141,6 +151,7 @@ export default function App() {
 
   useEffect(() => {
     if (!app.room) return;
+    if (app.room.authoritativeReplay?.length) return;
     setReplayFrames((frames) => appendReplayFrame(frames, app.room!));
   }, [app.room]);
 
@@ -262,6 +273,8 @@ export default function App() {
         setAvatar={setAvatar}
         lowPower={lowPower}
         setLowPower={(value) => setSettings({ lowPower: value })}
+        mobileMode={mobileMode}
+        setMobileMode={(value) => setSettings({ mobileMode: value })}
         muted={soundMuted}
         setMuted={(value) => setSettings({ soundMuted: value })}
         openEditor={() => setSettings({ editorOpen: true })}
@@ -334,7 +347,7 @@ export default function App() {
         room={app.room}
         busy={busy}
         error={app.error}
-        replayFrames={replayFrames}
+        replayFrames={resultReplayFrames}
         lowPower={lowPower}
         reducedMotion={reducedMotion}
         leave={leave}

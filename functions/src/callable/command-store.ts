@@ -32,6 +32,79 @@ export type RoomMutator = (
   transaction: Transaction,
 ) => MutationResult | Promise<MutationResult>;
 
+export const MAX_AUTHORITY_REPLAY_FRAMES = 96;
+export const MAX_AUTHORITY_REPLAY_BYTES = 192_000;
+const MAX_AUTHORITY_REPLAY_FRAME_BYTES = 96_000;
+
+function serializedBytes(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/**
+ * Normalizes optional schema-v2 history without trusting old Firestore data.
+ * The first frame is retained for the opening state and the newest tail is
+ * retained for the result; middle frames are the first to be pruned.
+ */
+export function normalizeAuthorityReplay(
+  value: RoomDocument["authoritativeReplay"] | unknown,
+): NonNullable<RoomDocument["authoritativeReplay"]> {
+  if (!Array.isArray(value)) return [];
+  const byRevision = new Map<number, NonNullable<RoomDocument["authoritativeReplay"]>[number]>();
+  for (const candidate of value.slice(-MAX_AUTHORITY_REPLAY_FRAMES * 2)) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const frame = candidate as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(frame.revision) ||
+      Number(frame.revision) < 0 ||
+      !Number.isFinite(frame.capturedAtMs) ||
+      Number(frame.capturedAtMs) < 0 ||
+      !frame.game ||
+      typeof frame.game !== "object" ||
+      Array.isArray(frame.game)
+    ) {
+      continue;
+    }
+    const normalized = {
+      revision: Number(frame.revision),
+      capturedAtMs: Number(frame.capturedAtMs),
+      game: structuredClone(frame.game),
+    } as NonNullable<RoomDocument["authoritativeReplay"]>[number];
+    if (serializedBytes(normalized) <= MAX_AUTHORITY_REPLAY_FRAME_BYTES) {
+      byRevision.set(normalized.revision, normalized);
+    }
+  }
+  const frames = [...byRevision.values()].sort((left, right) => left.revision - right.revision);
+  while (frames.length > MAX_AUTHORITY_REPLAY_FRAMES) frames.splice(frames.length > 1 ? 1 : 0, 1);
+  while (frames.length > 1 && serializedBytes(frames) > MAX_AUTHORITY_REPLAY_BYTES) {
+    frames.splice(1, 1);
+  }
+  return serializedBytes(frames) <= MAX_AUTHORITY_REPLAY_BYTES ? frames : [];
+}
+
+export function appendAuthorityReplay(
+  previous: RoomDocument["authoritativeReplay"],
+  room: Pick<RoomDocument, "game" | "revision">,
+  capturedAtMs: number,
+): NonNullable<RoomDocument["authoritativeReplay"]> {
+  if (!room.game) return [];
+  const sameGame = normalizeAuthorityReplay(previous).filter(
+    (frame) => frame.game.id === room.game!.id && frame.revision < room.revision,
+  );
+  if (sameGame.at(-1)?.game.version === room.game.version) return sameGame;
+  return normalizeAuthorityReplay([
+    ...sameGame,
+    {
+      revision: room.revision,
+      capturedAtMs,
+      game: structuredClone(room.game),
+    },
+  ]);
+}
+
 function requireMatchingRoomVersion(room: RoomDocument, identity: CommandIdentity): void {
   if (room.revision !== identity.expectedRevision) {
     throw new CommandError("aborted", "The room revision is stale.", {
@@ -83,6 +156,11 @@ export function finalizeRoom(
           ? mutated.turnDeadlineAt
           : null,
   };
+  room.authoritativeReplay = appendAuthorityReplay(
+    original.authoritativeReplay,
+    room,
+    now.toMillis(),
+  );
   const deadline = earliestDeadline(room);
   room.nextDeadlineAt = deadline.at;
   room.nextDeadlineKind = deadline.kind;
@@ -176,6 +254,7 @@ export function cloneRoom(room: RoomDocument): RoomDocument {
     members: { ...room.members },
     publicChat: [...room.publicChat],
     publicEvents: [...room.publicEvents],
+    authoritativeReplay: normalizeAuthorityReplay(room.authoritativeReplay),
   };
 }
 

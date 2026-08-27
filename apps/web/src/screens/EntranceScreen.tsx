@@ -11,6 +11,8 @@ export function EntranceScreen({
   setAvatar,
   lowPower,
   setLowPower,
+  mobileMode,
+  setMobileMode,
   muted,
   setMuted,
   openEditor,
@@ -23,6 +25,8 @@ export function EntranceScreen({
   setAvatar: (avatar: AvatarProfileV1) => void;
   lowPower: boolean;
   setLowPower: (value: boolean) => void;
+  mobileMode: boolean;
+  setMobileMode: (value: boolean) => void;
   muted: boolean;
   setMuted: (value: boolean) => void;
   openEditor: () => void;
@@ -99,6 +103,14 @@ export function EntranceScreen({
         )}
         <div className="quiet-settings">
           <ConnectionBadge state={app.connection} />
+          <label>
+            <input
+              type="checkbox"
+              checked={mobileMode}
+              onChange={(event) => setMobileMode(event.target.checked)}
+            />
+            スマホ版
+          </label>
           <label>
             <input
               type="checkbox"

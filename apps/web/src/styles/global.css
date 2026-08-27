@@ -1007,6 +1007,21 @@ h2 {
 .spectator-preview-card.red {
   color: #a71924;
 }
+.spectator-preview-card.back {
+  border-color: #d9d1bb;
+  background: #182d55;
+}
+.spectator-preview-back {
+  position: absolute;
+  inset: 7%;
+  border: 2px solid rgb(241 226 190 / 78%);
+  border-radius: 5px;
+  background:
+    linear-gradient(45deg, transparent 42%, rgb(238 218 168 / 44%) 43% 57%, transparent 58%),
+    linear-gradient(-45deg, transparent 42%, rgb(238 218 168 / 44%) 43% 57%, transparent 58%),
+    #284a82;
+  background-size: 16px 16px;
+}
 .spectator-preview-index {
   position: absolute;
   z-index: 2;
@@ -1075,6 +1090,40 @@ h2 {
   background: var(--brass);
   font-size: 0.68rem;
   letter-spacing: 0.12em;
+}
+.free-roam-controls.mobile {
+  width: 154px;
+  background: rgb(5 18 16 / 68%);
+  /* backdrop-filter creates a containing block for the fixed jump button. */
+  backdrop-filter: none;
+}
+.free-roam-controls.mobile > div {
+  grid-template-rows: repeat(2, 52px);
+}
+.free-roam-controls.mobile > div > button:nth-child(1) {
+  grid-column: 2;
+  grid-row: 1;
+}
+.free-roam-controls.mobile > div > button:nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+.free-roam-controls.mobile > div > button:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+}
+.free-roam-controls.mobile > div > button:nth-child(4) {
+  grid-column: 3;
+  grid-row: 2;
+}
+.free-roam-controls.mobile .free-roam-jump {
+  position: fixed;
+  right: max(0.8rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  width: 76px;
+  min-height: 58px;
+  grid-column: auto;
+  border-radius: 50%;
 }
 .game-screen.free-roam.log-open .free-roam-controls {
   display: none;
@@ -2614,7 +2663,7 @@ h2 {
   }
   .game-screen.free-roam .log-toggle {
     right: max(0.5rem, env(safe-area-inset-right));
-    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px));
     left: auto;
   }
   .effect-panel {

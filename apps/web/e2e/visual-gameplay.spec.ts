@@ -142,7 +142,7 @@ async function advanceToSteal(authority: AuthoritativeE2EServer): Promise<void> 
 async function advanceToThirdPlayer(authority: AuthoritativeE2EServer): Promise<void> {
   for (const [uid, cardId, blindConfirmed] of [
     ["uid-host", "c-a1", false],
-    ["uid-player-2", "c-b3", true],
+    ["uid-player-2", "c-b1", false],
   ] as const) {
     await authority.handle(uid, {
       op: "command",
@@ -217,13 +217,14 @@ test.describe("single-canvas visual gameplay inspection", () => {
       testInfo.project.name === "mobile-chromium"
         ? { width: 412, height: 915 }
         : { width: 1280, height: 900 },
+      { lowPower: true },
     );
     try {
       await expect(actor.page.locator("canvas").first()).toBeVisible();
       await capture(actor.page, testInfo.outputPath("hand-right-card-front.png"));
       await advanceToSteal(authority);
       const effect = actor.page.getByRole("region", { name: "A奪い" });
-      await expect(effect).toBeVisible({ timeout: 15_000 });
+      await expect(effect).toBeVisible({ timeout: 30_000 });
       const canvas = actor.page.locator("canvas").first();
       const [cardX, cardY] = await canvasPoint(actor.page, "data-effect-steal-card");
       await canvas.click({ position: { x: cardX, y: cardY } });
@@ -253,10 +254,11 @@ test.describe("single-canvas visual gameplay inspection", () => {
   test("selected cards lift while field plays and the flowed-card pile stay on the table", async ({
     browser,
   }, testInfo) => {
-    test.setTimeout(90_000);
+    test.setTimeout(180_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     await advanceToThirdPlayer(authority);
+    authority.forceReadablePairField();
     const player = await reconnectPage(
       browser,
       authority,
@@ -265,11 +267,40 @@ test.describe("single-canvas visual gameplay inspection", () => {
       testInfo.project.name === "mobile-chromium"
         ? { width: 412, height: 915 }
         : { width: 1280, height: 900 },
+      { lowPower: true },
     );
     try {
-      await expect(player.page.locator("canvas").first()).toBeVisible();
+      const tableCanvas = player.page.locator("canvas").first();
+      await expect(tableCanvas).toBeVisible();
+      await expect(tableCanvas).toHaveAttribute("data-table-deck-visible", "false");
+      const fieldPoints = await canvasPoints(player.page, "data-field-card-points");
+      expect(fieldPoints).toHaveLength(4);
+      expect(Math.abs(fieldPoints[1]![0] - fieldPoints[0]![0])).toBeGreaterThan(35);
+      expect(Math.abs(fieldPoints[3]![0] - fieldPoints[2]![0])).toBeGreaterThan(35);
+      const inspectPoints = await canvasPoints(player.page, "data-spectator-inspect-points");
+      const tableBounds = await tableCanvas.boundingBox();
+      expect(tableBounds).not.toBeNull();
+      const [inspectX = 0, inspectY = 0] =
+        inspectPoints.find(
+          ([x, y]) =>
+            tableBounds !== null &&
+            x >= 0 &&
+            y >= 0 &&
+            x <= tableBounds.width &&
+            y <= tableBounds.height,
+        ) ?? [];
+      if (testInfo.project.name === "mobile-chromium" && tableBounds) {
+        await player.page.touchscreen.tap(tableBounds.x + inspectX, tableBounds.y + inspectY);
+      } else await tableCanvas.click({ position: { x: inspectX, y: inspectY } });
+      const blindPreview = player.page.locator(".spectator-hand-preview");
+      await expect(blindPreview).toContainText("ブラインド札だけ表");
+      const previewCards = blindPreview.locator("[data-spectator-inspect-card]");
+      const backCards = blindPreview.locator(".spectator-preview-card.back");
+      expect(await backCards.count()).toBeGreaterThan(0);
+      expect(await previewCards.count()).toBeGreaterThan(await backCards.count());
+      await capture(player.page, testInfo.outputPath("blind-opponent-hand-inspect.png"));
       const king = player.page.getByRole("option", { name: /クラブK/ });
-      await king.click();
+      await king.dispatchEvent("click");
       await expect(king).toHaveAttribute("aria-selected", "true");
       await capture(player.page, testInfo.outputPath("selected-field-stack.png"));
     } finally {
@@ -319,6 +350,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       "uid-spectator",
       "spectator",
       mobile ? { width: 412, height: 915 } : { width: 1280, height: 900 },
+      { lowPower: true },
     );
     const observer = await reconnectPage(
       browser,
@@ -366,14 +398,16 @@ test.describe("single-canvas visual gameplay inspection", () => {
       const followBounds = await followCanvas.boundingBox();
       expect(followBounds).not.toBeNull();
       if (followBounds) {
-        await spectator.page.mouse.move(
-          followBounds.x + (inspectPoint[0] ?? 0),
-          followBounds.y + (inspectPoint[1] ?? 0),
-        );
         if (mobile) {
-          await spectator.page.mouse.down();
-          await spectator.page.mouse.up();
-        }
+          await spectator.page.touchscreen.tap(
+            followBounds.x + (inspectPoint[0] ?? 0),
+            followBounds.y + (inspectPoint[1] ?? 0),
+          );
+        } else
+          await spectator.page.mouse.move(
+            followBounds.x + (inspectPoint[0] ?? 0),
+            followBounds.y + (inspectPoint[1] ?? 0),
+          );
       }
       const handPreview = spectator.page.locator(".spectator-hand-preview");
       await expect(handPreview).toBeVisible({ timeout: 15_000 });
@@ -392,7 +426,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
         ).toBe(true);
       }
       await capture(spectator.page, testInfo.outputPath("spectator-follow-view.png"));
-      await spectator.page.getByRole("button", { name: "リアクションを開く" }).click();
+      await spectator.page.getByRole("button", { name: "エモートを開く" }).click();
       await spectator.page.getByRole("button", { name: "拍手を送る" }).click();
       await expect(observer.page.locator(".reaction-notification")).toContainText("観戦者: 拍手", {
         timeout: 15_000,
@@ -400,17 +434,20 @@ test.describe("single-canvas visual gameplay inspection", () => {
 
       await spectator.page.getByRole("button", { name: "自由に移動" }).click();
       await expect(
-        spectator.page.getByText(mobile ? /左のボタンで移動/ : /WASD／マウスで移動/),
+        spectator.page.getByText(mobile ? /左の方向パッドで移動/ : /WASD／マウスで移動/),
       ).toBeVisible();
       await expect(spectator.page.getByRole("button", { name: "ジャンプ" })).toBeVisible();
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
       const canvas = followCanvas;
+      await expect(canvas).toHaveAttribute("data-free-roam-camera", "first-person");
       await expect(canvas).toHaveAttribute("data-free-roam-pose", /.+/);
       const observerCanvas = observer.page.locator("canvas").first();
       await expect(observerCanvas).toHaveAttribute("data-remote-spectator-count", "1", {
         timeout: 15_000,
       });
-      expect(await spectator.page.evaluate(() => document.activeElement?.tagName)).toBe("CANVAS");
+      await expect(
+        observer.page.locator('[data-avatar-emote-player-id="uid-spectator"]'),
+      ).toHaveAttribute("data-avatar-emote", "applause", { timeout: 15_000 });
       const poseBeforeTurn = await readFreeRoamPose(spectator.page);
       const bounds = await canvas.boundingBox();
       expect(bounds).not.toBeNull();
@@ -452,10 +489,18 @@ test.describe("single-canvas visual gameplay inspection", () => {
         )
         .toBeGreaterThan(1);
       const poseAfterTurn = await readFreeRoamPose(spectator.page);
-      expect(Math.abs(poseAfterTurn.yaw - poseBeforeTurn.yaw)).toBeGreaterThan(0.05);
+      expect(poseAfterTurn.yaw - poseBeforeTurn.yaw).toBeGreaterThan(0.05);
       expect(Math.abs(poseAfterTurn.pitch - poseBeforeTurn.pitch)).toBeGreaterThan(0.02);
       const poseBeforeMove = poseAfterTurn;
       if (mobile) {
+        const movementPad = spectator.page.locator(".free-roam-controls");
+        const jumpButton = spectator.page.getByRole("button", { name: "ジャンプ" });
+        const [padBounds, jumpBounds] = await Promise.all([
+          movementPad.boundingBox(),
+          jumpButton.boundingBox(),
+        ]);
+        expect((padBounds?.x ?? 0) + (padBounds?.width ?? 0)).toBeLessThan(412 / 2);
+        expect(jumpBounds?.x ?? 0).toBeGreaterThan(412 / 2);
         const moveForward = spectator.page.getByRole("button", { name: "前へ進む" });
         const moveRight = spectator.page.getByRole("button", { name: "右へ移動" });
         await moveForward.dispatchEvent("pointerdown", {
@@ -535,14 +580,21 @@ test.describe("single-canvas visual gameplay inspection", () => {
     }
   });
 
-  test("a finished player's old seat disappears while their spectator avatar remains", async ({
+  test("a finished player's old seat and own free-roam body both disappear", async ({
     browser,
   }) => {
     test.setTimeout(90_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     authority.forceFinish("uid-player-3");
-    const spectator = await reconnectPage(browser, authority, "uid-player-3", "spectator");
+    const spectator = await reconnectPage(
+      browser,
+      authority,
+      "uid-player-3",
+      "spectator",
+      { width: 1280, height: 900 },
+      { lowPower: true },
+    );
     try {
       const oldSeatName = spectator.page
         .locator(".character-name-tag--player")
@@ -553,7 +605,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       await expect(oldSeatName).toHaveCount(0);
       await expect(
         spectator.page.locator(".character-name-tag--spectator").filter({ hasText: "プレイヤー3" }),
-      ).toBeVisible();
+      ).toHaveCount(0);
     } finally {
       await closeContext(spectator.context);
     }

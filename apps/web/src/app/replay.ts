@@ -1,4 +1,4 @@
-import type { CardView, RoomView } from "./model";
+import type { AuthoritativeReplayFrameView, CardView, RoomView } from "./model";
 
 export type ReplayPlayerHands = Record<string, CardView[]>;
 
@@ -13,6 +13,85 @@ export interface ReplayFrame {
 }
 
 const MAX_REPLAY_FRAMES = 480;
+
+function roomForAuthorityReplayFrame(
+  sourceRoom: RoomView,
+  frame: AuthoritativeReplayFrameView,
+): RoomView {
+  const {
+    authoritativeReplay: _authoritativeReplay,
+    currentPlayerId: _currentPlayerId,
+    turnDeadlineMs: _turnDeadlineMs,
+    pendingJokerMimic: _pendingJokerMimic,
+    focusedPlayerId: _focusedPlayerId,
+    ...roomMetadata
+  } = sourceRoom;
+  const replayPlayers = new Map(frame.game.players.map((player) => [player.id, player]));
+  const players = sourceRoom.players.map((player) => {
+    const replayPlayer = replayPlayers.get(player.id);
+    if (!replayPlayer) return { ...player, cards: [], cardCount: 0 };
+    const { rank: _currentRank, ...playerMetadata } = player;
+    return {
+      ...playerMetadata,
+      status: replayPlayer.status,
+      cardCount: replayPlayer.hand.length,
+      cards: cloneCards(replayPlayer.hand),
+      ...(replayPlayer.rank === undefined ? {} : { rank: replayPlayer.rank }),
+    };
+  });
+  const focusedPlayerId =
+    sourceRoom.focusedPlayerId ??
+    (players.some((player) => player.id === sourceRoom.viewerId)
+      ? sourceRoom.viewerId
+      : players[0]?.id);
+  const focusedHand = focusedPlayerId ? (replayPlayers.get(focusedPlayerId)?.hand ?? []) : [];
+  return {
+    ...roomMetadata,
+    revision: frame.revision,
+    gameId: frame.game.id,
+    phase: frame.game.phase,
+    role: "spectator",
+    players,
+    ...(frame.game.currentPlayerId ? { currentPlayerId: frame.game.currentPlayerId } : {}),
+    direction: frame.game.direction,
+    revolution: frame.game.revolution,
+    jackBack: frame.game.jackBack,
+    suitLock: [...frame.game.suitLock],
+    firstPlay: frame.game.firstPlay,
+    fieldPlays: frame.game.fieldPlays.map(cloneCards),
+    field: cloneCards(frame.game.field),
+    discard: cloneCards(frame.game.discard),
+    hand: cloneCards(focusedHand),
+    pendingEffects: [],
+    rankings: frame.game.players.flatMap((player) =>
+      player.rank === undefined
+        ? []
+        : [
+            {
+              playerId: player.id,
+              place: player.rank,
+              ...(player.finishReason ? { reason: player.finishReason } : {}),
+            },
+          ],
+    ),
+    log: sourceRoom.log.filter((entry) => entry.atMs <= frame.capturedAtMs),
+    ...(focusedPlayerId ? { focusedPlayerId } : {}),
+  };
+}
+
+/** Converts the authority-owned, post-game history into the UI replay format. */
+export function authoritativeReplayFrames(room: RoomView): ReplayFrame[] {
+  return (room.authoritativeReplay ?? []).map((frame) => {
+    const replayRoom = roomForAuthorityReplayFrame(room, frame);
+    return {
+      capturedAtMs: frame.capturedAtMs,
+      room: replayRoom,
+      playerHands: Object.fromEntries(
+        frame.game.players.map((player) => [player.id, cloneCards(player.hand)]),
+      ),
+    };
+  });
+}
 
 export function replayGameKey(room: RoomView): string {
   return `${room.roomId}:${room.viewerId}:${room.generation}:${room.gameId ?? "no-game-id"}`;

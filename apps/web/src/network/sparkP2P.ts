@@ -951,13 +951,19 @@ export class SparkP2PSession {
       return;
     }
     const snapshot = this.authority.exportSnapshot();
+    const recoveryState = this.authority.exportSnapshot({ includeReplay: true });
     // Firestore only lets the directory's current coordinator write a recovery snapshot. During an
     // explicit handoff, persist every mutation under the outgoing lease first; the successor then
     // replaces this transitional coordinatorUid as soon as the directory pointer reaches it.
     const recoverySnapshot =
-      snapshot.coordinatorUid === this.uid ? snapshot : { ...snapshot, coordinatorUid: this.uid };
-    await setDoc(doc(this.db, "sparkRoomSnapshots", this.roomId), plain(recoverySnapshot));
-    await this.persistDirectory(true);
+      recoveryState.coordinatorUid === this.uid
+        ? recoveryState
+        : { ...recoveryState, coordinatorUid: this.uid };
+    const recoveryWrite = setDoc(
+      doc(this.db, "sparkRoomSnapshots", this.roomId),
+      plain(recoverySnapshot),
+    );
+    const directoryWrite = this.persistDirectory(true);
     for (const eviction of this.authority.consumeEvictions()) {
       await this.sendWire(eviction.uid, eviction.peerId, { type: "evicted", reason: "kick" }).catch(
         () => undefined,
@@ -973,6 +979,7 @@ export class SparkP2PSession {
         );
       }
     }
+    await Promise.all([recoveryWrite, directoryWrite]);
     if (snapshot.coordinatorUid !== this.uid) {
       const stillMember = snapshot.members[this.uid];
       delete this.authority;

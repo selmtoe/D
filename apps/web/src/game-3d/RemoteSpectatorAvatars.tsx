@@ -6,6 +6,7 @@ import type { RoomView } from "../app/model";
 import type { SpectatorPoseCue } from "../network/peerCues";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import { CharacterNameTag } from "./PlayerPresentation";
+import { AvatarEmote, type PlayerEmoteCue } from "./AvatarEmote";
 
 export interface RemoteSpectatorParticipant {
   id: string;
@@ -52,9 +53,11 @@ function lerpAngle(current: number, target: number, factor: number): number {
 function RemoteSpectatorAvatar({
   participant,
   lowPower,
+  emotes,
 }: {
   participant: RemoteSpectatorParticipant & { pose: SpectatorPoseCue };
   lowPower: boolean;
+  emotes: readonly PlayerEmoteCue[];
 }) {
   const root = useRef<Group>(null);
   const target = useRef(new Vector3(participant.pose.x, participant.pose.y, participant.pose.z));
@@ -106,6 +109,7 @@ function RemoteSpectatorAvatar({
         disqualified={participant.disqualified}
         kind="spectator"
       />
+      <AvatarEmote playerId={participant.id} emotes={emotes} />
       <mesh position={[0, 0.032, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.66, 0.78, lowPower ? 18 : 32]} />
         <meshBasicMaterial color="#78d8ff" transparent opacity={0.74} />
@@ -118,10 +122,12 @@ export function RemoteSpectatorAvatars({
   room,
   poses,
   lowPower,
+  emotes = [],
 }: {
   room: RoomView;
   poses: ReadonlyMap<string, SpectatorPoseCue>;
   lowPower: boolean;
+  emotes?: readonly PlayerEmoteCue[];
 }) {
   const canvas = useThree((state) => state.gl.domElement);
   const participants = remoteSpectatorParticipants(room, poses);
@@ -133,6 +139,11 @@ export function RemoteSpectatorAvatars({
     };
   }, [canvas, participants.length]);
   return participants.map((participant) => (
-    <RemoteSpectatorAvatar key={participant.id} participant={participant} lowPower={lowPower} />
+    <RemoteSpectatorAvatar
+      key={participant.id}
+      participant={participant}
+      lowPower={lowPower}
+      emotes={emotes}
+    />
   ));
 }

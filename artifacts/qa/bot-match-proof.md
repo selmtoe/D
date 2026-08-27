@@ -11,16 +11,16 @@
   "matches": 24,
   "completed": 24,
   "stalled": 0,
-  "commands": 1559,
-  "accepted": 1559,
+  "commands": 1557,
+  "accepted": 1557,
   "rejected": 0,
   "plays": 685,
   "passes": 622,
-  "effectResolutions": 252,
+  "effectResolutions": 250,
   "stealResolutions": 58,
-  "blindAttempts": 46,
+  "blindAttempts": 50,
   "blindDisqualifications": 42,
-  "jokerSubmissions": 41,
+  "jokerSubmissions": 43,
   "jokerMimicDeclarations": 0,
   "finishes": 66,
   "invariantFailures": 0
@@ -36,25 +36,25 @@
 | normal-3p-seed-3103 | 3 | normal | yes | 102 | 0 | 20 | 4 | 0 | 2 |
 | blind-3p-seed-3104 | 3 | blind | yes | 7 | 0 | 1 | 1 | 2 | 1 |
 | normal-3p-seed-3105 | 3 | normal | yes | 95 | 0 | 20 | 6 | 0 | 2 |
-| blind-3p-seed-3106 | 3 | blind | yes | 7 | 0 | 1 | 0 | 2 | 1 |
+| blind-3p-seed-3106 | 3 | blind | yes | 11 | 0 | 3 | 1 | 3 | 1 |
 | normal-4p-seed-3201 | 4 | normal | yes | 114 | 0 | 21 | 5 | 0 | 3 |
 | blind-4p-seed-3202 | 4 | blind | yes | 9 | 0 | 0 | 0 | 3 | 1 |
 | normal-4p-seed-3203 | 4 | normal | yes | 119 | 0 | 19 | 4 | 0 | 2 |
-| blind-4p-seed-3204 | 4 | blind | yes | 10 | 0 | 2 | 1 | 3 | 2 |
+| blind-4p-seed-3204 | 4 | blind | yes | 11 | 0 | 2 | 1 | 5 | 1 |
 | normal-4p-seed-3205 | 4 | normal | yes | 121 | 0 | 21 | 5 | 0 | 2 |
-| blind-4p-seed-3206 | 4 | blind | yes | 12 | 0 | 3 | 1 | 3 | 1 |
+| blind-4p-seed-3206 | 4 | blind | yes | 8 | 0 | 1 | 0 | 3 | 2 |
 | normal-5p-seed-3301 | 5 | normal | yes | 111 | 0 | 18 | 4 | 0 | 3 |
-| blind-5p-seed-3302 | 5 | blind | yes | 7 | 0 | 0 | 0 | 4 | 1 |
+| blind-5p-seed-3302 | 5 | blind | yes | 13 | 0 | 2 | 1 | 6 | 1 |
 | normal-5p-seed-3303 | 5 | normal | yes | 133 | 0 | 20 | 5 | 0 | 3 |
-| blind-5p-seed-3304 | 5 | blind | yes | 14 | 0 | 3 | 0 | 6 | 1 |
+| blind-5p-seed-3304 | 5 | blind | yes | 11 | 0 | 2 | 0 | 5 | 1 |
 | normal-5p-seed-3305 | 5 | normal | yes | 122 | 0 | 18 | 4 | 0 | 2 |
-| blind-5p-seed-3306 | 5 | blind | yes | 10 | 0 | 2 | 1 | 4 | 1 |
+| blind-5p-seed-3306 | 5 | blind | yes | 8 | 0 | 0 | 0 | 5 | 1 |
 | normal-6p-seed-3401 | 6 | normal | yes | 136 | 0 | 18 | 4 | 0 | 3 |
-| blind-6p-seed-3402 | 6 | blind | yes | 12 | 0 | 2 | 1 | 5 | 1 |
+| blind-6p-seed-3402 | 6 | blind | yes | 12 | 0 | 2 | 1 | 5 | 2 |
 | normal-6p-seed-3403 | 6 | normal | yes | 147 | 0 | 20 | 4 | 0 | 3 |
-| blind-6p-seed-3404 | 6 | blind | yes | 12 | 0 | 1 | 0 | 6 | 0 |
+| blind-6p-seed-3404 | 6 | blind | yes | 8 | 0 | 0 | 0 | 5 | 0 |
 | normal-6p-seed-3405 | 6 | normal | yes | 148 | 0 | 21 | 4 | 0 | 2 |
-| blind-6p-seed-3406 | 6 | blind | yes | 10 | 0 | 1 | 0 | 6 | 1 |
+| blind-6p-seed-3406 | 6 | blind | yes | 10 | 0 | 1 | 0 | 6 | 2 |
 
 ## 代表判断
 
@@ -80,10 +80,10 @@
 
 ### blind authority判定: blind-3p-seed-3102 / #6 / bot-2
 
-- 観測: field=["JOKER(p2p-0-00000000-0000-4000-8000-000000000002-card-09)"], hand={"count":16,"visible":["club-7(p2p-0-00000000-0000-4000-8000-000000000002-card-04)","heart-K(p2p-0-00000000-0000-4000-8000-000000000002-card-07)","club-K(p2p-0-00000000-0000-4000-8000-000000000002-card-10)","heart-8(p2p-0-00000000-0000-4000-8000-000000000002-card-13)","club-9(p2p-0-00000000-0000-4000-8000-000000000002-card-22)","heart-Q(p2p-0-00000000-0000-4000-8000-000000000002-card-25)","diamond-A(p2p-0-00000000-0000-4000-8000-000000000002-card-28)","spade-8(p2p-0-00000000-0000-4000-8000-000000000002-card-34)","diamond-K(p2p-0-00000000-0000-4000-8000-000000000002-card-37)","spade-2(p2p-0-00000000-0000-4000-8000-000000000002-card-43)","heart-10(p2p-0-00000000-0000-4000-8000-000000000002-card-46)","diamond-9(p2p-0-00000000-0000-4000-8000-000000000002-card-49)","club-6(p2p-0-00000000-0000-4000-8000-000000000002-card-52)"],"hiddenPositions":["p2p-0-00000000-0000-4000-8000-000000000002-card-40","p2p-0-00000000-0000-4000-8000-000000000002-card-19","p2p-0-00000000-0000-4000-8000-000000000002-card-31"]}, flags={"revolution":false,"jackBack":false,"direction":1,"suitLock":[]}
-- 合法候補: blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-40 / blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-19 / blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-31 / pass:場に札があるため合法
+- 観測: field=["JOKER(p2p-0-00000000-0000-4000-8000-000000000002-card-09)"], hand={"count":16,"visible":["club-7(p2p-0-00000000-0000-4000-8000-000000000002-card-04)","heart-K(p2p-0-00000000-0000-4000-8000-000000000002-card-07)","club-K(p2p-0-00000000-0000-4000-8000-000000000002-card-10)","spade-4(p2p-0-00000000-0000-4000-8000-000000000002-card-19)","club-9(p2p-0-00000000-0000-4000-8000-000000000002-card-22)","diamond-A(p2p-0-00000000-0000-4000-8000-000000000002-card-28)","heart-9(p2p-0-00000000-0000-4000-8000-000000000002-card-31)","spade-8(p2p-0-00000000-0000-4000-8000-000000000002-card-34)","club-2(p2p-0-00000000-0000-4000-8000-000000000002-card-40)","spade-2(p2p-0-00000000-0000-4000-8000-000000000002-card-43)","heart-10(p2p-0-00000000-0000-4000-8000-000000000002-card-46)","diamond-9(p2p-0-00000000-0000-4000-8000-000000000002-card-49)","club-6(p2p-0-00000000-0000-4000-8000-000000000002-card-52)"],"hiddenPositions":["p2p-0-00000000-0000-4000-8000-000000000002-card-37","p2p-0-00000000-0000-4000-8000-000000000002-card-25","p2p-0-00000000-0000-4000-8000-000000000002-card-13"]}, flags={"revolution":false,"jackBack":false,"direction":1,"suitLock":[]}
+- 合法候補: blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-37 / blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-25 / blind-single:p2p-0-00000000-0000-4000-8000-000000000002-card-13 / pass:場に札があるため合法
 - 選択理由: 表向き合法手がないためblind位置を選び、不可逆確認付きでauthority判定へ送る。
-- 送信command: `{"name":"submitPlay","payload":{"roomId":"Q0001","gameId":"p2p-0-00000000-0000-4000-8000-000000000002","expectedRevision":10,"cardIds":["p2p-0-00000000-0000-4000-8000-000000000002-card-40"],"mimics":[],"blindConfirmed":true,"clientActionId":"blind-3p-seed-3102-action-0006"}}`
+- 送信command: `{"name":"submitPlay","payload":{"roomId":"Q0001","gameId":"p2p-0-00000000-0000-4000-8000-000000000002","expectedRevision":10,"cardIds":["p2p-0-00000000-0000-4000-8000-000000000002-card-37"],"mimics":[],"blindConfirmed":true,"clientActionId":"blind-3p-seed-3102-action-0006"}}`
 - authority結果: `{"ok":true,"response":{}}`
 - event: `{"publicLog":[{"id":"game-10-0-1700001007000","atMs":1700001007000,"text":"Bot 2が失格になりました","kind":"system"}],"ruleLog":[{"id":"log-1","type":"disqualified","playerIds":["bot-2"],"detail":"reserved bottom rank 3"}]}`
 - 適用確認: `{"revisionBefore":10,"revisionAfter":11,"gameVersionBefore":5,"gameVersionAfter":6,"actionRecorded":true,"invariantValid":true,"actorHandBefore":16,"actorHandAfter":0,"actorStatusBefore":"active","actorStatusAfter":"disqualified","pileCardIdsBefore":["p2p-0-00000000-0000-4000-8000-000000000002-card-09"],"pileCardIdsAfter":["p2p-0-00000000-0000-4000-8000-000000000002-card-09"],"pendingJokerMimicAfter":false}`

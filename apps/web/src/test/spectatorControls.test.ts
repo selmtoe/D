@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CardView } from "../app/model";
 import { opponentHandCardForDisplay } from "../game-3d/SalonScene";
 import {
+  applyFreeRoamLookDelta,
   canRequestFreeRoamPointerLock,
   containFreeRoamPosition,
   FREE_ROAM_GROUND_Y,
@@ -30,6 +31,17 @@ describe("spectator-authorized card faces", () => {
 });
 
 describe("spectator camera controls", () => {
+  it("uses FPS pointer direction on desktop and touch drag", () => {
+    expect(applyFreeRoamLookDelta(0, 0, 100, -20, false)).toEqual({
+      yaw: 0.24,
+      pitch: 0.04,
+    });
+    expect(applyFreeRoamLookDelta(0, 0, 100, -20, true)).toEqual({
+      yaw: 0.4,
+      pitch: 0.06,
+    });
+  });
+
   it("moves between possessed seats on a table-centred arc", () => {
     const next = stepOrbitArc({ x: 0, y: 6, z: 10 }, { x: -10, y: 8, z: 0 }, 0.5);
 

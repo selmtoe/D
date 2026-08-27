@@ -646,7 +646,6 @@ export function GameScreen({
   const logOpen = useUiStore((state) => state.logOpen);
   const setSettings = useUiStore((state) => state.setSettings);
   const muted = useUiStore((state) => state.soundMuted);
-  const localAvatar = useUiStore((state) => state.app.profile?.avatar);
   const [playDialog, setPlayDialog] = useState(false);
   const [moderationOpen, setModerationOpen] = useState(false);
   const [cardMotions, setCardMotions] = useState<CardMotionEvent[]>([]);
@@ -1203,15 +1202,15 @@ export function GameScreen({
   const emoteControls = (
     <section
       className={`emote-controls${reactionControlsOpen ? " open" : ""}`}
-      aria-label="全員にリアクションを送る"
-      title={`リアクションの通信状態: ${cueConnectionLabel}`}
+      aria-label="全員にエモートを送る"
+      title={`エモートの通信状態: ${cueConnectionLabel}`}
     >
       <div className="emote-toggle-wrap">
         <button
           type="button"
           className="emote-toggle"
           aria-expanded={reactionControlsOpen}
-          aria-label={reactionControlsOpen ? "リアクションを閉じる" : "リアクションを開く"}
+          aria-label={reactionControlsOpen ? "エモートを閉じる" : "エモートを開く"}
           onClick={() => setReactionControlsOpen((open) => !open)}
         >
           ☺
@@ -1220,7 +1219,7 @@ export function GameScreen({
       </div>
       <div className="emote-actions">
         <strong>
-          リアクション
+          エモート
           <small>押すと全員の画面に表示</small>
         </strong>
         {(
@@ -1297,7 +1296,7 @@ export function GameScreen({
           onGiveCardDrop={dropGiveCard}
           onGiveCardReturn={returnGiveCard}
           remoteSpectatorPoses={remoteSpectatorPoses}
-          freeRoamAvatar={localAvatar ?? me?.avatar ?? room.players[0]?.avatar}
+          avatarEmotes={peerCues.recentEmotes}
           freeRoamControlsPaused={logOpen || personalSettingsOpen}
           onFreeRoamPose={publishFreeRoamPose}
           onExitFreeRoam={() => setSpectatorMode("follow")}

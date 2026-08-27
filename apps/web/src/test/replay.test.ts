@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RoomView } from "../app/model";
 import {
   appendReplayFrame,
+  authoritativeReplayFrames,
   replayElapsedMs,
   replayFrameSummary,
   replayGameKey,
@@ -122,5 +123,66 @@ describe("client-view replay recording", () => {
     expect(replayRoomForPerspective(legacyFrame, "missing").hand).toEqual([
       { id: "secret", visibility: "hidden", blind: true },
     ]);
+  });
+
+  it("uses the post-game authority history for complete multi-perspective hands", () => {
+    const finishedRoom: RoomView = {
+      ...room(9),
+      phase: "finished",
+      authoritativeReplay: [
+        {
+          revision: 4,
+          capturedAtMs: 2_000,
+          game: {
+            id: "game-1",
+            version: 3,
+            phase: "playing",
+            players: [
+              {
+                id: "me",
+                hand: [
+                  { id: "me-three", visibility: "face", suit: "spade", rank: "3", blind: false },
+                ],
+                status: "active",
+              },
+              {
+                id: "other",
+                hand: [
+                  {
+                    id: "other-nine",
+                    visibility: "face",
+                    suit: "heart",
+                    rank: "9",
+                    blind: false,
+                  },
+                ],
+                status: "active",
+              },
+            ],
+            currentPlayerId: "other",
+            direction: -1,
+            revolution: true,
+            jackBack: false,
+            suitLock: ["heart"],
+            firstPlay: false,
+            fieldPlays: [],
+            field: [],
+            discard: [],
+          },
+        },
+      ],
+    };
+
+    const [frame] = authoritativeReplayFrames(finishedRoom);
+    expect(frame?.room).not.toHaveProperty("authoritativeReplay");
+    expect(frame?.room.currentPlayerId).toBe("other");
+    expect(frame?.room.revolution).toBe(true);
+    expect(frame?.playerHands?.other).toEqual([
+      { id: "other-nine", visibility: "face", suit: "heart", rank: "9", blind: false },
+    ]);
+    expect(replayRoomForPerspective(frame!, "other").hand[0]).toMatchObject({
+      visibility: "face",
+      rank: "9",
+    });
   });
 });

@@ -12,10 +12,12 @@ import {
 } from "three";
 import type { CardView, PlayerView, RoomView } from "../app/model";
 import { useVisualViewport } from "../app/visualViewport";
+import { useUiStore } from "../app/store";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import type { SpectatorPoseCue } from "../network/peerCues";
 import { Card3D } from "./Card3D";
 import { CardMotionLayer } from "./CardMotionLayer";
+import { AvatarEmote, type PlayerEmoteCue } from "./AvatarEmote";
 import { CharacterNameTag, CurrentTurnSpotlight } from "./PlayerPresentation";
 import { RemoteSpectatorAvatars } from "./RemoteSpectatorAvatars";
 import {
@@ -32,6 +34,7 @@ import { StealVisualLayer } from "./StealVisualLayer";
 import type { StealVisualState } from "../screens/StealSequence";
 import { isCourtRank, standardPipLayout } from "./cardDesign";
 import {
+  applyFreeRoamLookDelta,
   canRequestFreeRoamPointerLock,
   containFreeRoamPosition,
   freeRoamSpawn,
@@ -110,6 +113,18 @@ export function canInspectSpectatorOpponentHand(
   viewpointPlayerId: string | undefined,
 ): boolean {
   return role === "spectator" && spectatorMode === "follow" && playerId !== viewpointPlayerId;
+}
+
+export function canInspectProjectedOpponentHand(
+  role: RoomView["role"],
+  spectatorMode: "follow" | "free",
+  gameMode: RoomView["settings"]["mode"],
+  playerId: string,
+  viewpointPlayerId: string | undefined,
+): boolean {
+  if (playerId === viewpointPlayerId) return false;
+  if (role === "spectator") return spectatorMode === "follow" || spectatorMode === "free";
+  return gameMode === "blind";
 }
 
 export function shouldShowSeatedAvatar(
@@ -205,8 +220,8 @@ function CameraRig({
             ? 15.8
             : 14.4
         : keyboardOpen
-          ? 11.4
-          : 9.7
+          ? 12.4
+          : 11.4
       : 10.8;
     const targetAngle = (focusIndex / Math.max(1, playerCount)) * Math.PI * 2 + Math.PI / 2;
     const actorAngle = (actorIndex / Math.max(1, playerCount)) * Math.PI * 2 + Math.PI / 2;
@@ -252,8 +267,8 @@ function CameraRig({
               ? 10
               : 9.4
           : keyboardOpen
-            ? 8.1
-            : 7.3
+            ? 8.7
+            : 8.0
         : 6.4,
       x: Math.cos(angle) * radius,
       z: Math.sin(angle) * radius,
@@ -280,8 +295,8 @@ function CameraRig({
             ? 72
             : 70
           : keyboardOpen
-            ? 58
-            : 51
+            ? 72
+            : 68
       : 45;
     camera.updateProjectionMatrix();
   }, [camera, effectOverview, keyboardOpen, mobile, spectator]);
@@ -350,13 +365,8 @@ function FreeRoamAvatar({
   mobileInput,
   mobile,
   selfId,
-  name,
-  rank,
-  disqualified = false,
-  profile,
   remoteSpectatorPoses,
   seatedAvatarPositions,
-  lowPower,
   reducedMotion,
   controlsPaused,
   onPoseChange,
@@ -365,13 +375,8 @@ function FreeRoamAvatar({
   mobileInput: FreeRoamInput;
   mobile: boolean;
   selfId: string;
-  name: string;
-  rank?: number | undefined;
-  disqualified?: boolean | undefined;
-  profile: PlayerView["avatar"];
   remoteSpectatorPoses: ReadonlyMap<string, SpectatorPoseCue>;
   seatedAvatarPositions: readonly { x: number; z: number }[];
-  lowPower: boolean;
   reducedMotion: boolean;
   controlsPaused: boolean;
   onPoseChange: (pose: FreeRoamPose) => void;
@@ -384,14 +389,13 @@ function FreeRoamAvatar({
   const spawnX = spawn.x;
   const spawnZ = spawn.z;
   const spawnYaw = spawn.yaw;
-  const avatar = useRef<Group>(null);
   const keys = useRef(new Set<string>());
   const yaw = useRef(spawnYaw);
   const pitch = useRef(0);
   const dragging = useRef<number | null>(null);
   const pointer = useRef({ x: 0, y: 0 });
   const position = useRef(new Vector3(spawnX, 0.05, spawnZ));
-  const desiredCamera = useRef(new Vector3());
+  const eyePosition = useRef(new Vector3());
   const verticalVelocity = useRef(0);
   const peakHeight = useRef(position.current.y);
   const jumpRequested = useRef(false);
@@ -406,14 +410,8 @@ function FreeRoamAvatar({
   const lastReportedPose = useRef<FreeRoamPose | undefined>(undefined);
 
   useEffect(() => {
-    const initialBehind = mobile ? 5.9 : 5.25;
-    const initialShoulder = mobile ? 1.25 : 1.1;
-    camera.position.set(
-      spawnX - Math.sin(spawnYaw) * initialBehind + Math.cos(spawnYaw) * initialShoulder,
-      mobile ? 3.4 : 3.2,
-      spawnZ + Math.cos(spawnYaw) * initialBehind + Math.sin(spawnYaw) * initialShoulder,
-    );
-    camera.fov = mobile ? 61 : 56;
+    camera.position.set(spawnX, mobile ? 1.72 : 1.67, spawnZ);
+    camera.fov = mobile ? 68 : 72;
     camera.updateProjectionMatrix();
     const down = (event: KeyboardEvent) => {
       if (shouldExitFreeRoam(event.code, event.target)) {
@@ -437,6 +435,7 @@ function FreeRoamAvatar({
     const up = (event: KeyboardEvent) => keys.current.delete(event.code);
     const canvas = gl.domElement;
     const previousTabIndex = canvas.tabIndex;
+    canvas.dataset.freeRoamCamera = "first-person";
     canvas.tabIndex = 0;
     canvas.focus({ preventScroll: true });
     const pointerDown = (event: PointerEvent) => {
@@ -449,12 +448,15 @@ function FreeRoamAvatar({
     const pointerMove = (event: PointerEvent) => {
       if (!mobile) return;
       if (dragging.current !== event.pointerId) return;
-      yaw.current -= (event.clientX - pointer.current.x) * 0.004;
-      pitch.current = MathUtils.clamp(
-        pitch.current - (event.clientY - pointer.current.y) * 0.003,
-        -0.62,
-        0.52,
+      const nextLook = applyFreeRoamLookDelta(
+        yaw.current,
+        pitch.current,
+        event.clientX - pointer.current.x,
+        event.clientY - pointer.current.y,
+        true,
       );
+      yaw.current = nextLook.yaw;
+      pitch.current = nextLook.pitch;
       pointer.current = { x: event.clientX, y: event.clientY };
     };
     const pointerUp = (event: PointerEvent) => {
@@ -474,8 +476,15 @@ function FreeRoamAvatar({
     };
     const lockedPointerMove = (event: MouseEvent) => {
       if (mobile || controlsPausedRef.current || document.pointerLockElement !== canvas) return;
-      yaw.current -= event.movementX * 0.0024;
-      pitch.current = MathUtils.clamp(pitch.current - event.movementY * 0.002, -0.62, 0.52);
+      const nextLook = applyFreeRoamLookDelta(
+        yaw.current,
+        pitch.current,
+        event.movementX,
+        event.movementY,
+        false,
+      );
+      yaw.current = nextLook.yaw;
+      pitch.current = nextLook.pitch;
     };
     const resetInput = () => {
       keys.current.clear();
@@ -513,6 +522,7 @@ function FreeRoamAvatar({
       if (document.pointerLockElement === canvas) document.exitPointerLock?.();
       canvas.removeAttribute("data-free-roam-pose");
       canvas.removeAttribute("data-free-roam-peak-y");
+      canvas.removeAttribute("data-free-roam-camera");
       canvas.tabIndex = previousTabIndex;
       canvas.blur();
       resetInput();
@@ -571,10 +581,6 @@ function FreeRoamAvatar({
     verticalVelocity.current = vertical.velocity;
     peakHeight.current = Math.max(peakHeight.current, nextY);
     position.current.set(nextX, nextY, nextZ);
-    if (avatar.current) {
-      avatar.current.position.copy(position.current);
-      avatar.current.rotation.y = yaw.current + Math.PI;
-    }
     gl.domElement.dataset.freeRoamPose = [nextX, nextY, nextZ, yaw.current, pitch.current]
       .map((value) => value.toFixed(3))
       .join(",");
@@ -605,18 +611,9 @@ function FreeRoamAvatar({
       lastReportedPose.current = pose;
       poseChangeRef.current(pose);
     }
-    const behind = mobile ? 5.9 : 5.25;
-    const shoulder = mobile ? 1.25 : 1.1;
-    desiredCamera.current.set(
-      nextX - Math.sin(yaw.current) * behind + Math.cos(yaw.current) * shoulder,
-      nextY + (mobile ? 3.35 : 3.15),
-      nextZ + Math.cos(yaw.current) * behind + Math.sin(yaw.current) * shoulder,
-    );
-    containFreeRoamCamera(desiredCamera.current);
-    camera.position.lerp(
-      desiredCamera.current,
-      reducedMotion ? 1 : 1 - Math.exp(-physicsDelta * 8),
-    );
+    eyePosition.current.set(nextX, nextY + (mobile ? 1.67 : 1.62), nextZ);
+    containFreeRoamCamera(eyePosition.current);
+    camera.position.lerp(eyePosition.current, reducedMotion ? 1 : 1 - Math.exp(-physicsDelta * 16));
     const lookAhead = 5.2;
     camera.lookAt(
       nextX + Math.sin(yaw.current) * lookAhead,
@@ -624,22 +621,7 @@ function FreeRoamAvatar({
       nextZ - Math.cos(yaw.current) * lookAhead,
     );
   });
-  return (
-    <group ref={avatar} position={position.current.toArray()}>
-      <Avatar3D profile={profile} lowPower={lowPower} active />
-      <CharacterNameTag
-        name={name}
-        rank={rank}
-        disqualified={disqualified}
-        kind="spectator"
-        mobile={mobile}
-      />
-      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.66, 0.78, 32]} />
-        <meshBasicMaterial color="#f4d47f" transparent opacity={0.68} />
-      </mesh>
-    </group>
-  );
+  return null;
 }
 
 function CircularTable() {
@@ -740,9 +722,11 @@ function seats(
   onGiveCardReturn: (card: CardView) => void = () => undefined,
   interactionReadOnly = false,
   spectatorRevealCards = false,
+  gameMode: RoomView["settings"]["mode"] = "normal",
   spectatorMode: "follow" | "free" = "follow",
   spectatorInspectPlayerId?: string,
   onSpectatorInspectPlayer: (playerId: string | undefined) => void = () => undefined,
+  avatarEmotes: readonly PlayerEmoteCue[] = [],
 ) {
   const stealLayout = stealCardInteractionLayout(mobile);
   return players.map((player, index) => {
@@ -760,9 +744,10 @@ function seats(
           )
         : [];
     const rackPresentation = opponentHandRackPresentation(effectInteraction?.kind);
-    const spectatorInspectable = canInspectSpectatorOpponentHand(
+    const spectatorInspectable = canInspectProjectedOpponentHand(
       spectatorRevealCards ? "spectator" : "player",
       spectatorMode,
+      gameMode,
       player.id,
       viewerId,
     );
@@ -809,6 +794,12 @@ function seats(
           scale={effectInteraction?.kind === "steal" ? stealLayout.scale : mobile ? 0.32 : 0.36}
           selectedLift={0.42}
           selectedDepth={-0.3}
+          {...(spectatorInspectable && !effectInteraction
+            ? {
+                onSelect: () =>
+                  onSpectatorInspectPlayer(spectatorInspecting ? undefined : player.id),
+              }
+            : {})}
         />
       );
     });
@@ -844,6 +835,7 @@ function seats(
               currentTurn={currentTurn}
               mobile={mobile}
             />
+            <AvatarEmote playerId={player.id} emotes={avatarEmotes} />
           </>
         )}
         {player.id !== viewerId && player.id !== hiddenCardPlayerId && (
@@ -937,12 +929,14 @@ function seats(
 
 const spectatorSuitSymbol = { spade: "♠", heart: "♥", diamond: "♦", club: "♣" } as const;
 
-function SpectatorHandPreview({ player }: { player: PlayerView }) {
+function SpectatorHandPreview({ player, blindOnly }: { player: PlayerView; blindOnly: boolean }) {
   const cards = player.cards ?? [];
   if (cards.length === 0) return null;
   return (
-    <aside className="spectator-hand-preview" aria-label={`${player.name}の公開手札`}>
-      <strong>{player.name}の手札</strong>
+    <aside className="spectator-hand-preview" aria-label={`${player.name}の確認用手札`}>
+      <strong>
+        {player.name}の手札{blindOnly ? "（ブラインド札だけ表）" : ""}
+      </strong>
       <div>
         {cards.map((card) => {
           const face = card.visibility === "face" ? card : undefined;
@@ -953,7 +947,7 @@ function SpectatorHandPreview({ player }: { player: PlayerView }) {
           return (
             <article
               key={`spectator-preview-${card.id}`}
-              className={`spectator-preview-card${red ? " red" : ""}`}
+              className={`spectator-preview-card${red ? " red" : ""}${face ? "" : " back"}`}
               data-spectator-inspect-card={card.id}
               aria-label={face?.joker ? "Joker" : rank ? `${suit}${rank}` : "裏向きのカード"}
             >
@@ -982,7 +976,7 @@ function SpectatorHandPreview({ player }: { player: PlayerView }) {
                   )}
                 </>
               ) : (
-                <span className="spectator-preview-court">◆</span>
+                <span className="spectator-preview-back" aria-hidden="true" />
               )}
             </article>
           );
@@ -1226,10 +1220,12 @@ function EffectProjectionProbe({
   room,
   effectInteraction,
   mobile,
+  dealing,
 }: {
   room: RoomView;
   effectInteraction?: TableEffectInteraction | undefined;
   mobile: boolean;
+  dealing: boolean;
 }) {
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
@@ -1240,9 +1236,28 @@ function EffectProjectionProbe({
   };
   useFrame(() => {
     const canvas = gl.domElement;
+    canvas.dataset.tableDeckVisible = String(dealing);
     delete canvas.dataset.effectGiveDrag;
     delete canvas.dataset.effectCardPoints;
     delete canvas.dataset.spectatorInspectPoints;
+    delete canvas.dataset.fieldCardPoints;
+    const fieldPlays = room.fieldPlays ?? (room.field.length ? [room.field] : []);
+    let fieldLayerIndex = 0;
+    canvas.dataset.fieldCardPoints = fieldPlays
+      .flatMap((play, playIndex) =>
+        play.map((_, cardIndex) => {
+          const placement = fieldCardPlacement(
+            playIndex,
+            fieldPlays.length,
+            cardIndex,
+            play.length,
+            fieldLayerIndex,
+          );
+          fieldLayerIndex += 1;
+          return project(new Vector3(...placement.position)).join(":");
+        }),
+      )
+      .join(";");
     if (effectInteraction?.kind === "give") {
       const cardIndex = room.hand.findIndex((card) => effectInteraction.selectableIds.has(card.id));
       const targetIndex = room.players.findIndex((player) =>
@@ -1279,8 +1294,9 @@ function EffectProjectionProbe({
         })
         .join(";");
     }
-    if (room.role === "spectator") {
-      const viewpointId = room.focusedPlayerId ?? room.players[0]?.id;
+    if (room.role === "spectator" || room.settings.mode === "blind") {
+      const viewpointId =
+        room.role === "spectator" ? (room.focusedPlayerId ?? room.players[0]?.id) : room.viewerId;
       canvas.dataset.spectatorInspectPoints = room.players
         .flatMap((player, index) => {
           if (player.id === viewpointId || !player.cards?.length) return [];
@@ -1305,6 +1321,8 @@ function EffectProjectionProbe({
       delete gl.domElement.dataset.effectGiveDrag;
       delete gl.domElement.dataset.effectCardPoints;
       delete gl.domElement.dataset.spectatorInspectPoints;
+      delete gl.domElement.dataset.fieldCardPoints;
+      delete gl.domElement.dataset.tableDeckVisible;
     },
     [gl],
   );
@@ -1410,8 +1428,8 @@ export function SalonScene({
   onGiveCardDrop = () => undefined,
   onGiveCardReturn = () => undefined,
   remoteSpectatorPoses = emptySpectatorPoses,
+  avatarEmotes = [],
   spectatorMode = "follow",
-  freeRoamAvatar,
   freeRoamControlsPaused = false,
   onFreeRoamPose = () => undefined,
   onExitFreeRoam = () => undefined,
@@ -1434,14 +1452,15 @@ export function SalonScene({
   onGiveCardDrop?: ((card: CardView, playerId: string) => void) | undefined;
   onGiveCardReturn?: ((card: CardView) => void) | undefined;
   remoteSpectatorPoses?: ReadonlyMap<string, SpectatorPoseCue> | undefined;
+  avatarEmotes?: readonly PlayerEmoteCue[] | undefined;
   spectatorMode?: "follow" | "free" | undefined;
-  freeRoamAvatar?: PlayerView["avatar"] | undefined;
   freeRoamControlsPaused?: boolean | undefined;
   onFreeRoamPose?: ((pose: FreeRoamPose) => void) | undefined;
   onExitFreeRoam?: (() => void) | undefined;
 }) {
   const viewport = useVisualViewport();
-  const mobile = viewport.width < 600;
+  const forcedMobile = useUiStore((state) => state.mobileMode);
+  const mobile = forcedMobile || viewport.width < 600;
   const e2eProjectionProbe =
     import.meta.env.DEV &&
     Boolean((window as unknown as { __DAIFUGO_E2E__?: unknown }).__DAIFUGO_E2E__);
@@ -1492,10 +1511,6 @@ export function SalonScene({
       }),
     [hiddenSeatPlayerIds, sceneRoom?.players],
   );
-  const freeRoamName =
-    sceneRoom?.players.find((player) => player.id === sceneRoom.viewerId)?.name ??
-    sceneRoom?.spectators.find((spectator) => spectator.id === sceneRoom.viewerId)?.name ??
-    "観戦者";
   const cameraTransitionKey = [
     room?.role ?? "",
     spectatorMode,
@@ -1658,9 +1673,12 @@ export function SalonScene({
           castShadow={!lowPower}
         />
         <Suspense fallback={null}>
-          <SalonRoom lowPower={lowPower} freeRoam={freeRoamActive} />
+          <SalonRoom
+            lowPower={lowPower}
+            freeRoam={freeRoamActive || sceneRoom?.role === "spectator"}
+          />
           <CircularTable />
-          {sceneRoom && <TableDeck />}
+          {sceneRoom && dealing && <TableDeck />}
           {sceneRoom
             ? seats(
                 sceneRoom.players,
@@ -1678,9 +1696,11 @@ export function SalonScene({
                 onGiveCardReturn,
                 handReadOnly,
                 sceneRoom.role === "spectator",
+                sceneRoom.settings.mode,
                 spectatorMode,
                 spectatorInspectPlayerId,
                 setSpectatorInspectPlayerId,
+                avatarEmotes,
               )
             : previewAvatar && (
                 <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
@@ -1692,6 +1712,7 @@ export function SalonScene({
               room={sceneRoom}
               poses={remoteSpectatorPoses}
               lowPower={lowPower}
+              emotes={avatarEmotes}
             />
           )}
           {!dealing &&
@@ -1753,21 +1774,13 @@ export function SalonScene({
             </Environment>
           )}
         </Suspense>
-        {sceneRoom?.role === "spectator" && spectatorMode === "free" && freeRoamAvatar ? (
+        {sceneRoom?.role === "spectator" && spectatorMode === "free" ? (
           <FreeRoamAvatar
             mobileInput={freeRoamInput}
             mobile={mobile}
             selfId={sceneRoom.viewerId}
-            name={freeRoamName}
-            rank={sceneRoom.players.find((player) => player.id === sceneRoom.viewerId)?.rank}
-            disqualified={
-              sceneRoom.players.find((player) => player.id === sceneRoom.viewerId)?.status ===
-              "disqualified"
-            }
-            profile={freeRoamAvatar}
             remoteSpectatorPoses={remoteSpectatorPoses}
             seatedAvatarPositions={seatedAvatarPositions}
-            lowPower={lowPower}
             reducedMotion={reducedMotion}
             controlsPaused={freeRoamControlsPaused}
             onPoseChange={onFreeRoamPose}
@@ -1802,19 +1815,22 @@ export function SalonScene({
             room={sceneRoom}
             effectInteraction={effectInteraction}
             mobile={mobile}
+            dealing={dealing}
           />
         )}
       </Canvas>
-      {spectatorInspectPlayer && <SpectatorHandPreview player={spectatorInspectPlayer} />}
+      {spectatorInspectPlayer && (
+        <SpectatorHandPreview player={spectatorInspectPlayer} blindOnly={room?.role === "player"} />
+      )}
       {room?.role === "spectator" && spectatorMode === "free" && (
         <div
-          className="free-roam-controls"
+          className={`free-roam-controls${mobile ? " mobile" : ""}`}
           aria-label="観戦中の移動操作"
           style={mobileFreeRoamControlsStyle(mobile)}
         >
           <p>
             {mobile
-              ? "左のボタンで移動・ジャンプ／ボタン以外をドラッグして視点変更"
+              ? "左の方向パッドで移動／それ以外をドラッグして視点変更"
               : "キャンバスをクリック後、WASD／マウスで移動・視点変更（Escapeで終了）"}
           </p>
           <div>

@@ -64,6 +64,12 @@ export interface PublicEventDetail {
   toHostUid?: string;
 }
 
+export interface AuthorityReplayFrame {
+  revision: number;
+  capturedAtMs: number;
+  game: GameState;
+}
+
 export interface RoomDocument {
   schemaVersion: 2;
   roomId: string;
@@ -76,6 +82,8 @@ export interface RoomDocument {
   settings: RoomSettings;
   members: Record<string, RoomMember>;
   game: GameState | null;
+  /** Optional for schema-v2 snapshot compatibility. Never written to a public projection directly. */
+  authoritativeReplay?: AuthorityReplayFrame[];
   cardTokens: Record<string, string>;
   pendingMimic: {
     actorUid: string;
