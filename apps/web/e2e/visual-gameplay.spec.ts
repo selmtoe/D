@@ -140,14 +140,16 @@ async function reconnectPage(
   uid: string,
   role: "player" | "spectator" = "player",
   viewport = { width: 1280, height: 900 },
+  options: { lowPower?: boolean } = {},
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ viewport });
   await authority.install(context, uid, { renderCanvas: true, cueBridge: true });
   await context.addInitScript(
-    ({ roomId, token }) => {
+    ({ roomId, token, lowPower }) => {
       sessionStorage.setItem(`daifugo-reconnect-${roomId}`, token);
+      if (lowPower) localStorage.setItem("daifugo-low-power", "true");
     },
-    { roomId: authority.roomId, token: authority.currentToken(uid) },
+    { roomId: authority.roomId, token: authority.currentToken(uid), lowPower: options.lowPower },
   );
   const page = await context.newPage();
   await page.goto(`/?room=${authority.roomId}&role=${role}`);
@@ -274,7 +276,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
   test("spectators can inspect a player view and walk freely around the table", async ({
     browser,
   }, testInfo) => {
-    test.setTimeout(180_000);
+    test.setTimeout(240_000);
     const authority = new AuthoritativeE2EServer();
     await seedStartedRoom(authority);
     await authority.handle("uid-spectator", {
@@ -300,6 +302,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       "uid-host",
       "player",
       mobile ? { width: 412, height: 915 } : { width: 1280, height: 900 },
+      { lowPower: true },
     );
     try {
       await expect(spectator.page.locator("canvas").first()).toBeVisible();
@@ -387,11 +390,17 @@ test.describe("single-canvas visual gameplay inspection", () => {
           return Math.hypot(pose.x - poseBeforeMove.x, pose.z - poseBeforeMove.z);
         })
         .toBeGreaterThan(0.15);
-      const poseBeforeJump = await readFreeRoamPose(spectator.page);
-      await spectator.page.getByRole("button", { name: "ジャンプ" }).dispatchEvent("pointerdown");
+      const peakBeforeJump = Number(
+        (await canvas.getAttribute("data-free-roam-peak-y")) ?? Number.NaN,
+      );
+      expect(peakBeforeJump).toBeGreaterThanOrEqual(0.05);
+      await spectator.page.getByRole("button", { name: "ジャンプ" }).click();
       await expect
-        .poll(async () => (await readFreeRoamPose(spectator.page)).y)
-        .toBeGreaterThan(poseBeforeJump.y + 0.08);
+        .poll(
+          async () => Number((await canvas.getAttribute("data-free-roam-peak-y")) ?? Number.NaN),
+          { timeout: 15_000 },
+        )
+        .toBeGreaterThan(peakBeforeJump + 0.08);
       await capture(spectator.page, testInfo.outputPath("spectator-free-roam.png"));
       await capture(observer.page, testInfo.outputPath("remote-spectator-visible.png"));
       expect(

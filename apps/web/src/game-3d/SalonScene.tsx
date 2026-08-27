@@ -295,6 +295,7 @@ function FreeRoamAvatar({
   const position = useRef(new Vector3(spawnX, 0.05, spawnZ));
   const desiredCamera = useRef(new Vector3());
   const verticalVelocity = useRef(0);
+  const peakHeight = useRef(position.current.y);
   const jumpRequested = useRef(false);
   const handledMobileJump = useRef(mobileInput.jump);
   const controlsPausedRef = useRef(controlsPaused);
@@ -390,6 +391,7 @@ function FreeRoamAvatar({
       canvas.removeEventListener("pointerup", pointerUp);
       canvas.removeEventListener("pointercancel", pointerUp);
       canvas.removeAttribute("data-free-roam-pose");
+      canvas.removeAttribute("data-free-roam-peak-y");
       canvas.tabIndex = previousTabIndex;
       canvas.blur();
       resetInput();
@@ -484,6 +486,7 @@ function FreeRoamAvatar({
       ? position.current.y
       : Math.max(0.05, position.current.y + verticalVelocity.current * physicsDelta);
     if (!controlsPaused && nextY <= 0.05) verticalVelocity.current = 0;
+    peakHeight.current = Math.max(peakHeight.current, nextY);
     position.current.set(nextX, nextY, nextZ);
     if (avatar.current) {
       avatar.current.position.copy(position.current);
@@ -492,6 +495,7 @@ function FreeRoamAvatar({
     gl.domElement.dataset.freeRoamPose = [nextX, nextY, nextZ, yaw.current, pitch.current]
       .map((value) => value.toFixed(3))
       .join(",");
+    gl.domElement.dataset.freeRoamPeakY = peakHeight.current.toFixed(3);
     const normalizedYaw = Math.atan2(Math.sin(yaw.current), Math.cos(yaw.current));
     const previousPose = lastReportedPose.current;
     const poseChanged =
