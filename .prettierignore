@@ -6,6 +6,7 @@ playwright-report
 test-results
 artifacts/qa/bot-match-proof.md
 apps/web/src/ai/cpu-policy-v2.json
+apps/web/src/ai/cpu-policy-v3.json
 index.html
 manifest.json
 service-worker.js

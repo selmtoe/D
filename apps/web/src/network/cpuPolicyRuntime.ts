@@ -1,4 +1,4 @@
-import policy from "../ai/cpu-policy-v2.json";
+import policy from "../ai/cpu-policy-v3.json";
 
 type WebPolicy = {
   schemaVersion: number;
@@ -14,7 +14,7 @@ type WebPolicy = {
 };
 
 const model = policy as WebPolicy;
-const EXPECTED_SHA256 = "43ea62ac3fbd4c8583cc2c2517a45eb903f2bf5dbbf82e6b03f641565f0b5c64";
+const EXPECTED_SHA256 = "2dba4efb677c6664ca543b31ce08882dafb7127a6969dd0852dc9486724910f8";
 
 function tensor(name: string, expectedLength: number): readonly number[] {
   const encoded = model.tensors[name];
@@ -80,7 +80,8 @@ function validateModel(): void {
     model.tensorEncoding !== "float32-le-base64" ||
     model.stateDim !== model.stateFeatureNames.length ||
     model.actionDim !== model.actionFeatureNames.length ||
-    model.hiddenDim !== 96
+    model.hiddenDim < 8 ||
+    model.hiddenDim > 512
   ) {
     throw new Error("CPU policy metadata does not match the browser runtime");
   }

@@ -2,6 +2,7 @@ import {
   RANKS,
   SUITS,
   findLegalJokerMimics,
+  strengthIsReversed,
   validatePlayForState,
   type GameState,
   type JokerMimic,
@@ -26,6 +27,7 @@ const COMMANDS = [
 const KINDS = ["play", "pass", "effect", "joker-mimic"] as const;
 const MAX_PLAYERS = 6;
 const MAX_CANDIDATES = 512;
+const PHYSICAL_RANKS = [...RANKS, "JOKER"] as const;
 
 export type CpuDecisionName = (typeof COMMANDS)[number];
 
@@ -56,6 +58,119 @@ function ratio(value: number, denominator: number): number {
 function visibleRank(card: CardView): PhysicalRank | undefined {
   if (card.visibility !== "face") return undefined;
   return card.joker ? "JOKER" : card.rank;
+}
+
+function candidateCards(candidate: CpuCandidate, view: RoomView): CardView[] {
+  const catalog = new Map(
+    [
+      ...view.hand,
+      ...view.field,
+      ...view.discard,
+      ...(view.fieldPlays?.flat() ?? []),
+      ...view.players.flatMap((player) => player.cards ?? []),
+      ...(view.pendingJokerMimic?.revealedCards ?? []),
+    ].map((card) => [card.id, card]),
+  );
+  return candidateCardIds(candidate).flatMap((id) => {
+    const card = catalog.get(id);
+    return card ? [card] : [];
+  });
+}
+
+function normalizedStrength(rank: PhysicalRank | undefined, reversed: boolean): number {
+  if (!rank) return 0.5;
+  if (rank === "JOKER") return 1;
+  const value = RANKS.indexOf(rank) / Math.max(1, RANKS.length - 1);
+  return reversed ? 1 - value : value;
+}
+
+function knownPublicCards(view: RoomView): CardView[] {
+  const byId = new Map<string, CardView>();
+  for (const card of [
+    ...view.hand,
+    ...view.field,
+    ...view.discard,
+    ...(view.fieldPlays?.flat() ?? []),
+    ...view.players.flatMap((player) => player.cards ?? []),
+  ]) {
+    if (card.visibility === "face") byId.set(card.id, card);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Probability that a one-card blind submission is legal from information the
+ * owner is actually allowed to observe. No hidden face or card ID is decoded.
+ */
+export function blindPlaySuccessProbability(
+  game: GameState,
+  view: RoomView,
+  candidate: CpuCandidate,
+): number {
+  if (!candidate.authorityJudgedBlind) return 1;
+  const selectedIds = candidateCardIds(candidate);
+  if (selectedIds.length !== 1 || candidate.commandName !== "submitPlay") return 0;
+  if (view.firstPlay ?? game.firstPlay) return 0;
+
+  const remainingAfterPlay = Math.max(0, view.hand.length - selectedIds.length);
+  const rankCounts = new Map<PhysicalRank, number>(
+    PHYSICAL_RANKS.map((rank) => [rank, rank === "JOKER" ? 2 : 4]),
+  );
+  const suitRankCounts = new Map<string, number>();
+  for (const suit of SUITS) {
+    for (const rank of RANKS) suitRankCounts.set(`${suit}:${rank}`, 1);
+  }
+  for (const card of knownPublicCards(view)) {
+    const rank = visibleRank(card);
+    if (!rank || card.visibility !== "face") continue;
+    rankCounts.set(rank, Math.max(0, (rankCounts.get(rank) ?? 0) - 1));
+    if (rank !== "JOKER" && card.suit) {
+      const key = `${card.suit}:${rank}`;
+      suitRankCounts.set(key, Math.max(0, (suitRankCounts.get(key) ?? 0) - 1));
+    }
+  }
+
+  const total = [...rankCounts.values()].reduce((sum, count) => sum + count, 0);
+  if (total <= 0) return 0;
+  const finishAllowed = (rank: PhysicalRank) =>
+    remainingAfterPlay > 0 || (rank !== "2" && rank !== "JOKER");
+  if (view.field.length === 0) {
+    const legal = PHYSICAL_RANKS.reduce(
+      (sum, rank) => sum + (finishAllowed(rank) ? (rankCounts.get(rank) ?? 0) : 0),
+      0,
+    );
+    return legal / total;
+  }
+  if (view.field.length !== 1) return 0;
+
+  const previous = view.field[0];
+  const previousRank =
+    previous?.visibility === "face" ? (previous.mimic?.rank ?? visibleRank(previous)) : undefined;
+  const previousIsRawJoker =
+    previous?.visibility === "face" && Boolean(previous.joker) && previous.mimic === undefined;
+  if (!previous || !previousRank) return 0;
+  const reversed = strengthIsReversed(view.revolution, view.jackBack);
+  let legal = 0;
+  for (const rank of PHYSICAL_RANKS) {
+    if (!finishAllowed(rank)) continue;
+    if (rank === "JOKER") {
+      if (!previousIsRawJoker) legal += rankCounts.get(rank) ?? 0;
+      continue;
+    }
+    for (const suit of SUITS) {
+      const count = suitRankCounts.get(`${suit}:${rank}`) ?? 0;
+      if (count === 0) continue;
+      const spadeThreeReturn = previousIsRawJoker && rank === "3" && suit === "spade";
+      const obeysLock = view.suitLock.length === 0 || view.suitLock.includes(suit);
+      const stronger =
+        previousRank !== "JOKER" &&
+        (reversed
+          ? RANKS.indexOf(rank) < RANKS.indexOf(previousRank)
+          : RANKS.indexOf(rank) > RANKS.indexOf(previousRank));
+      if (spadeThreeReturn || (obeysLock && stronger)) legal += count;
+    }
+  }
+  return Math.max(0, Math.min(1, legal / total));
 }
 
 function rankHistogram(cards: readonly CardView[]): number[] {
@@ -422,8 +537,13 @@ export function legalCpuCandidates(
   const effect = view.pendingEffects.find((candidate) => candidate.actorId === actorId);
   if (effect) return effectCandidates(view, effect);
   if (game.turnPlayerId !== actorId) return [];
-  const candidates = visiblePlayCandidates(game, view, actorId);
-  for (const hidden of view.hand.filter((card) => card.visibility === "hidden")) {
+  const hiddenCards = view.hand.filter((card) => card.visibility === "hidden");
+  const reserve = hiddenCards.length + (view.field.length > 0 ? 1 : 0);
+  const candidates = visiblePlayCandidates(game, view, actorId).slice(
+    0,
+    Math.max(0, MAX_CANDIDATES - reserve),
+  );
+  for (const hidden of hiddenCards) {
     candidates.push({
       kind: "play",
       commandName: "submitPlay",
@@ -448,14 +568,133 @@ function safeFallback(candidates: readonly CpuCandidate[]): CpuCandidate | undef
 }
 
 /**
- * A blind play can disqualify its owner. Keep it as a last resort only when no
- * visible legal play or legal pass exists; the NN still ranks every safe option.
+ * A blind play can disqualify its owner. Guaranteed-safe blind singles may be
+ * ranked normally; probabilistic blind choices stay a last resort.
  */
 export function riskFilteredCpuCandidates(
   candidates: readonly CpuCandidate[],
+  game?: GameState,
+  view?: RoomView,
 ): readonly CpuCandidate[] {
-  const safe = candidates.filter((candidate) => !candidate.authorityJudgedBlind);
+  const safe = candidates.filter(
+    (candidate) =>
+      !candidate.authorityJudgedBlind ||
+      (game !== undefined &&
+        view !== undefined &&
+        blindPlaySuccessProbability(game, view, candidate) >= 1 - Number.EPSILON),
+  );
   return safe.length > 0 ? safe : candidates;
+}
+
+function targetCardCounts(candidate: CpuCandidate, view: RoomView): number[] {
+  const targets = new Set(candidateTargetIds(candidate));
+  return view.players.filter((player) => targets.has(player.id)).map((player) => player.cardCount);
+}
+
+/** A fair-information tactical prior used both by self-play and browser inference. */
+export function scoreCpuCandidateTactics(
+  game: GameState,
+  view: RoomView,
+  actorId: string,
+  candidate: CpuCandidate,
+): number {
+  const cards = candidateCards(candidate, view);
+  const knownRanks = cards.map(visibleRank).filter((rank): rank is PhysicalRank => Boolean(rank));
+  const hiddenCount = cards.filter((card) => card.visibility === "hidden").length;
+  const reversed = strengthIsReversed(view.revolution, view.jackBack);
+  const opponentCounts = view.players
+    .filter((player) => player.id !== actorId && player.status === "active")
+    .map((player) => player.cardCount);
+  const leaderCount = Math.min(...opponentCounts, 54);
+
+  if (candidate.kind === "pass") {
+    return -2 - (leaderCount <= 2 ? 16 : 0) + (view.hand.some((card) => card.blind) ? 1 : 0);
+  }
+  if (candidate.kind === "joker-mimic") {
+    const mimicRanks = candidate.mimics?.map((mimic) => mimic.rank) ?? [];
+    return (
+      2 -
+      mimicRanks.reduce((sum, rank) => sum + normalizedStrength(rank, reversed), 0) /
+        Math.max(1, mimicRanks.length)
+    );
+  }
+  if (candidate.kind === "effect") {
+    const targetCounts = targetCardCounts(candidate, view);
+    const targetLeaderBonus = targetCounts.some((count) => count === leaderCount) ? 5 : 0;
+    const averageStrength =
+      knownRanks.reduce((sum, rank) => sum + normalizedStrength(rank, reversed), 0) /
+      Math.max(1, knownRanks.length);
+    if (candidate.commandName === "resolveDiscard") {
+      return 30 + hiddenCount * 14 + (1 - averageStrength) * 5;
+    }
+    if (candidate.commandName === "resolveGive") {
+      return 18 + hiddenCount * 12 + (1 - averageStrength) * 5 + targetLeaderBonus;
+    }
+    if (candidate.commandName === "resolveSteal") {
+      return 8 + averageStrength * 7 + targetLeaderBonus;
+    }
+    if (candidate.commandName === "resolveCollect") {
+      return -8 + averageStrength * 6;
+    }
+    if (candidate.commandName === "resolveBomber") {
+      const bombRanks = new Set(
+        (Array.isArray(candidate.payload.ranks) ? candidate.payload.ranks : []).map((rank) =>
+          String(rank).toUpperCase() === "JOKER" ? "JOKER" : String(rank),
+        ),
+      );
+      const ownLoss = view.hand.filter((card) => {
+        const rank = visibleRank(card);
+        return rank ? bombRanks.has(rank) : false;
+      }).length;
+      const publicOpponentLoss = view.players
+        .filter((player) => player.id !== actorId)
+        .flatMap((player) => player.cards ?? [])
+        .filter((card) => {
+          const rank = visibleRank(card);
+          return rank ? bombRanks.has(rank) : false;
+        }).length;
+      return 10 + publicOpponentLoss * 8 - ownLoss * 7;
+    }
+    return 0;
+  }
+
+  const cardCount = candidateCardIds(candidate).length;
+  const remaining = Math.max(0, view.hand.length - cardCount);
+  const selectedIds = new Set(candidateCardIds(candidate));
+  const remainingCards = view.hand.filter((card) => !selectedIds.has(card.id));
+  const forbiddenSingleton =
+    remainingCards.length === 1 &&
+    (visibleRank(remainingCards[0]!) === "2" || visibleRank(remainingCards[0]!) === "JOKER");
+  const averageStrength =
+    knownRanks.reduce((sum, rank) => sum + normalizedStrength(rank, reversed), 0) /
+    Math.max(1, knownRanks.length);
+  let score = cardCount * 9 - averageStrength * (view.field.length === 0 ? 4 : 2);
+  if (remaining === 0) score += 80;
+  if (forbiddenSingleton) score -= 140;
+  if (remaining > 0 && knownRanks.some((rank) => rank === "2" || rank === "JOKER")) score += 7;
+  if (knownRanks.includes("JOKER")) score -= 8;
+  score += knownRanks.filter((rank) => rank === "8").length * 14;
+  score += knownRanks.filter((rank) => rank === "10").length * 10;
+  score += knownRanks.filter((rank) => rank === "7").length * 7;
+  score += knownRanks.filter((rank) => rank === "Q").length * 5;
+  score += knownRanks.filter((rank) => rank === "A").length * 3;
+  score -= knownRanks.filter((rank) => rank === "K").length * 3;
+  if (cardCount >= 4) score += 7;
+  if (candidate.authorityJudgedBlind) {
+    const success = blindPlaySuccessProbability(game, view, candidate);
+    score += success >= 1 - Number.EPSILON ? 13 : -70 * (1 - success);
+    if (remaining > 0) score += 7;
+  }
+  if (leaderCount <= 2 && view.field.length > 0) score += 8;
+  return score;
+}
+
+function standardize(values: readonly number[]): number[] {
+  const mean = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+  const variance =
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, values.length);
+  const deviation = Math.sqrt(variance);
+  return deviation < 1e-6 ? values.map(() => 0) : values.map((value) => (value - mean) / deviation);
 }
 
 /**
@@ -469,12 +708,20 @@ export function chooseCpuDecision(
 ): CpuDecision | undefined {
   const legalCandidates = legalCpuCandidates(game, view, actorId);
   if (legalCandidates.length === 0) return undefined;
-  const candidates = riskFilteredCpuCandidates(legalCandidates);
+  const candidates = riskFilteredCpuCandidates(legalCandidates, game, view);
   try {
     const state = encodeCpuState(view, actorId);
-    const scores = scoreCpuCandidates(
+    const neuralScores = scoreCpuCandidates(
       state,
       candidates.map((candidate) => encodeCpuAction(candidate, view, actorId)),
+    );
+    const tacticalScores = candidates.map((candidate) =>
+      scoreCpuCandidateTactics(game, view, actorId, candidate),
+    );
+    const normalizedNeural = standardize(neuralScores);
+    const normalizedTactical = standardize(tacticalScores);
+    const scores = normalizedNeural.map(
+      (score, index) => score + (normalizedTactical[index] ?? 0) * 1.15,
     );
     let selectedIndex = 0;
     for (let index = 1; index < scores.length; index += 1) {

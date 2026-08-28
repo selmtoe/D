@@ -58,6 +58,8 @@ class DecisionExample:
     state: tuple[float, ...]
     actions: tuple[tuple[float, ...], ...]
     target: int
+    sample_weight: float
+    blind: bool
 
 
 @dataclass(frozen=True)
@@ -439,6 +441,11 @@ def load_evidence(path: Path, max_matches: int | None = None) -> EvidenceDataset
                 raise ValueError(
                     f"selected candidate is not unique in {match_id} sequence={decision.get('sequence')}"
                 )
+            sample_weight = float(decision.get("sampleWeight", 1.0))
+            if not math.isfinite(sample_weight) or sample_weight <= 0:
+                raise ValueError(
+                    f"sampleWeight must be finite and positive in {match_id} sequence={decision.get('sequence')}"
+                )
             examples.append(
                 DecisionExample(
                     match_id=match_id,
@@ -449,6 +456,8 @@ def load_evidence(path: Path, max_matches: int | None = None) -> EvidenceDataset
                         encode_action(candidate, observation, actor_id) for candidate in candidates
                     ),
                     target=target_indexes[0],
+                    sample_weight=max(0.05, min(sample_weight, 10.0)),
+                    blind=mode == "blind",
                 )
             )
             if len(examples) > MAX_TOTAL_DECISIONS:

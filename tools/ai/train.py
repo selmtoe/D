@@ -181,12 +181,22 @@ def evaluate(
     multi_correct = 0
     multi_top3_correct = 0
     multi_reciprocal_rank = 0.0
+    weighted_loss = 0.0
+    weighted_correct = 0.0
+    weight_sum = 0.0
+    blind_count = 0
+    blind_correct = 0
     model.eval()
     with torch.inference_mode():
         for batch in batches(examples, batch_size, seed=0, shuffle=False):
             states, actions, mask, targets = collate_examples(batch, device)
             logits = model(states, actions, mask)
             losses = criterion(logits, targets)
+            weights = torch.tensor(
+                [example.sample_weight for example in batch],
+                dtype=torch.float32,
+                device=device,
+            )
             if not torch.isfinite(logits[mask]).all() or not torch.isfinite(losses).all():
                 raise FloatingPointError("evaluation produced non-finite logits or losses")
             total_loss += float(losses.sum().item())
@@ -195,6 +205,14 @@ def evaluate(
             correct_rows = predictions == targets
             top3_rows = (order[:, : min(3, order.shape[1])] == targets[:, None]).any(dim=1)
             correct += int(correct_rows.sum().item())
+            weighted_loss += float((losses * weights).sum().item())
+            weighted_correct += float((correct_rows.float() * weights).sum().item())
+            weight_sum += float(weights.sum().item())
+            blind_rows = torch.tensor(
+                [example.blind for example in batch], dtype=torch.bool, device=device
+            )
+            blind_count += int(blind_rows.sum().item())
+            blind_correct += int(correct_rows[blind_rows].sum().item())
             top3_correct += int(top3_rows.sum().item())
             target_ranks = (order == targets[:, None]).nonzero(as_tuple=False)[:, 1] + 1
             reciprocal_ranks = 1.0 / target_ranks.float()
@@ -210,6 +228,11 @@ def evaluate(
         "decision_count": float(count),
         "loss": total_loss / count,
         "accuracy": correct / count,
+        "weighted_loss": weighted_loss / max(weight_sum, 1e-9),
+        "weighted_accuracy": weighted_correct / max(weight_sum, 1e-9),
+        "sample_weight_sum": weight_sum,
+        "blind_decision_count": float(blind_count),
+        "blind_accuracy": blind_correct / blind_count if blind_count else 1.0,
         "top3_accuracy": top3_correct / count,
         "mean_reciprocal_rank": reciprocal_rank / count,
         "multi_candidate_count": float(multi_count),
@@ -224,10 +247,15 @@ def evaluate(
 
 def baseline_metrics(examples: Sequence[DecisionExample]) -> dict[str, float]:
     multi = [example for example in examples if len(example.actions) > 1]
+    total_weight = sum(example.sample_weight for example in examples)
     return {
         "random_expected_accuracy": sum(1.0 / len(example.actions) for example in examples)
         / len(examples),
         "first_candidate_accuracy": sum(example.target == 0 for example in examples) / len(examples),
+        "weighted_first_candidate_accuracy": sum(
+            example.sample_weight for example in examples if example.target == 0
+        )
+        / max(total_weight, 1e-9),
         "mean_candidate_count": sum(len(example.actions) for example in examples) / len(examples),
         "max_candidate_count": float(max(len(example.actions) for example in examples)),
         "forced_choice_fraction": (len(examples) - len(multi)) / len(examples),
@@ -251,7 +279,7 @@ def train_model(
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(reduction="none")
     history: list[dict[str, Any]] = []
     best_accuracy = -1.0
     best_epoch = 0
@@ -265,7 +293,13 @@ def train_model(
             states, actions, mask, targets = collate_examples(batch, device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(states, actions, mask)
-            loss = criterion(logits, targets)
+            losses = criterion(logits, targets)
+            weights = torch.tensor(
+                [example.sample_weight for example in batch],
+                dtype=torch.float32,
+                device=device,
+            )
+            loss = (losses * weights).sum() / weights.sum().clamp_min(1e-9)
             if not torch.isfinite(logits[mask]).all() or not torch.isfinite(loss):
                 raise FloatingPointError("training produced non-finite logits or loss")
             loss.backward()
@@ -292,8 +326,8 @@ def train_model(
             f"val_loss={validation_metrics['loss']:.5f} "
             f"val_accuracy={validation_metrics['accuracy']:.4f}"
         )
-        if validation_metrics["accuracy"] > best_accuracy:
-            best_accuracy = validation_metrics["accuracy"]
+        if validation_metrics["weighted_accuracy"] > best_accuracy:
+            best_accuracy = validation_metrics["weighted_accuracy"]
             best_epoch = epoch
             best_state = {
                 key: value.detach().cpu().clone() for key, value in model.state_dict().items()
@@ -411,6 +445,7 @@ def main() -> int:
             "hidden_dim": args.hidden_dim,
             "parameter_count": parameter_count(model),
             "legality_owner": "existing TypeScript rules/authority candidate generator",
+            "objective": "outcome-weighted candidate cross entropy",
         },
         "configuration": {
             "epochs": args.epochs,

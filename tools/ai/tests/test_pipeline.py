@@ -60,6 +60,7 @@ def decision(game_id: str, sequence: int, selected_index: int) -> dict[str, obje
         "selected": [first, second][selected_index],
         "selectionReason": "must never become a feature",
         "authorityResult": {"ok": True},
+        "sampleWeight": 2.5,
     }
 
 
@@ -105,6 +106,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(len(dataset.examples[0].actions[0]), len(ACTION_FEATURE_NAMES))
         self.assertNotIn("must never become a feature", STATE_FEATURE_NAMES)
         self.assertNotIn("must never become a feature", ACTION_FEATURE_NAMES)
+        self.assertEqual(dataset.examples[0].sample_weight, 2.5)
+        self.assertTrue(dataset.examples[0].blind)
 
     def test_teacher_only_fields_do_not_change_features(self) -> None:
         original = load_evidence(self.path)
@@ -127,6 +130,14 @@ class PipelineTest(unittest.TestCase):
     def test_non_finite_json_is_rejected(self) -> None:
         invalid = Path(self.temp_dir.name) / "invalid.json"
         invalid.write_text('{"schemaVersion": 1, "matches": NaN}', encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_evidence(invalid)
+
+    def test_invalid_sample_weight_is_rejected(self) -> None:
+        bundle = json.loads(self.path.read_text(encoding="utf-8"))
+        bundle["matches"][0]["decisions"][0]["sampleWeight"] = 0
+        invalid = Path(self.temp_dir.name) / "invalid-weight.json"
+        invalid.write_text(json.dumps(bundle), encoding="utf-8")
         with self.assertRaises(ValueError):
             load_evidence(invalid)
 

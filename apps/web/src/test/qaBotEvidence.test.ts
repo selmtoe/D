@@ -2,16 +2,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultAvatar } from "@daifugo/avatar-schema";
-import {
-  RANKS,
-  checkStateInvariants,
-  validatePlayForState,
-  type GameLogEntry,
-  type JokerMimic,
-  type PhysicalRank,
-} from "@daifugo/rules";
+import { checkStateInvariants, type GameLogEntry, type JokerMimic } from "@daifugo/rules";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { CardView, PendingEffectView, RoomView } from "../app/model";
+import type { CardView, RoomView } from "../app/model";
+import {
+  legalCpuCandidates,
+  riskFilteredCpuCandidates,
+  scoreCpuCandidateTactics,
+  type CpuCandidate,
+} from "../network/cpuPlayer";
 import { SparkAuthority, type SparkRoomSnapshot } from "../network/sparkAuthority";
 
 type BotCandidate = {
@@ -72,6 +71,8 @@ type DecisionRecord = {
     pendingJokerMimicAfter: boolean;
   };
   auditTags: string[];
+  outcomeReward?: number;
+  sampleWeight?: number;
 };
 
 type MatchEvidence = {
@@ -127,23 +128,6 @@ type EvidenceBundle = {
   showcaseMatchId: string;
   matches: MatchEvidence[];
 };
-
-const rankPriority: PhysicalRank[] = [
-  "A",
-  "Q",
-  "10",
-  "K",
-  "7",
-  "8",
-  "J",
-  "4",
-  "5",
-  "6",
-  "9",
-  "3",
-  "2",
-  "JOKER",
-];
 
 const qaRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../artifacts/qa");
 const jsonPath = resolve(qaRoot, "bot-match-evidence.json");
@@ -220,263 +204,52 @@ function observe(view: RoomView): Observation {
   };
 }
 
-function validVisiblePlay(
-  snapshot: SparkRoomSnapshot,
-  actorId: string,
-  cardIds: string[],
-  mimics: JokerMimic[] = [],
-): boolean {
-  if (!snapshot.game) return false;
-  try {
-    validatePlayForState(snapshot.game, actorId, cardIds, mimics);
-    return true;
-  } catch {
-    return false;
-  }
+function candidateLabel(candidate: CpuCandidate): string {
+  const cardIds = candidate.cardIds ?? [];
+  return `${candidate.commandName}:${cardIds.join(",") || JSON.stringify(candidate.payload)}`;
 }
 
-function playCandidates(
-  authority: SparkAuthority,
-  actorId: string,
+function selectSelfPlayCandidate(
+  game: NonNullable<SparkRoomSnapshot["game"]>,
   view: RoomView,
-  allowBlindPair: boolean,
-): BotCandidate[] {
-  const snapshot = authority.exportSnapshot();
-  const visible = view.hand.filter((card) => card.visibility === "face");
-  const hidden = view.hand.filter((card) => card.visibility === "hidden");
-  const candidates: BotCandidate[] = [];
-  const pushPlay = (
-    label: string,
-    cardIds: string[],
-    mimics: JokerMimic[] = [],
-    authorityJudgedBlind = false,
-  ) => {
-    candidates.push({
-      kind: "play",
-      label,
-      cardIds,
-      mimics,
-      commandName: "submitPlay",
-      payload: { cardIds, mimics, blindConfirmed: authorityJudgedBlind },
-      ...(authorityJudgedBlind ? { authorityJudgedBlind: true } : {}),
-    });
-  };
-
-  for (const card of visible) {
-    if (validVisiblePlay(snapshot, actorId, [card.id])) pushPlay(cardLabel(card), [card.id]);
-  }
-
-  const normalsByRank = new Map<string, CardView[]>();
-  const visibleJokers = visible.filter((card) => card.visibility === "face" && Boolean(card.joker));
-  for (const card of visible) {
-    if (card.visibility !== "face" || card.joker || !card.rank) continue;
-    normalsByRank.set(card.rank, [...(normalsByRank.get(card.rank) ?? []), card]);
-  }
-  for (const cards of normalsByRank.values()) {
-    for (let count = 2; count <= cards.length; count += 1) {
-      const selected = cards.slice(0, count);
-      const ids = selected.map((card) => card.id);
-      if (validVisiblePlay(snapshot, actorId, ids))
-        pushPlay(`visible-group:${selected.map(cardLabel).join("+")}`, ids);
-    }
-    const normal = cards[0];
-    if (!normal || normal.visibility !== "face" || !normal.rank || !normal.suit) continue;
-    for (const joker of visibleJokers) {
-      const ids = [normal.id, joker.id];
-      const mimics: JokerMimic[] = [{ cardId: joker.id, suit: normal.suit, rank: normal.rank }];
-      if (validVisiblePlay(snapshot, actorId, ids, mimics))
-        pushPlay(`visible-joker-group:${cardLabel(normal)}+${cardLabel(joker)}`, ids, mimics);
-    }
-  }
-  if (visibleJokers.length >= 2) {
-    const ids = visibleJokers.slice(0, 2).map((card) => card.id);
-    if (validVisiblePlay(snapshot, actorId, ids)) pushPlay("raw-joker-pair", ids);
-  }
-
-  for (const card of hidden) {
-    pushPlay(`blind-single:${card.id}`, [card.id], [], true);
-  }
-  if (
-    allowBlindPair &&
-    !snapshot.game?.firstPlay &&
-    snapshot.game?.pile === null &&
-    hidden[0] &&
-    visible.find((card) => !card.joker)
-  ) {
-    const partner = visible.find((card) => !card.joker)!;
-    pushPlay(
-      `blind-unknown-pair:${hidden[0].id}+${cardLabel(partner)}`,
-      [hidden[0].id, partner.id],
-      [],
-      true,
-    );
-  }
-  if (view.field.length > 0) {
-    candidates.push({
-      kind: "pass",
-      label: "pass:場に札があるため合法",
-      commandName: "submitPass",
-      payload: {},
-    });
-  }
-  return candidates;
-}
-
-function effectCandidate(view: RoomView, effect: PendingEffectView): BotCandidate {
-  const eligibleIds = new Set(effect.eligibleCardIds ?? []);
-  const eligiblePlayers = new Set(effect.eligiblePlayerIds ?? []);
-  if (effect.kind === "steal") {
-    const selections = view.players
-      .filter((player) => player.id !== effect.actorId && eligiblePlayers.has(player.id))
-      .flatMap((player) =>
-        (player.cards ?? [])
-          .filter((card) => eligibleIds.has(card.id))
-          .map((card) => ({ targetUid: player.id, cardId: card.id })),
-      )
-      .slice(0, effect.requiredCount);
-    return {
-      kind: "effect",
-      label: `A奪い:${selections.map((item) => `${item.targetUid}/${item.cardId}`).join(",")}`,
-      commandName: "resolveSteal",
-      payload: { selections },
-    };
-  }
-  if (effect.kind === "give") {
-    const targetUid = view.players.find(
-      (player) => player.id !== effect.actorId && eligiblePlayers.has(player.id),
-    )?.id;
-    const transfers = targetUid
-      ? view.hand
-          .filter((card) => eligibleIds.has(card.id))
-          .slice(0, effect.requiredCount)
-          .map((card) => ({ targetUid, cardId: card.id }))
-      : [];
-    return {
-      kind: "effect",
-      label: `7渡し:${transfers.map((item) => item.cardId).join(",")}→${targetUid ?? "none"}`,
-      commandName: "resolveGive",
-      payload: { transfers },
-    };
-  }
-  if (effect.kind === "discard") {
-    const cardIds = view.hand
-      .filter((card) => eligibleIds.has(card.id))
-      .slice(0, effect.requiredCount)
-      .map((card) => card.id);
-    return {
-      kind: "effect",
-      label: `10捨て:${cardIds.join(",")}`,
-      commandName: "resolveDiscard",
-      payload: { cardIds },
-    };
-  }
-  if (effect.kind === "collect") {
-    const cardIds = view.discard
-      .filter((card) => eligibleIds.has(card.id))
-      .slice(0, effect.requiredCount)
-      .map((card) => card.id);
-    return {
-      kind: "effect",
-      label: `K回収:${cardIds.join(",")}`,
-      commandName: "resolveCollect",
-      payload: { cardIds },
-    };
-  }
-  const ranks = ([...RANKS, "JOKER"] as PhysicalRank[]).slice(0, effect.requiredCount);
-  return {
-    kind: "effect",
-    label: `Qボンバー:${ranks.join(",")}`,
-    commandName: "resolveBomber",
-    payload: { ranks: ranks.map((rank) => (rank === "JOKER" ? "Joker" : rank)) },
-  };
-}
-
-function choosePlay(
-  candidates: BotCandidate[],
-  view: RoomView,
-  allowBlindPair: boolean,
-): { selected: BotCandidate; reason: string } {
-  const plays = candidates.filter((candidate) => candidate.kind === "play");
-  const blindPair = plays.find((candidate) => candidate.label.startsWith("blind-unknown-pair"));
-  if (allowBlindPair && blindPair) {
-    return {
-      selected: blindPair,
-      reason:
-        "場が空なので、所有者からは未知のblind位置と表向き札の組を試す。authorityが公開後に合法性または失格を確定する。",
-    };
-  }
-  if (view.field.length === 0) {
-    const effectPlay = rankPriority
-      .map((rank) =>
-        plays.find((candidate) =>
-          rank === "JOKER"
-            ? candidate.label.includes("JOKER")
-            : candidate.label.includes(`-${rank}(`),
-        ),
-      )
-      .find(Boolean);
-    if (effectPlay)
-      return {
-        selected: effectPlay,
-        reason: "場が空なので、特殊効果またはJokerを実地検証できる合法候補を優先した。",
-      };
-  }
-  const facePlay = plays.find((candidate) => !candidate.authorityJudgedBlind);
-  if (facePlay)
-    return {
-      selected: facePlay,
-      reason: "観測できる表面だけでrules validationを通過した先頭の合法候補を選んだ。",
-    };
-  const blindPlay = plays.find((candidate) => candidate.authorityJudgedBlind);
-  if (blindPlay)
-    return {
-      selected: blindPlay,
-      reason: "表向き合法手がないためblind位置を選び、不可逆確認付きでauthority判定へ送る。",
-    };
-  const pass = candidates.find((candidate) => candidate.kind === "pass");
-  if (!pass) throw new Error("bot has neither a play nor a legal pass");
-  return { selected: pass, reason: "場に勝てる観測可能候補がないため合法なパスを選んだ。" };
+  actorId: string,
+  candidates: readonly CpuCandidate[],
+  rng: () => number,
+): CpuCandidate {
+  const ranked = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreCpuCandidateTactics(game, view, actorId, candidate),
+      noise: rng(),
+    }))
+    .sort((left, right) => right.score - left.score || left.noise - right.noise);
+  const exploration = rng();
+  const poolSize = Math.min(ranked.length, exploration < 0.08 ? 6 : exploration < 0.22 ? 3 : 1);
+  return ranked[Math.floor(rng() * poolSize)]!.candidate;
 }
 
 function decisionFor(
   authority: SparkAuthority,
   actorId: string,
-  attemptedBlindRisk: boolean,
-): { view: RoomView; candidates: BotCandidate[]; selected: BotCandidate; reason: string } {
+  rng: () => number,
+):
+  | { view: RoomView; candidates: BotCandidate[]; selected: BotCandidate; reason: string }
+  | undefined {
   const view = authority.project(actorId);
-  if (view.pendingJokerMimic) {
-    const mimics = view.pendingJokerMimic.candidates[0] ?? [];
-    const candidate: BotCandidate = {
-      kind: "joker-mimic",
-      label: `blind Joker擬態:${mimics.map((item) => `${item.suit}-${item.rank}`).join(",")}`,
-      commandName: "declareJokerMimic",
-      payload: { mimics, blindConfirmed: true },
-    };
-    return {
-      view,
-      candidates: view.pendingJokerMimic.candidates.map((items) => ({
-        kind: "joker-mimic",
-        label: items.map((item) => `${item.suit}-${item.rank}`).join(","),
-        commandName: "declareJokerMimic",
-        payload: { mimics: items, blindConfirmed: true },
-      })),
-      selected: candidate,
-      reason: "authorityが公開後に提示した合法擬態候補の先頭を決定論的に選んだ。",
-    };
-  }
-  const effect = view.pendingEffects.find((candidate) => candidate.actorId === actorId);
-  if (effect) {
-    const candidate = effectCandidate(view, effect);
-    return {
-      view,
-      candidates: [candidate],
-      selected: candidate,
-      reason: `${effect.kind}のrequiredCount=${effect.requiredCount}を満たす観測可能な対象を先頭から選んだ。`,
-    };
-  }
-  const candidates = playCandidates(authority, actorId, view, !attemptedBlindRisk);
-  const choice = choosePlay(candidates, view, !attemptedBlindRisk);
-  return { view, candidates, selected: choice.selected, reason: choice.reason };
+  const game = authority.exportSnapshot().game;
+  if (!game) throw new Error("self-play decision requires an active game");
+  const legal = legalCpuCandidates(game, view, actorId);
+  const safe = riskFilteredCpuCandidates(legal, game, view);
+  if (safe.length === 0) return undefined;
+  const selected = selectSelfPlayCandidate(game, view, actorId, safe, rng);
+  const candidates = safe.map((candidate) => ({ ...candidate, label: candidateLabel(candidate) }));
+  const selectedIndex = safe.indexOf(selected);
+  return {
+    view,
+    candidates,
+    selected: candidates[selectedIndex]!,
+    reason: "公開情報だけの戦術評価に探索を混ぜ、終局順位で重み付けする自己対局方策。",
+  };
 }
 
 function executeDecision(
@@ -595,6 +368,7 @@ function runMatch(
   mode: "normal" | "blind",
   seed: number,
   matchIndex: number,
+  blindCount = 3,
 ): MatchEvidence {
   const matchId = `${mode}-${playerCount}p-seed-${seed}`;
   const playerIds = Array.from({ length: playerCount }, (_, index) => `bot-${index + 1}`);
@@ -624,7 +398,7 @@ function runMatch(
       {
         clientActionId: `${matchId}-settings`,
         expectedRevision: authority.exportSnapshot().revision,
-        settings: { mode: "blind", blindCount: 3 },
+        settings: { mode: "blind", blindCount },
       },
       baseNow + 100,
     );
@@ -645,7 +419,7 @@ function runMatch(
   }
 
   const decisions: DecisionRecord[] = [];
-  const attemptedBlindRisk = new Set<string>();
+  const decisionRandom = seededRandom(seed ^ 0x9e3779b9);
   for (let sequence = 1; sequence <= 700; sequence += 1) {
     const snapshot = authority.exportSnapshot();
     if (snapshot.status !== "playing" || !snapshot.game) break;
@@ -654,7 +428,11 @@ function runMatch(
       snapshot.game.pendingEffect?.actorId ??
       snapshot.game.turnPlayerId;
     if (!actorId) break;
-    const decision = decisionFor(authority, actorId, attemptedBlindRisk.has(actorId));
+    const decision = decisionFor(authority, actorId, decisionRandom);
+    if (!decision) {
+      if (!authority.timeoutCurrent(baseNow + 1_000 + sequence * 1_000)) break;
+      continue;
+    }
     const record = executeDecision(
       authority,
       matchId,
@@ -667,16 +445,25 @@ function runMatch(
       baseNow + 1_000 + sequence * 1_000,
     );
     decisions.push(record);
-    if (decision.selected.label.startsWith("blind-unknown-pair")) attemptedBlindRisk.add(actorId);
     if (!record.authorityResult.ok) break;
   }
   const terminal = authority.exportSnapshot();
+  for (const decision of decisions) {
+    const player = terminal.game?.players.find((candidate) => candidate.id === decision.actorId);
+    const rank = player?.rank ?? playerCount;
+    const reward =
+      player?.status === "disqualified"
+        ? -1
+        : 1 - (2 * Math.max(0, rank - 1)) / Math.max(1, playerCount - 1);
+    decision.outcomeReward = reward;
+    decision.sampleWeight = Math.exp(reward * 1.15);
+  }
   return {
     matchId,
     seed,
     playerCount,
     mode,
-    blindCount: mode === "blind" ? 3 : 0,
+    blindCount: mode === "blind" ? blindCount : 0,
     completed: terminal.status === "finished",
     terminalStatus: terminal.status,
     rankings: authority.project(playerIds[0]!).rankings,
@@ -874,50 +661,59 @@ describe("reproducible Spark/rules bot match evidence", () => {
     vi.restoreAllMocks();
   });
 
-  it("runs 24 real 3-6 player matches and writes decision evidence", () => {
-    const seeds = [3101, 3102, 3103, 3104, 3105, 3106];
-    const matches = [3, 4, 5, 6].flatMap((playerCount, playerIndex) =>
-      seeds.map((seed, seedIndex) =>
-        runMatch(
-          playerCount,
-          seedIndex % 2 === 0 ? "normal" : "blind",
-          seed + playerIndex * 100,
-          playerIndex * seeds.length + seedIndex,
-        ),
-      ),
-    );
-    const summary = aggregate(matches);
-    const showcase = [...matches].sort(
-      (left, right) => showcaseScore(right) - showcaseScore(left),
-    )[0]!;
-    const bundle: EvidenceBundle = {
-      schemaVersion: 1,
-      generator: "apps/web/src/test/qaBotEvidence.test.ts",
-      replayCommand: "pnpm --filter @daifugo/web exec vitest run src/test/qaBotEvidence.test.ts",
-      deterministicInputs: { matchesPerSeatCount: seeds.length, playerCounts: [3, 4, 5, 6], seeds },
-      summary,
-      showcaseMatchId: showcase.matchId,
-      matches,
-    };
-    mkdirSync(qaRoot, { recursive: true });
-    writeFileSync(jsonPath, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");
-    writeFileSync(markdownPath, markdown(bundle), "utf8");
-    writeFileSync(proofPath, proofMarkdown(bundle), "utf8");
+  const matchCount = Math.max(24, Number(process.env.CPU_SELFPLAY_MATCHES ?? 24));
 
-    expect(summary.matches).toBe(24);
-    expect(summary.commands).toBeGreaterThan(200);
-    expect(summary.accepted).toBe(summary.commands);
-    expect(summary.rejected).toBe(0);
-    expect(summary.invariantFailures).toBe(0);
-    expect(summary.completed).toBeGreaterThan(12);
-    expect(summary.effectResolutions).toBeGreaterThan(0);
-    expect(summary.stealResolutions).toBeGreaterThan(0);
-    expect(summary.blindAttempts).toBeGreaterThan(0);
-    expect(summary.jokerSubmissions).toBeGreaterThan(0);
-    expect(
-      matches.some((match) =>
-        match.decisions.some((record) => record.auditTags.includes("finish")),
-      ),
-    ).toBe(true);
-  }, 30_000);
+  it(
+    `runs ${matchCount} real 3-6 player self-play matches and writes decision evidence`,
+    () => {
+      const matches = Array.from({ length: matchCount }, (_, matchIndex) => {
+        const playerCount = 3 + (matchIndex % 4);
+        const mode = matchIndex % 2 === 0 ? "normal" : "blind";
+        const seed = 31_001 + matchIndex * 17;
+        const blindCount = mode === "blind" ? 1 + (Math.floor(matchIndex / 2) % 5) : 0;
+        return runMatch(playerCount, mode, seed, matchIndex, blindCount);
+      });
+      const summary = aggregate(matches);
+      const showcase = [...matches].sort(
+        (left, right) => showcaseScore(right) - showcaseScore(left),
+      )[0]!;
+      const bundle: EvidenceBundle = {
+        schemaVersion: 1,
+        generator: "apps/web/src/test/qaBotEvidence.test.ts",
+        replayCommand:
+          matchCount === 24
+            ? "pnpm ai:selfplay"
+            : `CPU_SELFPLAY_MATCHES=${matchCount} pnpm ai:selfplay`,
+        deterministicInputs: {
+          matchesPerSeatCount: matchCount / 4,
+          playerCounts: [3, 4, 5, 6],
+          seeds: matches.map((match) => match.seed),
+        },
+        summary,
+        showcaseMatchId: showcase.matchId,
+        matches,
+      };
+      mkdirSync(qaRoot, { recursive: true });
+      writeFileSync(jsonPath, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");
+      writeFileSync(markdownPath, markdown(bundle), "utf8");
+      writeFileSync(proofPath, proofMarkdown(bundle), "utf8");
+
+      expect(summary.matches).toBe(matchCount);
+      expect(summary.commands).toBeGreaterThan(200);
+      expect(summary.accepted).toBe(summary.commands);
+      expect(summary.rejected).toBe(0);
+      expect(summary.invariantFailures).toBe(0);
+      expect(summary.completed).toBeGreaterThan(12);
+      expect(summary.effectResolutions).toBeGreaterThan(0);
+      expect(summary.stealResolutions).toBeGreaterThan(0);
+      expect(summary.blindAttempts).toBeGreaterThan(0);
+      expect(summary.jokerSubmissions).toBeGreaterThan(0);
+      expect(
+        matches.some((match) =>
+          match.decisions.some((record) => record.auditTags.includes("finish")),
+        ),
+      ).toBe(true);
+    },
+    Math.max(30_000, matchCount * 2_000),
+  );
 });
