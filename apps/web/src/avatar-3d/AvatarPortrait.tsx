@@ -1,11 +1,19 @@
 import { Canvas } from "@react-three/fiber";
 import type { AvatarProfileV1 } from "@daifugo/avatar-schema";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar3D } from "./Avatar3D";
 
 export function AvatarPortrait({ profile, label }: { profile: AvatarProfileV1; label: string }) {
   const root = useRef<HTMLDivElement>(null);
+  const [eventTarget, setEventTarget] = useState<HTMLDivElement>();
   const [nearViewport, setNearViewport] = useState(false);
+  const attachRoot = useCallback((element: HTMLDivElement | null) => {
+    root.current = element;
+    // Keep the last real element for R3F's asynchronous onCreated callback.
+    // A transient null during rapid room-view replacement must never become
+    // the event source passed to Canvas.
+    if (element) setEventTarget(element);
+  }, []);
   const suppressCanvas =
     import.meta.env.DEV &&
     (window as unknown as { __DAIFUGO_E2E_RENDER_CANVAS__?: boolean })
@@ -24,9 +32,10 @@ export function AvatarPortrait({ profile, label }: { profile: AvatarProfileV1; l
     return () => observer.disconnect();
   }, []);
   return (
-    <div ref={root} className="avatar-portrait" role="img" aria-label={label}>
-      {!suppressCanvas && nearViewport && (
+    <div ref={attachRoot} className="avatar-portrait" role="img" aria-label={label}>
+      {!suppressCanvas && nearViewport && eventTarget && (
         <Canvas
+          eventSource={{ current: eventTarget }}
           dpr={0.65}
           frameloop="demand"
           camera={{ position: [0, 1.78, 4.2], rotation: [0, 0, 0], fov: 34 }}

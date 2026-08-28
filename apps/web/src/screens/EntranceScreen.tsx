@@ -119,7 +119,10 @@ export function EntranceScreen({
           </p>
         )}
         <div className="quiet-settings">
-          <ConnectionBadge state={app.connection} />
+          <ConnectionBadge
+            state={app.connection}
+            deferred={app.phase === "ENTRANCE" && !reconnecting}
+          />
           <label>
             <input
               type="checkbox"

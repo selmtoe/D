@@ -85,7 +85,12 @@ export default function App() {
     });
   }, []);
 
-  useAuthentication();
+  const activeSession = getActiveSparkSession();
+  const localCpuRoomActive = isOfflineCpuSession(activeSession);
+  const firebaseNeeded =
+    !localCpuRoomActive &&
+    (app.phase === "SALON_LOBBY" || Boolean(activeRoomId) || Boolean(reconnectRoomId));
+  useAuthentication(firebaseNeeded);
   usePublicRoomSubscription(app.phase === "SALON_LOBBY");
   useRoomSubscription(activeRoomId, handleRoomEvicted);
 

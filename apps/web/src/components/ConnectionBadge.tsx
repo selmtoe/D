@@ -11,10 +11,19 @@ const labels: Record<ConnectionState, string> = {
 export function ConnectionBadge({
   state,
   localOnly = false,
+  deferred = false,
 }: {
   state: ConnectionState;
   localOnly?: boolean;
+  deferred?: boolean;
 }) {
+  if (deferred)
+    return (
+      <span className="connection-badge deferred" role="status">
+        <i aria-hidden="true" />
+        ロビー入場時にオンライン接続
+      </span>
+    );
   return (
     <span className={`connection-badge ${state}`} role="status">
       <i aria-hidden="true" />

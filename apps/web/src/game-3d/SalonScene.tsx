@@ -1,6 +1,6 @@
 import { Billboard, ContactShadows, Environment } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
   BackSide,
@@ -1490,6 +1490,12 @@ export function SalonScene({
     import.meta.env.DEV &&
     Boolean((window as unknown as { __DAIFUGO_E2E__?: unknown }).__DAIFUGO_E2E__);
   const keyboardOpen = viewport.keyboardInset > 80;
+  const canvasHost = useRef<HTMLDivElement>(null);
+  const [canvasEventTarget, setCanvasEventTarget] = useState<HTMLDivElement>();
+  const attachCanvasHost = useCallback((element: HTMLDivElement | null) => {
+    canvasHost.current = element;
+    if (element) setCanvasEventTarget(element);
+  }, []);
   const [xrRenderer, setXrRenderer] = useState<WebGLRenderer>();
   const [xrPresenting, setXrPresenting] = useState(false);
   const freeRoamActive =
@@ -1670,198 +1676,214 @@ export function SalonScene({
   }
   return (
     <>
-      <Canvas
-        className="salon-canvas"
-        frameloop={xrPresenting ? "always" : "demand"}
-        dpr={[1, 1.6]}
-        shadows={!lowPower}
-        gl={{
-          antialias: true,
-          powerPreference: lowPower ? "low-power" : "high-performance",
-          toneMapping: ACESFilmicToneMapping,
-        }}
-        camera={{ position: [0, 6.4, 10.8], fov: 45, near: 0.1, far: 60 }}
-        onCreated={({ gl }) => {
-          setXrRenderer(gl);
-          gl.domElement.addEventListener("webglcontextlost", (event) => {
-            event.preventDefault();
-            setContextLost(true);
-          });
-          gl.domElement.addEventListener("webglcontextrestored", () => setContextLost(false));
-        }}
-        onPointerMissed={() => setSpectatorInspectPlayerId(undefined)}
-      >
-        {pageVisible && !xrPresenting && (
-          <FrameScheduler fps={sceneFrameRate(lowPower, freeRoamActive, continuousSceneMotion)} />
-        )}
-        <color attach="background" args={["#06100f"]} />
-        <fog attach="fog" args={["#06100f", 14, 28]} />
-        <ambientLight intensity={0.8} color="#b6c5b4" />
-        <directionalLight
-          position={[4, 8, 5]}
-          intensity={2.1}
-          color="#ffe2ae"
-          castShadow={!lowPower}
-        />
-        <Suspense fallback={null}>
-          <SalonRoom
-            lowPower={lowPower}
-            freeRoam={freeRoamActive || sceneRoom?.role === "spectator"}
-          />
-          <CircularTable />
-          {sceneRoom && dealing && <TableDeck />}
-          {sceneRoom
-            ? seats(
-                sceneRoom.players,
-                seatViewpointId,
-                hiddenSeatPlayerIds,
-                sceneRoom.currentPlayerId,
-                lowPower,
-                mobile,
-                e2eProjectionProbe,
-                movingToSeats,
-                stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
-                effectInteraction,
-                onEffectCardSelect,
-                onEffectPlayerSelect,
-                onGiveCardReturn,
-                handReadOnly,
-                sceneRoom.role === "spectator",
-                sceneRoom.settings.mode,
-                spectatorMode,
-                spectatorInspectPlayerId,
-                setSpectatorInspectPlayerId,
-                avatarEmotes,
-              )
-            : previewAvatar && (
-                <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
-                  <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
-                </group>
-              )}
-          {sceneRoom && (
-            <RemoteSpectatorAvatars
-              room={sceneRoom}
-              poses={remoteSpectatorPoses}
-              lowPower={lowPower}
-              emotes={avatarEmotes}
-            />
-          )}
-          {!dealing &&
-            fieldCards(
-              sceneRoom?.fieldPlays ?? (sceneRoom?.field.length ? [sceneRoom.field] : []),
-              movingToField,
-            )}
-          {!dealing &&
-            discardStack(
-              sceneRoom?.discard ?? [],
-              movingToDiscard,
-              effectInteraction,
-              (card) => onEffectCardSelect(card),
-              mobile,
-              handReadOnly,
-            )}
-          {sceneRoom &&
-            !dealing &&
-            !(sceneRoom.role === "spectator" && spectatorMode === "free") &&
-            handCards(
-              sceneRoom.hand,
-              selectedIds,
-              playableIds,
-              onToggleCard,
-              mobile,
-              movingToHand,
-              effectInteraction,
-              onGiveCardDrop,
-              sceneRoom.players,
-              handReadOnly,
-              handViewpointIndex,
-            )}
-          {sceneRoom && dealing && <DealingSequence playerCount={sceneRoom.players.length} />}
-          {sceneRoom &&
-            !dealing &&
-            !(sceneRoom.role === "spectator" && spectatorMode === "free") && (
-              <CardMotionLayer
-                motions={activeCardMotions}
-                room={sceneRoom}
-                mobile={mobile}
-                handViewpointId={seatViewpointId}
-                onDone={onCardMotionDone}
+      <div ref={attachCanvasHost} className="salon-canvas-host">
+        {canvasEventTarget && (
+          <Canvas
+            className="salon-canvas"
+            eventSource={{ current: canvasEventTarget }}
+            frameloop={xrPresenting ? "always" : "demand"}
+            dpr={[1, 1.6]}
+            shadows={!lowPower}
+            gl={{
+              antialias: true,
+              powerPreference: lowPower ? "low-power" : "high-performance",
+              toneMapping: ACESFilmicToneMapping,
+            }}
+            camera={{ position: [0, 6.4, 10.8], fov: 45, near: 0.1, far: 60 }}
+            onCreated={({ gl }) => {
+              setXrRenderer(gl);
+              gl.domElement.addEventListener("webglcontextlost", (event) => {
+                event.preventDefault();
+                setContextLost(true);
+              });
+              gl.domElement.addEventListener("webglcontextrestored", () => setContextLost(false));
+            }}
+            onPointerMissed={() => setSpectatorInspectPlayerId(undefined)}
+          >
+            {pageVisible && !xrPresenting && (
+              <FrameScheduler
+                fps={sceneFrameRate(lowPower, freeRoamActive, continuousSceneMotion)}
               />
             )}
-          {sceneRoom && <StealVisualLayer state={stealVisual} room={sceneRoom} mobile={mobile} />}
-          {!lowPower && (
-            <ContactShadows position={[0, 0.08, 0]} opacity={0.5} scale={13} blur={2.8} far={6} />
-          )}
-          {!lowPower && (
-            <Environment resolution={64} environmentIntensity={0.25}>
-              <mesh scale={18}>
-                <sphereGeometry args={[1, 24, 16]} />
-                <meshBasicMaterial color="#203a34" side={BackSide} />
-              </mesh>
-              <mesh position={[0, 6, 2]}>
-                <sphereGeometry args={[2.5, 12, 8]} />
-                <meshBasicMaterial color="#ffcf89" />
-              </mesh>
-            </Environment>
-          )}
-        </Suspense>
-        {sceneRoom?.role === "spectator" && spectatorMode === "free" ? (
-          <FreeRoamAvatar
-            mobileInput={freeRoamInput}
-            mobile={mobile}
-            selfId={sceneRoom.viewerId}
-            remoteSpectatorPoses={remoteSpectatorPoses}
-            seatedAvatarPositions={seatedAvatarPositions}
-            reducedMotion={reducedMotion}
-            controlsPaused={freeRoamControlsPaused}
-            onPoseChange={onFreeRoamPose}
-            onExit={onExitFreeRoam}
-          />
-        ) : (
-          <CameraRig
-            spectator={sceneRoom?.role === "spectator"}
-            mobile={mobile}
-            reducedMotion={reducedMotion}
-            focusIndex={Math.max(
-              0,
-              sceneRoom?.players.findIndex(
-                (player) =>
-                  player.id === (stealVisual?.targetPlayerId ?? sceneRoom.focusedPlayerId),
-              ) ?? 0,
+            <color attach="background" args={["#06100f"]} />
+            <fog attach="fog" args={["#06100f", 14, 28]} />
+            <ambientLight intensity={0.8} color="#b6c5b4" />
+            <directionalLight
+              position={[4, 8, 5]}
+              intensity={2.1}
+              color="#ffe2ae"
+              castShadow={!lowPower}
+            />
+            <Suspense fallback={null}>
+              <SalonRoom
+                lowPower={lowPower}
+                freeRoam={freeRoamActive || sceneRoom?.role === "spectator"}
+              />
+              <CircularTable />
+              {sceneRoom && dealing && <TableDeck />}
+              {sceneRoom
+                ? seats(
+                    sceneRoom.players,
+                    seatViewpointId,
+                    hiddenSeatPlayerIds,
+                    sceneRoom.currentPlayerId,
+                    lowPower,
+                    mobile,
+                    e2eProjectionProbe,
+                    movingToSeats,
+                    stealVisual?.perspective === "victim" ? undefined : stealVisual?.targetPlayerId,
+                    effectInteraction,
+                    onEffectCardSelect,
+                    onEffectPlayerSelect,
+                    onGiveCardReturn,
+                    handReadOnly,
+                    sceneRoom.role === "spectator",
+                    sceneRoom.settings.mode,
+                    spectatorMode,
+                    spectatorInspectPlayerId,
+                    setSpectatorInspectPlayerId,
+                    avatarEmotes,
+                  )
+                : previewAvatar && (
+                    <group position={[mobile ? 0 : 3.05, 0.35, mobile ? 1.65 : 2.1]} scale={1.2}>
+                      <Avatar3D profile={previewAvatar} lowPower={lowPower} active />
+                    </group>
+                  )}
+              {sceneRoom && (
+                <RemoteSpectatorAvatars
+                  room={sceneRoom}
+                  poses={remoteSpectatorPoses}
+                  lowPower={lowPower}
+                  emotes={avatarEmotes}
+                />
+              )}
+              {!dealing &&
+                fieldCards(
+                  sceneRoom?.fieldPlays ?? (sceneRoom?.field.length ? [sceneRoom.field] : []),
+                  movingToField,
+                )}
+              {!dealing &&
+                discardStack(
+                  sceneRoom?.discard ?? [],
+                  movingToDiscard,
+                  effectInteraction,
+                  (card) => onEffectCardSelect(card),
+                  mobile,
+                  handReadOnly,
+                )}
+              {sceneRoom &&
+                !dealing &&
+                !(sceneRoom.role === "spectator" && spectatorMode === "free") &&
+                handCards(
+                  sceneRoom.hand,
+                  selectedIds,
+                  playableIds,
+                  onToggleCard,
+                  mobile,
+                  movingToHand,
+                  effectInteraction,
+                  onGiveCardDrop,
+                  sceneRoom.players,
+                  handReadOnly,
+                  handViewpointIndex,
+                )}
+              {sceneRoom && dealing && <DealingSequence playerCount={sceneRoom.players.length} />}
+              {sceneRoom &&
+                !dealing &&
+                !(sceneRoom.role === "spectator" && spectatorMode === "free") && (
+                  <CardMotionLayer
+                    motions={activeCardMotions}
+                    room={sceneRoom}
+                    mobile={mobile}
+                    handViewpointId={seatViewpointId}
+                    onDone={onCardMotionDone}
+                  />
+                )}
+              {sceneRoom && (
+                <StealVisualLayer state={stealVisual} room={sceneRoom} mobile={mobile} />
+              )}
+              {!lowPower && (
+                <ContactShadows
+                  position={[0, 0.08, 0]}
+                  opacity={0.5}
+                  scale={13}
+                  blur={2.8}
+                  far={6}
+                />
+              )}
+              {!lowPower && (
+                <Environment resolution={64} environmentIntensity={0.25}>
+                  <mesh scale={18}>
+                    <sphereGeometry args={[1, 24, 16]} />
+                    <meshBasicMaterial color="#203a34" side={BackSide} />
+                  </mesh>
+                  <mesh position={[0, 6, 2]}>
+                    <sphereGeometry args={[2.5, 12, 8]} />
+                    <meshBasicMaterial color="#ffcf89" />
+                  </mesh>
+                </Environment>
+              )}
+            </Suspense>
+            {sceneRoom?.role === "spectator" && spectatorMode === "free" ? (
+              <FreeRoamAvatar
+                mobileInput={freeRoamInput}
+                mobile={mobile}
+                selfId={sceneRoom.viewerId}
+                remoteSpectatorPoses={remoteSpectatorPoses}
+                seatedAvatarPositions={seatedAvatarPositions}
+                reducedMotion={reducedMotion}
+                controlsPaused={freeRoamControlsPaused}
+                onPoseChange={onFreeRoamPose}
+                onExit={onExitFreeRoam}
+              />
+            ) : (
+              <CameraRig
+                spectator={sceneRoom?.role === "spectator"}
+                mobile={mobile}
+                reducedMotion={reducedMotion}
+                focusIndex={Math.max(
+                  0,
+                  sceneRoom?.players.findIndex(
+                    (player) =>
+                      player.id === (stealVisual?.targetPlayerId ?? sceneRoom.focusedPlayerId),
+                  ) ?? 0,
+                )}
+                playerCount={sceneRoom?.players.length ?? 0}
+                keyboardOpen={keyboardOpen}
+                effectPerspective={stealVisual?.perspective}
+                effectOverview={Boolean(
+                  effectInteraction &&
+                  ["steal", "give", "collect"].includes(effectInteraction.kind),
+                )}
+                actorIndex={Math.max(
+                  0,
+                  sceneRoom?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
+                )}
+              />
             )}
-            playerCount={sceneRoom?.players.length ?? 0}
-            keyboardOpen={keyboardOpen}
-            effectPerspective={stealVisual?.perspective}
-            effectOverview={Boolean(
-              effectInteraction && ["steal", "give", "collect"].includes(effectInteraction.kind),
+            <VrOrigin
+              presenting={xrPresenting}
+              viewpointIndex={handViewpointIndex}
+              playerCount={sceneRoom?.players.length ?? 0}
+            />
+            <VrControllers presenting={xrPresenting} />
+            <VrGameHud
+              presenting={xrPresenting}
+              panel={vrPanel}
+              viewpointIndex={handViewpointIndex}
+              playerCount={sceneRoom?.players.length ?? 0}
+            />
+            {sceneRoom && e2eProjectionProbe && (
+              <EffectProjectionProbe
+                room={sceneRoom}
+                effectInteraction={effectInteraction}
+                mobile={mobile}
+                dealing={dealing}
+              />
             )}
-            actorIndex={Math.max(
-              0,
-              sceneRoom?.players.findIndex((player) => player.id === stealVisual?.actorId) ?? 0,
-            )}
-          />
+          </Canvas>
         )}
-        <VrOrigin
-          presenting={xrPresenting}
-          viewpointIndex={handViewpointIndex}
-          playerCount={sceneRoom?.players.length ?? 0}
-        />
-        <VrControllers presenting={xrPresenting} />
-        <VrGameHud
-          presenting={xrPresenting}
-          panel={vrPanel}
-          viewpointIndex={handViewpointIndex}
-          playerCount={sceneRoom?.players.length ?? 0}
-        />
-        {sceneRoom && e2eProjectionProbe && (
-          <EffectProjectionProbe
-            room={sceneRoom}
-            effectInteraction={effectInteraction}
-            mobile={mobile}
-            dealing={dealing}
-          />
-        )}
-      </Canvas>
+      </div>
       {room && (
         <WebXrSessionButton
           renderer={xrRenderer}

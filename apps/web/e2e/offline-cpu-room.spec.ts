@@ -14,21 +14,19 @@ async function openWithFirebaseUnavailable(page: Page): Promise<void> {
 
 test("CPU room keeps the multiplayer UI usable without Firebase", async ({ page }) => {
   const pageErrors: Error[] = [];
-  const firebaseRequestsAfterEntry: string[] = [];
-  let cpuEntryStarted = false;
+  const firebaseRequests: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
   page.on("request", (request) => {
     if (
-      cpuEntryStarted &&
-      /(googleapis\.com|firebaseio\.com|firebaseapp\.com)/i.test(request.url())
-    ) {
-      firebaseRequestsAfterEntry.push(request.url());
-    }
+      /(?:identitytoolkit|securetoken|firestore|firebaseappcheck)\.googleapis\.com|firebaseio\.com|firebaseapp\.com/i.test(
+        request.url(),
+      )
+    )
+      firebaseRequests.push(request.url());
   });
 
   await openWithFirebaseUnavailable(page);
   await page.getByRole("textbox", { name: "プレイヤー名" }).fill("CPUデバッグ");
-  cpuEntryStarted = true;
   await page.getByRole("button", { name: "CPU部屋（オフライン）" }).click();
 
   await expect(page.getByText("CPU専用部屋・Firebase未使用")).toBeVisible();
@@ -46,7 +44,7 @@ test("CPU room keeps the multiplayer UI usable without Firebase", async ({ page 
     scrollWidth: document.documentElement.scrollWidth,
   }));
   expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth);
-  expect(firebaseRequestsAfterEntry).toEqual([]);
+  expect(firebaseRequests).toEqual([]);
   expect(pageErrors).toEqual([]);
 
   await page.getByRole("button", { name: "退出", exact: true }).click();

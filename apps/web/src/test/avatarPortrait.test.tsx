@@ -2,11 +2,15 @@ import { defaultAvatar } from "@daifugo/avatar-schema";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { canvasCameraProps } = vi.hoisted(() => ({ canvasCameraProps: [] as unknown[] }));
+const { canvasCameraProps, canvasEventSources } = vi.hoisted(() => ({
+  canvasCameraProps: [] as unknown[],
+  canvasEventSources: [] as Array<{ current: HTMLElement }>,
+}));
 
 vi.mock("@react-three/fiber", () => ({
-  Canvas: ({ camera }: { camera: unknown }) => {
+  Canvas: ({ camera, eventSource }: { camera: unknown; eventSource: { current: HTMLElement } }) => {
     canvasCameraProps.push(camera);
+    canvasEventSources.push(eventSource);
     return <div data-testid="portrait-canvas" />;
   },
 }));
@@ -19,6 +23,7 @@ import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 afterEach(() => {
   cleanup();
   canvasCameraProps.length = 0;
+  canvasEventSources.length = 0;
 });
 
 describe("avatar portrait framing", () => {
@@ -31,5 +36,8 @@ describe("avatar portrait framing", () => {
       rotation: [0, 0, 0],
       fov: 34,
     });
+    expect(canvasEventSources.at(-1)?.current).toBe(
+      screen.getByRole("img", { name: "テストのアバター" }),
+    );
   });
 });

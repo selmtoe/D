@@ -1,16 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function openOfflineEntrance(page: Page): Promise<void> {
-  await page.route("**/identitytoolkit.googleapis.com/**", (route) =>
-    route.fulfill({
-      status: 400,
-      contentType: "application/json",
-      body: JSON.stringify({ error: { code: 400, message: "CONFIGURATION_NOT_FOUND" } }),
-    }),
-  );
+  const firebaseRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      /(?:identitytoolkit|securetoken|firestore|firebaseappcheck)\.googleapis\.com|firebaseio\.com|firebaseapp\.com/i.test(
+        request.url(),
+      )
+    )
+      firebaseRequests.push(request.url());
+  });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "大富豪" })).toBeVisible();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect.poll(() => firebaseRequests).toEqual([]);
 }
 
 test("entrance renders its 3D scene without horizontal overflow", async ({ page }) => {

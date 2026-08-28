@@ -200,9 +200,12 @@ h2 {
   position: absolute;
   inset: 0;
 }
+.salon-canvas-host,
 .salon-canvas {
   width: 100% !important;
   height: 100% !important;
+}
+.salon-canvas {
   touch-action: none;
 }
 .webxr-entry {

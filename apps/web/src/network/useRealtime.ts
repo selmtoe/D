@@ -8,16 +8,29 @@ import {
 } from "./firebaseClient";
 import { useUiStore } from "../app/store";
 
-export function useAuthentication(): void {
+export function useAuthentication(enabled: boolean): void {
   const dispatch = useUiStore((state) => state.dispatch);
   useEffect(() => {
     dispatch({ type: "BOOT" });
+    if (!enabled) {
+      // The entrance and the local CPU room do not need a Firebase identity.
+      // Advancing immediately keeps those paths completely network-free.
+      dispatch({ type: "AUTH_OK" });
+      return;
+    }
+    dispatch({ type: "CONNECTION", connection: "connecting" });
     getFirebase()
-      .then(() => dispatch({ type: "AUTH_OK" }))
-      .catch((cause: unknown) =>
-        dispatch({ type: "AUTH_FAILED", message: firebaseErrorMessage(cause) }),
-      );
-  }, [dispatch]);
+      .then(() => {
+        dispatch({ type: "AUTH_OK" });
+        dispatch({ type: "CONNECTION", connection: "connected" });
+      })
+      .catch((cause: unknown) => {
+        const message = firebaseErrorMessage(cause);
+        dispatch({ type: "AUTH_FAILED", message });
+        dispatch({ type: "ERROR", message });
+        dispatch({ type: "CONNECTION", connection: "offline" });
+      });
+  }, [dispatch, enabled]);
 }
 
 export function usePublicRoomSubscription(enabled: boolean): void {
