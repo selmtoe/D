@@ -24,6 +24,7 @@ import {
 import {
   applyPlaygroundLook,
   containPlaygroundPosition,
+  playgroundAvatarYaw,
   playgroundPerformanceProfile,
   stepPlaygroundPosition,
   type PlaygroundLook,
@@ -68,7 +69,6 @@ function FramePump({ fps }: { fps: number }) {
 function FirstPersonController({
   movement,
   look,
-  resetVersion,
   jumpVersion,
   selfId,
   remotePoses,
@@ -76,7 +76,6 @@ function FirstPersonController({
 }: {
   movement: MutableRefObject<PlaygroundMovement>;
   look: MutableRefObject<PlaygroundLook>;
-  resetVersion: number;
   jumpVersion: number;
   selfId: string;
   remotePoses: ReadonlyMap<string, WaitingPoseCue>;
@@ -101,7 +100,7 @@ function FirstPersonController({
     look.current = { yaw: 0, pitch: -0.04 };
     camera.position.set(0, CAMERA_HEIGHT + FREE_ROAM_GROUND_Y, 8.4);
     camera.rotation.set(-0.04, 0, 0, "YXZ");
-  }, [camera, look, resetVersion]);
+  }, [camera, look]);
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (
@@ -232,7 +231,7 @@ function MemberAvatar({
     group.position.x = MathUtils.lerp(group.position.x, pose?.x ?? staticX, factor);
     group.position.y = MathUtils.lerp(group.position.y, pose?.y ?? 0.18, factor);
     group.position.z = MathUtils.lerp(group.position.z, pose?.z ?? staticZ, factor);
-    const targetYaw = pose?.yaw ?? staticYaw;
+    const targetYaw = playgroundAvatarYaw(pose?.yaw, staticYaw);
     const yawDelta = Math.atan2(
       Math.sin(targetYaw - group.rotation.y),
       Math.cos(targetYaw - group.rotation.y),
@@ -257,6 +256,7 @@ function MemberAvatar({
       <Html center position={[0, 2.65, 0]} distanceFactor={8} className="waiting-member-label">
         <span
           data-waiting-member-id={member.id}
+          data-waiting-member-facing-yaw={playgroundAvatarYaw(pose?.yaw, staticYaw).toFixed(3)}
           data-waiting-member-pose={
             pose
               ? [pose.x, pose.y, pose.z, pose.yaw].map((value) => value.toFixed(3)).join(",")
@@ -403,7 +403,6 @@ export function WaitingPlayground({
   const lookPointer = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const viewport = useRef<HTMLDivElement>(null);
   const [pointerLocked, setPointerLocked] = useState(false);
-  const [resetVersion, setResetVersion] = useState(0);
   const [jumpVersion, setJumpVersion] = useState(0);
 
   useEffect(() => {
@@ -494,7 +493,6 @@ export function WaitingPlayground({
           <FirstPersonController
             movement={movement}
             look={look}
-            resetVersion={resetVersion}
             jumpVersion={jumpVersion}
             selfId={selfId}
             remotePoses={remotePoses}
@@ -518,13 +516,6 @@ export function WaitingPlayground({
           <h1 id="waiting-playground-title">3D待機室</h1>
         </div>
         <div className="waiting-playground-actions">
-          <button
-            type="button"
-            onClick={() => setResetVersion((version) => version + 1)}
-            aria-label="開始位置に戻る"
-          >
-            位置を戻す
-          </button>
           <button type="button" className="waiting-playground-close" onClick={close}>
             待機画面へ戻る
           </button>

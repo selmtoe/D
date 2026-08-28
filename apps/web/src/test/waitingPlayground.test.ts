@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPlaygroundLook,
+  playgroundAvatarYaw,
   playgroundPerformanceProfile,
   stepPlaygroundPosition,
 } from "../waiting-3d/controls";
 
 describe("waiting playground controls", () => {
+  it("turns first-person waiting poses into the avatar mesh's forward direction", () => {
+    expect(playgroundAvatarYaw(0, 0.75)).toBeCloseTo(Math.PI);
+    expect(playgroundAvatarYaw(Math.PI / 2, 0.75)).toBeCloseTo(-Math.PI / 2);
+    expect(playgroundAvatarYaw(undefined, 0.75)).toBe(0.75);
+  });
+
   it("turns right for a rightward pointer movement and clamps vertical look", () => {
     const right = applyPlaygroundLook({ yaw: 0, pitch: 0 }, 20, 0);
     expect(right.yaw).toBeLessThan(0);

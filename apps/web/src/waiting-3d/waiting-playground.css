@@ -152,7 +152,6 @@
   }
 
   .waiting-playground-toolbar .eyebrow,
-  .waiting-playground-actions button:first-child,
   .waiting-playground-roster {
     display: none;
   }
@@ -177,7 +176,6 @@
 }
 
 .daifugo-mobile-mode .waiting-playground-toolbar .eyebrow,
-.daifugo-mobile-mode .waiting-playground-actions button:first-child,
 .daifugo-mobile-mode .waiting-playground-roster {
   display: none;
 }

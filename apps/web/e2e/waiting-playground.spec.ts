@@ -65,6 +65,9 @@ test.describe("3D waiting playground", () => {
 
     const dialog = page.getByRole("dialog", { name: "3D待機室" });
     await expect(dialog).toBeVisible();
+    await expect(page.getByRole("button", { name: "開始位置に戻る" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "位置を戻す" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "待機画面へ戻る" })).toBeVisible();
     await expect(page.locator(".waiting-member-label")).toHaveCount(1);
     await expect(page.locator(".waiting-playground-roster")).toContainText("ホスト");
     await expect(page.locator(".waiting-playground-roster")).toContainText("参加者");
@@ -89,6 +92,7 @@ test.describe("3D waiting playground", () => {
       "1.500,0.050,-2.250,0.400",
       { timeout: 15_000 },
     );
+    await expect(remoteMember).toHaveAttribute("data-waiting-member-facing-yaw", "-2.742");
     const initial = poseOf(await waitForPose(page));
 
     const layout = await page.evaluate(() => {

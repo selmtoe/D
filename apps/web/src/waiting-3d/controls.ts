@@ -1,4 +1,5 @@
 import { MathUtils } from "three";
+import { avatarFacingYaw } from "../avatar-3d/proceduralAvatar";
 
 export type PlaygroundMovement = {
   forward: number;
@@ -24,6 +25,15 @@ export type PlaygroundPerformanceProfile = {
 
 const MAX_PITCH = Math.PI * 0.47;
 const PLAYGROUND_BOUNDARY = 10.8;
+
+/**
+ * Waiting poses carry the first-person camera yaw. Avatar meshes face +Z,
+ * while a yaw of zero looks toward -Z, so remote viewers need a half turn.
+ * Stationary ring avatars already use a mesh-space yaw and must stay unchanged.
+ */
+export function playgroundAvatarYaw(viewYaw: number | undefined, stationaryYaw: number): number {
+  return viewYaw === undefined ? stationaryYaw : avatarFacingYaw(viewYaw);
+}
 
 export function containPlaygroundPosition(position: PlaygroundPosition): PlaygroundPosition {
   return {
