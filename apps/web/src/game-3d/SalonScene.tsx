@@ -1681,6 +1681,7 @@ export function SalonScene({
           <Canvas
             className="salon-canvas"
             eventSource={{ current: canvasEventTarget }}
+            style={{ pointerEvents: "auto" }}
             frameloop={xrPresenting ? "always" : "demand"}
             dpr={[1, 1.6]}
             shadows={!lowPower}
