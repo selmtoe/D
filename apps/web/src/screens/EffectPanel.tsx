@@ -11,15 +11,22 @@ export function EffectPanel({
   room,
   busy,
   resolve,
+  selectedBomberRanks,
+  toggleBomberRank,
+  confirmBomber,
 }: {
   effect: PendingEffectView;
   room: RoomView;
   busy: boolean;
   resolve: (effect: PendingEffectView, payload: Record<string, unknown>) => void;
+  selectedBomberRanks?: readonly Rank[] | undefined;
+  toggleBomberRank?: ((rank: Rank) => void) | undefined;
+  confirmBomber?: (() => void) | undefined;
 }) {
   const [cardIds, setCardIds] = useState<string[]>([]);
   const [targets, setTargets] = useState<Record<string, string>>({});
-  const [selectedRanks, setSelectedRanks] = useState<Rank[]>([]);
+  const [localSelectedRanks, setLocalSelectedRanks] = useState<Rank[]>([]);
+  const selectedRanks = selectedBomberRanks ?? localSelectedRanks;
   const eligibleCards = useMemo(() => {
     const source =
       effect.kind === "steal"
@@ -45,14 +52,19 @@ export function EffectPanel({
           ? [...items, id]
           : items,
     );
-  const toggleRank = (rank: Rank) =>
-    setSelectedRanks((items) =>
+  const toggleRank = (rank: Rank) => {
+    if (toggleBomberRank) {
+      toggleBomberRank(rank);
+      return;
+    }
+    setLocalSelectedRanks((items) =>
       items.includes(rank)
         ? items.filter((item) => item !== rank)
         : items.length < effect.requiredCount
           ? [...items, rank]
           : items,
     );
+  };
   const assigned = cardIds.every((cardId) => Boolean(targets[cardId]));
   const ready =
     effect.kind === "bomber"
@@ -133,7 +145,11 @@ export function EffectPanel({
         type="button"
         className="primary"
         disabled={!ready || busy}
-        onClick={() =>
+        onClick={() => {
+          if (effect.kind === "bomber" && confirmBomber) {
+            confirmBomber();
+            return;
+          }
           resolve(
             effect,
             effect.kind === "bomber"
@@ -143,8 +159,8 @@ export function EffectPanel({
                 : effect.kind === "give"
                   ? { transfers: cardIds.map((cardId) => ({ targetUid: targets[cardId], cardId })) }
                   : { cardIds },
-          )
-        }
+          );
+        }}
       >
         {busy ? "確定中…" : "効果を確定する"}
       </button>

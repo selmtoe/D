@@ -205,6 +205,36 @@ h2 {
   height: 100% !important;
   touch-action: none;
 }
+.webxr-entry {
+  position: absolute;
+  z-index: 12;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  display: grid;
+  justify-items: end;
+  gap: 0.4rem;
+  pointer-events: auto;
+}
+.webxr-entry button {
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  border-color: #85d8bd;
+  background: rgb(6 32 27 / 92%);
+  color: #eafff7;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 42%);
+  backdrop-filter: blur(12px);
+}
+.webxr-entry p {
+  max-width: min(28rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #d47d7d;
+  border-radius: 10px;
+  background: rgb(52 11 14 / 94%);
+  color: #ffe7e7;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
 .character-name-tag {
   display: inline-flex;
   align-items: center;

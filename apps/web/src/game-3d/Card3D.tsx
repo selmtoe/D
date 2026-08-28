@@ -251,6 +251,7 @@ export function Card3D({
   dimmed = false,
   hidden = false,
   onSelect,
+  xrSelect,
   scale = 1,
   renderOrder = 0,
   selectedLift = 0.18,
@@ -271,6 +272,7 @@ export function Card3D({
   dimmed?: boolean;
   hidden?: boolean;
   onSelect?: () => void;
+  xrSelect?: (() => void) | undefined;
   scale?: number;
   renderOrder?: number;
   selectedLift?: number;
@@ -348,6 +350,7 @@ export function Card3D({
       position={dragPosition ?? restingPosition}
       rotation={rotation}
       scale={scale}
+      userData={{ xrAction: inactive ? undefined : (xrSelect ?? onSelect) }}
       onPointerDown={(event) => {
         event.stopPropagation();
         if (inactive) return;

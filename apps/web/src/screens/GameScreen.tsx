@@ -12,6 +12,7 @@ import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { PersonalSettingsDialog } from "../components/PersonalSettingsDialog";
 import { playersAtTable, SalonScene, type FreeRoamPose } from "../game-3d/SalonScene";
+import type { VrPanelModel } from "../game-3d/WebXrControls";
 import { EffectPanel } from "./EffectPanel";
 import { feedback, primeFeedback } from "../components/feedback";
 import { emoteCue, spectatorPoseCue } from "../network/peerCues";
@@ -43,6 +44,22 @@ const suitLabel = {
   club: "クラブ",
 } as const;
 const noPlayableCards = new Set<string>();
+const vrBomberRanks: Rank[] = [
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "J",
+  "Q",
+  "K",
+  "A",
+  "2",
+  "Joker" as Rank,
+];
 
 export function formatEffectNotice(
   notice: EffectNotice,
@@ -652,6 +669,8 @@ export function GameScreen({
   const [effectCardIds, setEffectCardIds] = useState<string[]>([]);
   const [effectTargets, setEffectTargets] = useState<Record<string, string>>({});
   const [pendingGiveCardId, setPendingGiveCardId] = useState<string>();
+  const [vrSelectedBomberRanks, setVrSelectedBomberRanks] = useState<Rank[]>([]);
+  const [vrJokerCandidateIndex, setVrJokerCandidateIndex] = useState(0);
   const [spectatorMode, setSpectatorMode] = useState<"follow" | "free">("follow");
   const [personalSettings, setPersonalSettings] = useState(loadPersonalSettings);
   const [personalSettingsOpen, setPersonalSettingsOpen] = useState(false);
@@ -839,6 +858,9 @@ export function GameScreen({
           kind: "steal" | "give" | "discard" | "collect";
         })
       : undefined;
+  useEffect(() => {
+    setVrSelectedBomberRanks([]);
+  }, [activeEffect?.id]);
   const playBlocked = Boolean(activeEffect || room.pendingJokerMimic);
   const effectCardEligibility = directEffect?.eligibleCardIds?.join("\0") ?? "";
   const effectPlayerEligibility = directEffect?.eligiblePlayerIds?.join("\0") ?? "";
@@ -1163,15 +1185,33 @@ export function GameScreen({
       { ...payloadBase, ...payload },
     );
   };
-  const confirmDirectEffect = () => {
+  const toggleVrBomberRank = (rank: Rank) => {
+    if (busy || activeEffect?.kind !== "bomber") return;
+    setVrSelectedBomberRanks((items) =>
+      items.includes(rank)
+        ? items.filter((item) => item !== rank)
+        : items.length < activeEffect.requiredCount
+          ? [...items, rank]
+          : items,
+    );
+  };
+  const confirmVrBomber = () => {
     if (
-      !directEffect ||
-      effectCardIds.length !== directEffect.requiredCount ||
-      effectCardIds.some((cardId) => !effectSelectableIds.has(cardId)) ||
-      (["steal", "give"].includes(directEffect.kind) &&
-        effectCardIds.some((cardId) => !effectTargetPlayerIds.has(effectTargets[cardId] ?? "")))
+      activeEffect?.kind !== "bomber" ||
+      vrSelectedBomberRanks.length !== activeEffect.requiredCount
     )
       return;
+    void resolveEffect(activeEffect, { ranks: vrSelectedBomberRanks });
+  };
+  const directEffectReady = Boolean(
+    directEffect &&
+    effectCardIds.length === directEffect.requiredCount &&
+    effectCardIds.every((cardId) => effectSelectableIds.has(cardId)) &&
+    (!["steal", "give"].includes(directEffect.kind) ||
+      effectCardIds.every((cardId) => effectTargetPlayerIds.has(effectTargets[cardId] ?? ""))),
+  );
+  const confirmDirectEffect = () => {
+    if (!directEffect || !directEffectReady) return;
     const payload =
       directEffect.kind === "steal"
         ? {
@@ -1190,7 +1230,185 @@ export function GameScreen({
           : { cardIds: effectCardIds };
     void resolveEffect(directEffect, payload);
   };
+  const vrPlayCandidates = selection.jokerCandidates.length ? selection.jokerCandidates : [[]];
+  const vrCandidateSignature = JSON.stringify([
+    room.pendingJokerMimic?.candidates,
+    selection.jokerCandidates,
+  ]);
+  useEffect(() => setVrJokerCandidateIndex(0), [vrCandidateSignature]);
+  const vrMimicLabel = (candidate: { cardId: string; suit: Suit; rank: Rank }[], index: number) =>
+    candidate.length
+      ? candidate.map((item) => `${suitLabel[item.suit]} ${item.rank}`).join(" / ")
+      : `候補 ${index + 1}`;
   const focusedSpectator = room.players.find((player) => player.id === spectatorFocusId);
+  const activeSpectatorPlayers = room.players.filter((player) => player.status === "active");
+  const changeVrSpectatorFocus = (offset: number) => {
+    if (busy || activeSpectatorPlayers.length < 2) return;
+    const currentIndex = Math.max(
+      0,
+      activeSpectatorPlayers.findIndex((player) => player.id === spectatorFocusId),
+    );
+    const target =
+      activeSpectatorPlayers[
+        (currentIndex + offset + activeSpectatorPlayers.length) % activeSpectatorPlayers.length
+      ];
+    if (!target || target.id === spectatorFocusId) return;
+    setSpectatorMode("follow");
+    void command("changeSpectatorFocus", { ...payloadBase, focusPlayerId: target.id });
+  };
+  const vrPanel: VrPanelModel = (() => {
+    if (activeEffect?.kind === "bomber") {
+      return {
+        title: "Qボンバー",
+        status: `${vrSelectedBomberRanks.length}/${activeEffect.requiredCount}ランク選択`,
+        options: vrBomberRanks.map((rank) => ({
+          id: `bomber-${rank}`,
+          label: rank,
+          enabled: !busy,
+          selected: vrSelectedBomberRanks.includes(rank),
+          activate: () => toggleVrBomberRank(rank),
+        })),
+        actions: [
+          {
+            id: "bomber-clear",
+            label: "選択解除",
+            enabled: !busy && vrSelectedBomberRanks.length > 0,
+            activate: () => setVrSelectedBomberRanks([]),
+          },
+          {
+            id: "bomber-confirm",
+            label: "効果を確定",
+            enabled: !busy && vrSelectedBomberRanks.length === activeEffect.requiredCount,
+            tone: "primary",
+            activate: confirmVrBomber,
+          },
+        ],
+      };
+    }
+    const pendingJoker = room.pendingJokerMimic;
+    if (pendingJoker) {
+      const candidateIndex = Math.min(vrJokerCandidateIndex, pendingJoker.candidates.length - 1);
+      return {
+        title: "Jokerの擬態を宣言",
+        status: "合法な候補から一つ選択",
+        options: pendingJoker.candidates.map((candidate, index) => ({
+          id: `pending-joker-${index}`,
+          label: vrMimicLabel(candidate, index),
+          enabled: !busy,
+          selected: index === candidateIndex,
+          activate: () => setVrJokerCandidateIndex(index),
+        })),
+        actions: [
+          {
+            id: "pending-joker-confirm",
+            label: "擬態を確定",
+            enabled: !busy && candidateIndex >= 0,
+            tone: "primary",
+            activate: () => {
+              const candidate = pendingJoker.candidates[candidateIndex];
+              if (candidate)
+                void command("declareJokerMimic", {
+                  ...payloadBase,
+                  mimics: candidate,
+                  blindConfirmed: true,
+                });
+            },
+          },
+        ],
+      };
+    }
+    if (directEffect) {
+      const effectName = {
+        steal: "A奪い",
+        give: "7渡し",
+        discard: "10捨て",
+        collect: "K回収",
+      }[directEffect.kind];
+      return {
+        title: effectName,
+        status:
+          directEffect.kind === "give" && effectCardIds.some((cardId) => !effectTargets[cardId])
+            ? "札を選び、渡す相手を引いて指定"
+            : `${effectCardIds.length}/${directEffect.requiredCount}枚選択`,
+        actions: [
+          {
+            id: "effect-clear",
+            label: "選択解除",
+            enabled: !busy && effectCardIds.length > 0,
+            activate: () => {
+              setEffectCardIds([]);
+              setEffectTargets({});
+              setPendingGiveCardId(undefined);
+            },
+          },
+          {
+            id: "effect-confirm",
+            label: "効果を確定",
+            enabled: !busy && directEffectReady,
+            tone: "primary",
+            activate: confirmDirectEffect,
+          },
+        ],
+      };
+    }
+    if (room.role === "spectator") {
+      return {
+        title: `${focusedSpectator?.name ?? "プレイヤー"}を観戦中`,
+        status: "首を動かすか、引き金で視点を切替",
+        actions: [
+          {
+            id: "spectator-previous",
+            label: "前の視点",
+            enabled: !busy && activeSpectatorPlayers.length > 1,
+            activate: () => changeVrSpectatorFocus(-1),
+          },
+          {
+            id: "spectator-next",
+            label: "次の視点",
+            enabled: !busy && activeSpectatorPlayers.length > 1,
+            activate: () => changeVrSpectatorFocus(1),
+          },
+        ],
+      };
+    }
+    const playCandidateIndex = Math.min(vrJokerCandidateIndex, vrPlayCandidates.length - 1);
+    return {
+      title: myTurn ? "あなたの手番" : `${current?.name ?? "プレイヤー"}の手番`,
+      status: myTurn ? selectionHint : "手番を待っています",
+      resetKey: `${room.revision}:${selectedIds.join(",")}:${playCandidateIndex}`,
+      options:
+        selection.complete && vrPlayCandidates.length > 1
+          ? vrPlayCandidates.map((candidate, index) => ({
+              id: `play-joker-${index}`,
+              label: vrMimicLabel(candidate, index),
+              enabled: !busy,
+              selected: index === playCandidateIndex,
+              activate: () => setVrJokerCandidateIndex(index),
+            }))
+          : undefined,
+      actions: [
+        {
+          id: "play",
+          label: selectedCards.some((card) => card.visibility === "hidden")
+            ? "ブラインド札を出す"
+            : "選んだ札を出す",
+          enabled: myTurn && selection.complete && !busy && !playBlocked,
+          confirm: true,
+          tone: selectedCards.some((card) => card.visibility === "hidden") ? "danger" : "primary",
+          activate: () => {
+            const candidate = vrPlayCandidates[playCandidateIndex] ?? vrPlayCandidates[0] ?? [];
+            void submit(candidate);
+          },
+        },
+        {
+          id: "pass",
+          label: "パス",
+          enabled: myTurn && !busy && !playBlocked,
+          activate: () => void pass(),
+        },
+      ],
+    };
+  })();
   const cueConnectionLabel =
     peerCues.mode === "webrtc"
       ? "直接接続中"
@@ -1300,6 +1518,7 @@ export function GameScreen({
           freeRoamControlsPaused={logOpen || personalSettingsOpen}
           onFreeRoamPose={publishFreeRoamPose}
           onExitFreeRoam={() => setSpectatorMode("follow")}
+          vrPanel={vrPanel}
         />
       </div>
       <header className="game-topbar">
@@ -1603,6 +1822,9 @@ export function GameScreen({
           room={room}
           busy={busy}
           resolve={resolveEffect}
+          selectedBomberRanks={vrSelectedBomberRanks}
+          toggleBomberRank={toggleVrBomberRank}
+          confirmBomber={confirmVrBomber}
         />
       )}
       {room.pendingEffects[0] && room.pendingEffects[0].actorId !== room.viewerId && (

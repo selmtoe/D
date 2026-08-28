@@ -9,6 +9,7 @@ import {
   Vector3,
   type Group,
   type PerspectiveCamera,
+  type WebGLRenderer,
 } from "three";
 import type { CardView, PlayerView, RoomView } from "../app/model";
 import { useVisualViewport } from "../app/visualViewport";
@@ -45,6 +46,13 @@ import {
   stepFreeRoamVertical,
   stepOrbitArc,
 } from "./spectatorControls";
+import {
+  VrControllers,
+  VrGameHud,
+  VrOrigin,
+  WebXrSessionButton,
+  type VrPanelModel,
+} from "./WebXrControls";
 
 export interface TableEffectInteraction {
   kind: "steal" | "give" | "discard" | "collect";
@@ -307,6 +315,7 @@ function CameraRig({
     [gl],
   );
   useFrame((_, delta) => {
+    if (gl.xr.isPresenting) return;
     const factor = reducedMotion || (mobile && effectOverview) ? 1 : 1 - Math.exp(-delta * 4.5);
     if (shouldUseSpectatorOrbitArc(spectator, effectPerspective, Boolean(effectOverview))) {
       const next = stepOrbitArc(camera.position, target, factor);
@@ -537,6 +546,7 @@ function FreeRoamAvatar({
   }, [controlsPaused, gl]);
 
   useFrame((_, delta) => {
+    if (gl.xr.isPresenting) return;
     // Keep traversal tied to elapsed time even when a busy mobile GPU misses frames.
     // Jump integration stays tightly capped so a resumed tab cannot tunnel through the floor.
     const movementDelta = Math.min(delta, 0.2);
@@ -808,6 +818,15 @@ function seats(
         key={player.id}
         position={[Math.cos(angle) * radius, 0.05, Math.sin(angle) * radius]}
         rotation={[0, -angle - Math.PI / 2, 0]}
+        userData={{
+          xrAction:
+            !interactionReadOnly &&
+            effectInteraction?.kind === "give" &&
+            effectInteraction.pendingGiveCardId &&
+            effectInteraction.targetPlayerIds.has(player.id)
+              ? () => onEffectPlayerSelect(player.id)
+              : undefined,
+        }}
         onPointerDown={(event) => {
           if (
             !interactionReadOnly &&
@@ -907,6 +926,7 @@ function seats(
                       : {})}
                     {...(!interactionReadOnly
                       ? {
+                          xrSelect: () => onGiveCardReturn(card),
                           onDragEnd: (point: [number, number, number]) => {
                             if (isGiveCardReturnTarget(point, mobile)) onGiveCardReturn(card);
                           },
@@ -1021,6 +1041,7 @@ function handCards(
               ? {}
               : effectInteraction?.kind === "give" && effectInteraction.selectableIds.has(card.id)
                 ? {
+                    xrSelect: () => toggle(card),
                     onDragStart: () => {
                       if (!effectInteraction.selectedIds.has(card.id)) toggle(card);
                     },
@@ -1433,6 +1454,7 @@ export function SalonScene({
   freeRoamControlsPaused = false,
   onFreeRoamPose = () => undefined,
   onExitFreeRoam = () => undefined,
+  vrPanel,
 }: {
   room?: RoomView;
   previewAvatar?: PlayerView["avatar"];
@@ -1457,6 +1479,7 @@ export function SalonScene({
   freeRoamControlsPaused?: boolean | undefined;
   onFreeRoamPose?: ((pose: FreeRoamPose) => void) | undefined;
   onExitFreeRoam?: (() => void) | undefined;
+  vrPanel?: VrPanelModel | undefined;
 }) {
   const viewport = useVisualViewport();
   const forcedMobile = useUiStore((state) => state.mobileMode);
@@ -1465,8 +1488,13 @@ export function SalonScene({
     import.meta.env.DEV &&
     Boolean((window as unknown as { __DAIFUGO_E2E__?: unknown }).__DAIFUGO_E2E__);
   const keyboardOpen = viewport.keyboardInset > 80;
+  const [xrRenderer, setXrRenderer] = useState<WebGLRenderer>();
+  const [xrPresenting, setXrPresenting] = useState(false);
   const freeRoamActive =
-    room?.role === "spectator" && spectatorMode === "free" && !freeRoamControlsPaused;
+    room?.role === "spectator" &&
+    spectatorMode === "free" &&
+    !freeRoamControlsPaused &&
+    !xrPresenting;
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== "hidden");
   const [contextLost, setContextLost] = useState(false);
   const [cameraTransitionActive, setCameraTransitionActive] = useState(false);
@@ -1642,7 +1670,7 @@ export function SalonScene({
     <>
       <Canvas
         className="salon-canvas"
-        frameloop="demand"
+        frameloop={xrPresenting ? "always" : "demand"}
         dpr={lowPower ? 0.75 : [1, 1.6]}
         shadows={!lowPower}
         gl={{
@@ -1652,6 +1680,7 @@ export function SalonScene({
         }}
         camera={{ position: [0, 6.4, 10.8], fov: 45, near: 0.1, far: 60 }}
         onCreated={({ gl }) => {
+          setXrRenderer(gl);
           gl.domElement.addEventListener("webglcontextlost", (event) => {
             event.preventDefault();
             setContextLost(true);
@@ -1660,7 +1689,7 @@ export function SalonScene({
         }}
         onPointerMissed={() => setSpectatorInspectPlayerId(undefined)}
       >
-        {pageVisible && (
+        {pageVisible && !xrPresenting && (
           <FrameScheduler fps={sceneFrameRate(lowPower, freeRoamActive, continuousSceneMotion)} />
         )}
         <color attach="background" args={["#06100f"]} />
@@ -1810,6 +1839,18 @@ export function SalonScene({
             )}
           />
         )}
+        <VrOrigin
+          presenting={xrPresenting}
+          viewpointIndex={handViewpointIndex}
+          playerCount={sceneRoom?.players.length ?? 0}
+        />
+        <VrControllers presenting={xrPresenting} />
+        <VrGameHud
+          presenting={xrPresenting}
+          panel={vrPanel}
+          viewpointIndex={handViewpointIndex}
+          playerCount={sceneRoom?.players.length ?? 0}
+        />
         {sceneRoom && e2eProjectionProbe && (
           <EffectProjectionProbe
             room={sceneRoom}
@@ -1819,6 +1860,18 @@ export function SalonScene({
           />
         )}
       </Canvas>
+      {room && (
+        <WebXrSessionButton
+          renderer={xrRenderer}
+          lowPower={lowPower}
+          onPresentingChange={(presenting) => {
+            setXrPresenting(presenting);
+            if (presenting && room.role === "spectator" && spectatorMode === "free") {
+              onExitFreeRoam();
+            }
+          }}
+        />
+      )}
       {spectatorInspectPlayer && (
         <SpectatorHandPreview player={spectatorInspectPlayer} blindOnly={room?.role === "player"} />
       )}
