@@ -15,6 +15,8 @@ import type { CardView, PlayerView, RoomView } from "../app/model";
 import { useVisualViewport } from "../app/visualViewport";
 import { useUiStore } from "../app/store";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
+import { FirstPersonTouchControls } from "../components/FirstPersonTouchControls";
+import { useFirstPersonTouchDevice } from "../components/useFirstPersonTouchDevice";
 import type { SpectatorPoseCue } from "../network/peerCues";
 import { Card3D } from "./Card3D";
 import { CardMotionLayer } from "./CardMotionLayer";
@@ -39,7 +41,6 @@ import {
   canRequestFreeRoamPointerLock,
   containFreeRoamPosition,
   freeRoamSpawn,
-  mobileFreeRoamControlsStyle,
   separateFreeRoamAvatars,
   separateFreeRoamFromSeats,
   shouldUseSpectatorOrbitArc,
@@ -131,7 +132,7 @@ export function canInspectProjectedOpponentHand(
   viewpointPlayerId: string | undefined,
 ): boolean {
   if (playerId === viewpointPlayerId) return false;
-  if (role === "spectator") return spectatorMode === "follow" || spectatorMode === "free";
+  if (role === "spectator") return spectatorMode === "follow";
   return gameMode === "blind";
 }
 
@@ -1483,7 +1484,8 @@ export function SalonScene({
 }) {
   const viewport = useVisualViewport();
   const forcedMobile = useUiStore((state) => state.mobileMode);
-  const mobile = forcedMobile || viewport.width < 600;
+  const touchDevice = useFirstPersonTouchDevice();
+  const mobile = forcedMobile || viewport.width < 600 || touchDevice;
   const e2eProjectionProbe =
     import.meta.env.DEV &&
     Boolean((window as unknown as { __DAIFUGO_E2E__?: unknown }).__DAIFUGO_E2E__);
@@ -1671,10 +1673,10 @@ export function SalonScene({
       <Canvas
         className="salon-canvas"
         frameloop={xrPresenting ? "always" : "demand"}
-        dpr={lowPower ? 0.75 : [1, 1.6]}
+        dpr={[1, 1.6]}
         shadows={!lowPower}
         gl={{
-          antialias: !lowPower,
+          antialias: true,
           powerPreference: lowPower ? "low-power" : "high-performance",
           toneMapping: ACESFilmicToneMapping,
         }}
@@ -1863,7 +1865,6 @@ export function SalonScene({
       {room && (
         <WebXrSessionButton
           renderer={xrRenderer}
-          lowPower={lowPower}
           onPresentingChange={(presenting) => {
             setXrPresenting(presenting);
             if (presenting && room.role === "spectator" && spectatorMode === "free") {
@@ -1875,82 +1876,76 @@ export function SalonScene({
       {spectatorInspectPlayer && (
         <SpectatorHandPreview player={spectatorInspectPlayer} blindOnly={room?.role === "player"} />
       )}
-      {room?.role === "spectator" && spectatorMode === "free" && (
-        <div
-          className={`free-roam-controls${mobile ? " mobile" : ""}`}
-          aria-label="観戦中の移動操作"
-          style={mobileFreeRoamControlsStyle(mobile)}
-        >
-          <p>
-            {mobile
-              ? "左の方向パッドで移動／それ以外をドラッグして視点変更"
-              : "キャンバスをクリック後、WASD／マウスで移動・視点変更（Escapeで終了）"}
-          </p>
-          <div>
-            {[
-              ...(mobile ? [] : [["↶", { turn: -1 }, "左を向く"]]),
-              ["↑", { forward: 1 }, "前へ進む"],
-              ...(mobile ? [] : [["↷", { turn: 1 }, "右を向く"]]),
-              ["←", { strafe: -1 }, "左へ移動"],
-              ["↓", { forward: -1 }, "後ろへ進む"],
-              ["→", { strafe: 1 }, "右へ移動"],
-            ].map(([label, value, ariaLabel], index) => {
-              const keyboardPointerId = -(index + 1);
-              return (
-                <button
-                  type="button"
-                  key={String(ariaLabel)}
-                  aria-label={String(ariaLabel)}
-                  onPointerDown={(event) => {
-                    try {
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                    } catch {
-                      // Synthetic test pointers are not registered by the browser's native pointer tracker.
-                    }
-                    pressFreeRoamControl(event.pointerId, value as Partial<FreeRoamInput>);
-                  }}
-                  onPointerUp={(event) => releaseFreeRoamControl(event.pointerId)}
-                  onPointerCancel={(event) => releaseFreeRoamControl(event.pointerId)}
-                  onLostPointerCapture={(event) => releaseFreeRoamControl(event.pointerId)}
-                  onKeyDown={(event) => {
-                    if (!isFreeRoamControlActivationKey(event.code)) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    pressFreeRoamControl(keyboardPointerId, value as Partial<FreeRoamInput>);
-                  }}
-                  onKeyUp={(event) => {
-                    if (!isFreeRoamControlActivationKey(event.code)) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    releaseFreeRoamControl(keyboardPointerId);
-                  }}
-                  onBlur={() => releaseFreeRoamControl(keyboardPointerId)}
-                >
-                  {String(label)}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              className="free-roam-jump"
-              aria-label="ジャンプ"
-              onPointerDown={() =>
-                setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }))
+      {room?.role === "spectator" &&
+        spectatorMode === "free" &&
+        (mobile ? (
+          <>
+            <p className="free-roam-touch-guide">
+              左のパッドで移動 · 右のジャンプ · それ以外をドラッグして視点変更
+            </p>
+            <FirstPersonTouchControls
+              label="観戦中の移動操作"
+              onMove={({ forward, right }) =>
+                setFreeRoamInput((current) => ({
+                  ...current,
+                  forward,
+                  strafe: right,
+                  turn: 0,
+                }))
               }
-              onKeyDown={(event) => {
-                if (!isFreeRoamControlActivationKey(event.code)) return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (!event.repeat) {
-                  setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }));
-                }
-              }}
-            >
-              ジャンプ
-            </button>
+              onJump={() => setFreeRoamInput((current) => ({ ...current, jump: current.jump + 1 }))}
+            />
+          </>
+        ) : (
+          <div className="free-roam-controls" aria-label="観戦中の移動操作">
+            <p>キャンバスをクリック後、WASD／Space／マウスで操作（Escapeで終了）</p>
+            <div>
+              {[
+                ["↶", { turn: -1 }, "左を向く"],
+                ["↑", { forward: 1 }, "前へ進む"],
+                ["↷", { turn: 1 }, "右を向く"],
+                ["←", { strafe: -1 }, "左へ移動"],
+                ["↓", { forward: -1 }, "後ろへ進む"],
+                ["→", { strafe: 1 }, "右へ移動"],
+              ].map(([label, value, ariaLabel], index) => {
+                const keyboardPointerId = -(index + 1);
+                return (
+                  <button
+                    type="button"
+                    key={String(ariaLabel)}
+                    aria-label={String(ariaLabel)}
+                    onPointerDown={(event) => {
+                      try {
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      } catch {
+                        // Synthetic test pointers are not registered by the native pointer tracker.
+                      }
+                      pressFreeRoamControl(event.pointerId, value as Partial<FreeRoamInput>);
+                    }}
+                    onPointerUp={(event) => releaseFreeRoamControl(event.pointerId)}
+                    onPointerCancel={(event) => releaseFreeRoamControl(event.pointerId)}
+                    onLostPointerCapture={(event) => releaseFreeRoamControl(event.pointerId)}
+                    onKeyDown={(event) => {
+                      if (!isFreeRoamControlActivationKey(event.code)) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      pressFreeRoamControl(keyboardPointerId, value as Partial<FreeRoamInput>);
+                    }}
+                    onKeyUp={(event) => {
+                      if (!isFreeRoamControlActivationKey(event.code)) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      releaseFreeRoamControl(keyboardPointerId);
+                    }}
+                    onBlur={() => releaseFreeRoamControl(keyboardPointerId)}
+                  >
+                    {String(label)}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        ))}
       {contextLost && (
         <p className="webgl-recovery" role="status">
           3D表示を復旧しています。カードは下の操作一覧から選べます。

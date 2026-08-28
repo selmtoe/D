@@ -49,9 +49,9 @@ describe("7-give drag target", () => {
     expect(canInspectSpectatorOpponentHand("player", "follow", "right", "self")).toBe(false);
   });
 
-  it("allows free spectators and blind-mode players to inspect projected opponent cards", () => {
+  it("does not open a hand preview just by looking in free view, while blind inspection remains", () => {
     expect(canInspectProjectedOpponentHand("spectator", "free", "normal", "right", "self")).toBe(
-      true,
+      false,
     );
     expect(canInspectProjectedOpponentHand("player", "follow", "blind", "right", "self")).toBe(
       true,

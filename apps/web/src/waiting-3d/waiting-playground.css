@@ -136,68 +136,6 @@
   font-size: 0.54rem;
 }
 
-.waiting-movement-pad {
-  position: absolute;
-  z-index: 6;
-  bottom: max(1.2rem, env(safe-area-inset-bottom));
-  left: max(1rem, env(safe-area-inset-left));
-  width: 132px;
-  aspect-ratio: 1;
-  display: none;
-  border: 2px solid rgba(232, 244, 238, 0.42);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(115, 169, 148, 0.22), rgba(4, 18, 16, 0.58));
-  box-shadow:
-    inset 0 0 28px rgba(0, 0, 0, 0.3),
-    0 8px 30px rgba(0, 0, 0, 0.24);
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.waiting-pad-knob {
-  position: absolute;
-  top: calc(50% - 24px);
-  left: calc(50% - 24px);
-  width: 48px;
-  height: 48px;
-  border: 2px solid rgba(255, 243, 200, 0.8);
-  border-radius: 50%;
-  background: rgba(226, 193, 105, 0.72);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.38);
-  will-change: transform;
-}
-
-.waiting-pad-arrow {
-  position: absolute;
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 0.65rem;
-}
-
-.waiting-pad-arrow.up {
-  top: 7px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.waiting-pad-arrow.right {
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-}
-
-.waiting-pad-arrow.down {
-  bottom: 7px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.waiting-pad-arrow.left {
-  top: 50%;
-  left: 8px;
-  transform: translateY(-50%);
-}
-
 .waiting-playground-loading {
   position: fixed;
   z-index: 101;
@@ -209,10 +147,6 @@
 }
 
 @media (pointer: coarse), (max-width: 720px) {
-  .waiting-movement-pad {
-    display: block;
-  }
-
   .waiting-playground-toolbar {
     align-items: flex-start;
   }
@@ -231,15 +165,11 @@
 
   .waiting-playground-guide {
     right: max(0.8rem, env(safe-area-inset-right));
-    bottom: max(1rem, env(safe-area-inset-bottom));
+    bottom: max(7rem, calc(env(safe-area-inset-bottom) + 6.4rem));
     left: auto;
     width: min(52vw, 300px);
     transform: none;
   }
-}
-
-.daifugo-mobile-mode .waiting-movement-pad {
-  display: block;
 }
 
 .daifugo-mobile-mode .waiting-playground-toolbar {
@@ -260,24 +190,19 @@
 
 .daifugo-mobile-mode .waiting-playground-guide {
   right: max(0.8rem, env(safe-area-inset-right));
-  bottom: max(1rem, env(safe-area-inset-bottom));
+  bottom: max(7rem, calc(env(safe-area-inset-bottom) + 6.4rem));
   left: auto;
   width: min(52vw, 300px);
   transform: none;
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
-  .waiting-movement-pad {
-    width: 108px;
-  }
-
   .waiting-playground-guide {
     max-width: 48vw;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .waiting-pad-knob,
   .waiting-playground-actions button {
     transition: none;
   }

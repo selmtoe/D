@@ -779,18 +779,18 @@ export function GameScreen({
     (pose: FreeRoamPose) => {
       const canonicalPose = viewPoseToCanonical(pose, tableViewRotation);
       lastFreeRoamPose.current = canonicalPose;
-      void peerCues.send(spectatorPoseCue({ ...canonicalPose, freeSpectating: true }));
+      void peerCues.sendDirect(spectatorPoseCue({ ...canonicalPose, freeSpectating: true }));
     },
-    [peerCues.send, tableViewRotation],
+    [peerCues.sendDirect, tableViewRotation],
   );
   useEffect(() => {
     if (room.role !== "spectator" || spectatorMode !== "free") return;
     return () => {
       const pose = lastFreeRoamPose.current;
       if (!pose) return;
-      void peerCues.send(spectatorPoseCue({ ...pose, moving: false, freeSpectating: false }));
+      void peerCues.sendDirect(spectatorPoseCue({ ...pose, moving: false, freeSpectating: false }));
     };
-  }, [peerCues.send, room.role, spectatorMode]);
+  }, [peerCues.sendDirect, room.role, spectatorMode]);
   const current = room.players.find((player) => player.id === room.currentPlayerId);
   const myTurn = room.currentPlayerId === room.viewerId;
   const readOnly = finishing || room.role === "spectator" || me?.status !== "active";

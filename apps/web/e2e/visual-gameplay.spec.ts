@@ -434,11 +434,20 @@ test.describe("single-canvas visual gameplay inspection", () => {
 
       await spectator.page.getByRole("button", { name: "自由に移動" }).click();
       await expect(
-        spectator.page.getByText(mobile ? /左の方向パッドで移動/ : /WASD／マウスで移動/),
+        spectator.page.getByText(mobile ? /左のパッドで移動/ : /WASD／Space／マウスで操作/),
       ).toBeVisible();
-      await expect(spectator.page.getByRole("button", { name: "ジャンプ" })).toBeVisible();
+      if (mobile) {
+        await expect(spectator.page.getByRole("button", { name: "ジャンプ" })).toBeVisible();
+      }
       await expect(spectator.page.getByRole("listbox", { name: /観戦中の手札/ })).toHaveCount(0);
       const canvas = followCanvas;
+      if (followBounds) {
+        const inspectX = followBounds.x + (inspectPoint[0] ?? 0);
+        const inspectY = followBounds.y + (inspectPoint[1] ?? 0);
+        if (mobile) await spectator.page.touchscreen.tap(inspectX, inspectY);
+        else await spectator.page.mouse.move(inspectX, inspectY);
+        await expect(spectator.page.locator(".spectator-hand-preview")).toHaveCount(0);
+      }
       await expect(canvas).toHaveAttribute("data-free-roam-camera", "first-person");
       await expect(canvas).toHaveAttribute("data-free-roam-pose", /.+/);
       const observerCanvas = observer.page.locator("canvas").first();
@@ -500,7 +509,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
       expect(Math.abs(poseAfterTurn.pitch - poseBeforeTurn.pitch)).toBeGreaterThan(0.02);
       const poseBeforeMove = poseAfterTurn;
       if (mobile) {
-        const movementPad = spectator.page.locator(".free-roam-controls");
+        const movementPad = spectator.page.getByRole("group", { name: "移動パッド" });
         const jumpButton = spectator.page.getByRole("button", { name: "ジャンプ" });
         const [padBounds, jumpBounds] = await Promise.all([
           movementPad.boundingBox(),
@@ -508,36 +517,30 @@ test.describe("single-canvas visual gameplay inspection", () => {
         ]);
         expect((padBounds?.x ?? 0) + (padBounds?.width ?? 0)).toBeLessThan(412 / 2);
         expect(jumpBounds?.x ?? 0).toBeGreaterThan(412 / 2);
-        const moveForward = spectator.page.getByRole("button", { name: "前へ進む" });
-        const moveRight = spectator.page.getByRole("button", { name: "右へ移動" });
-        await moveForward.dispatchEvent("pointerdown", {
+        expect(padBounds).not.toBeNull();
+        const padCenterX = (padBounds?.x ?? 0) + (padBounds?.width ?? 0) / 2;
+        const padCenterY = (padBounds?.y ?? 0) + (padBounds?.height ?? 0) / 2;
+        await movementPad.dispatchEvent("pointerdown", {
           pointerId: 11,
           pointerType: "touch",
           buttons: 1,
+          clientX: padCenterX,
+          clientY: padCenterY,
         });
-        await moveRight.dispatchEvent("pointerdown", {
-          pointerId: 12,
-          pointerType: "touch",
-          buttons: 1,
-        });
-        await spectator.page.waitForTimeout(260);
-        await moveRight.dispatchEvent("pointerup", {
-          pointerId: 12,
-          pointerType: "touch",
-        });
-        const poseAfterRightRelease = await readFreeRoamPose(spectator.page);
-        await spectator.page.waitForTimeout(260);
-        await moveForward.dispatchEvent("pointerup", {
+        await movementPad.dispatchEvent("pointermove", {
           pointerId: 11,
           pointerType: "touch",
+          buttons: 1,
+          clientX: padCenterX + (padBounds?.width ?? 0) * 0.2,
+          clientY: padCenterY - (padBounds?.height ?? 0) * 0.28,
         });
-        const poseAfterForwardContinues = await readFreeRoamPose(spectator.page);
-        expect(
-          Math.hypot(
-            poseAfterForwardContinues.x - poseAfterRightRelease.x,
-            poseAfterForwardContinues.z - poseAfterRightRelease.z,
-          ),
-        ).toBeGreaterThan(0.08);
+        await spectator.page.waitForTimeout(520);
+        await movementPad.dispatchEvent("pointerup", {
+          pointerId: 11,
+          pointerType: "touch",
+          clientX: padCenterX + (padBounds?.width ?? 0) * 0.2,
+          clientY: padCenterY - (padBounds?.height ?? 0) * 0.28,
+        });
       } else {
         await spectator.page.keyboard.down("d");
         await spectator.page.waitForTimeout(650);
@@ -571,7 +574,7 @@ test.describe("single-canvas visual gameplay inspection", () => {
           ".game-topbar",
           ".status-stack",
           ".spectator-controls",
-          ".free-roam-controls",
+          ".first-person-touch-controls",
           ".emote-controls",
           ".log-toggle",
         ]);

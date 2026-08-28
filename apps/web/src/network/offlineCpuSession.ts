@@ -118,6 +118,11 @@ export class OfflineCpuSession {
     this.cueListeners.forEach((listener) => listener(copy(cue), this.uid));
   }
 
+  async sendCueDirect(cue: CueEvent): Promise<boolean> {
+    await this.sendCue(cue);
+    return true;
+  }
+
   onView(listener: (view: RoomView) => void): () => void {
     this.viewListeners.add(listener);
     const view = copy(this.lastView);

@@ -1144,6 +1144,23 @@ h2 {
   font-size: 0.68rem;
   letter-spacing: 0.12em;
 }
+.free-roam-touch-guide {
+  position: absolute;
+  z-index: 11;
+  right: max(0.7rem, env(safe-area-inset-right));
+  bottom: max(6.7rem, calc(env(safe-area-inset-bottom) + 5.8rem));
+  max-width: min(48vw, 290px);
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  color: #e2ebe5;
+  border: 1px solid rgba(206, 224, 214, 0.28);
+  border-radius: 999px;
+  background: rgba(5, 18, 16, 0.74);
+  font-size: 0.64rem;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
+}
 .free-roam-controls.mobile {
   width: 154px;
   background: rgb(5 18 16 / 68%);
@@ -1179,6 +1196,10 @@ h2 {
   border-radius: 50%;
 }
 .game-screen.free-roam.log-open .free-roam-controls {
+  display: none;
+}
+.game-screen.free-roam.log-open .first-person-touch-controls,
+.game-screen.free-roam.log-open .free-roam-touch-guide {
   display: none;
 }
 .emote-controls {

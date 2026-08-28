@@ -5,6 +5,7 @@ import {
   parseCue,
   spectatorPoseCue,
   stealAnimationCue,
+  waitingPoseCue,
 } from "../network/peerCues";
 
 describe("non-authoritative peer cues", () => {
@@ -78,5 +79,20 @@ describe("non-authoritative peer cues", () => {
     expect(parseCue({ ...cue, freeSpectating: false, moving: true })).toBeNull();
     const { yaw: _yaw, ...withoutYaw } = cue;
     expect(parseCue(withoutYaw)).toBeNull();
+  });
+  it("accepts only bounded, ephemeral waiting-room poses", () => {
+    const cue = waitingPoseCue({
+      x: 2,
+      y: 0.05,
+      z: -3,
+      yaw: -0.5,
+      moving: true,
+      inPlayground: true,
+    });
+
+    expect(parseCue(cue)).toEqual(cue);
+    expect(parseCue({ ...cue, x: 16.01 })).toBeNull();
+    expect(parseCue({ ...cue, inPlayground: false, moving: true })).toBeNull();
+    expect(parseCue({ ...cue, cardIds: ["secret"] })).toBeNull();
   });
 });

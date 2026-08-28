@@ -10,11 +10,20 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { Group } from "three";
+import { MathUtils, type Group } from "three";
 import { Avatar3D } from "../avatar-3d/Avatar3D";
 import { useUiStore } from "../app/store";
+import { FirstPersonTouchControls } from "../components/FirstPersonTouchControls";
+import { useFirstPersonTouchDevice } from "../components/useFirstPersonTouchDevice";
+import type { WaitingPoseCue } from "../network/peerCues";
+import {
+  FREE_ROAM_GROUND_Y,
+  separateFreeRoamAvatars,
+  stepFreeRoamVertical,
+} from "../game-3d/spectatorControls";
 import {
   applyPlaygroundLook,
+  containPlaygroundPosition,
   playgroundPerformanceProfile,
   stepPlaygroundPosition,
   type PlaygroundLook,
@@ -33,21 +42,9 @@ export type WaitingPlaygroundMember = {
 type NavigatorWithDeviceMemory = Navigator & { deviceMemory?: number };
 
 const CAMERA_HEIGHT = 1.65;
+const emptyWaitingPoses: ReadonlyMap<string, WaitingPoseCue> = new Map();
 
-function useMobileViewport(): boolean {
-  const [mobile, setMobile] = useState(() =>
-    typeof window === "undefined"
-      ? false
-      : window.matchMedia("(pointer: coarse), (max-width: 720px)").matches,
-  );
-  useEffect(() => {
-    const media = window.matchMedia("(pointer: coarse), (max-width: 720px)");
-    const update = () => setMobile(media.matches);
-    media.addEventListener?.("change", update);
-    return () => media.removeEventListener?.("change", update);
-  }, []);
-  return mobile;
-}
+export type WaitingPlaygroundPose = Pick<WaitingPoseCue, "x" | "y" | "z" | "yaw" | "moving">;
 
 function FramePump({ fps }: { fps: number }) {
   const invalidate = useThree((state) => state.invalidate);
@@ -72,30 +69,54 @@ function FirstPersonController({
   movement,
   look,
   resetVersion,
+  jumpVersion,
+  selfId,
+  remotePoses,
+  onPoseChange,
 }: {
   movement: MutableRefObject<PlaygroundMovement>;
   look: MutableRefObject<PlaygroundLook>;
   resetVersion: number;
+  jumpVersion: number;
+  selfId: string;
+  remotePoses: ReadonlyMap<string, WaitingPoseCue>;
+  onPoseChange: (pose: WaitingPlaygroundPose, inPlayground: boolean) => void;
 }) {
   const camera = useThree((state) => state.camera);
   const canvas = useThree((state) => state.gl.domElement);
   const keyboard = useRef(new Set<string>());
   const position = useRef({ x: 0, z: 8.4 });
+  const height = useRef(FREE_ROAM_GROUND_Y);
+  const verticalVelocity = useRef(0);
+  const jumpRequested = useRef(false);
+  const handledJumpVersion = useRef(jumpVersion);
+  const lastPose = useRef<WaitingPlaygroundPose | undefined>(undefined);
+  const lastPoseSentAt = useRef(Number.NEGATIVE_INFINITY);
+  const onPoseChangeRef = useRef(onPoseChange);
+  onPoseChangeRef.current = onPoseChange;
   useEffect(() => {
     position.current = { x: 0, z: 8.4 };
+    height.current = FREE_ROAM_GROUND_Y;
+    verticalVelocity.current = 0;
     look.current = { yaw: 0, pitch: -0.04 };
-    camera.position.set(0, CAMERA_HEIGHT, 8.4);
+    camera.position.set(0, CAMERA_HEIGHT + FREE_ROAM_GROUND_Y, 8.4);
     camera.rotation.set(-0.04, 0, 0, "YXZ");
   }, [camera, look, resetVersion]);
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight"].includes(event.code)) {
+      if (
+        ["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight", "Space"].includes(event.code)
+      ) {
         keyboard.current.add(event.code);
         event.preventDefault();
+        if (event.code === "Space" && !event.repeat) jumpRequested.current = true;
       }
     };
     const up = (event: KeyboardEvent) => keyboard.current.delete(event.code);
-    const clear = () => keyboard.current.clear();
+    const clear = () => {
+      keyboard.current.clear();
+      jumpRequested.current = false;
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", clear);
@@ -105,6 +126,13 @@ function FirstPersonController({
       window.removeEventListener("blur", clear);
     };
   }, []);
+  useEffect(
+    () => () => {
+      const pose = lastPose.current;
+      if (pose) onPoseChangeRef.current({ ...pose, moving: false }, false);
+    },
+    [],
+  );
   useFrame((_, delta) => {
     const forward =
       movement.current.forward +
@@ -115,23 +143,60 @@ function FirstPersonController({
       Number(keyboard.current.has("KeyD")) -
       Number(keyboard.current.has("KeyA"));
     const sprinting = keyboard.current.has("ShiftLeft") || keyboard.current.has("ShiftRight");
-    position.current = stepPlaygroundPosition(
+    const nextPosition = stepPlaygroundPosition(
       position.current,
       look.current,
       { forward, right },
       Math.min(delta, 0.05) * (sprinting ? 7.4 : 4.8),
     );
-    camera.position.set(position.current.x, CAMERA_HEIGHT, position.current.z);
+    separateFreeRoamAvatars(nextPosition, remotePoses, selfId);
+    position.current = containPlaygroundPosition(nextPosition);
+    const touchJumpStarted = jumpVersion !== handledJumpVersion.current;
+    handledJumpVersion.current = jumpVersion;
+    const vertical = stepFreeRoamVertical(
+      height.current,
+      verticalVelocity.current,
+      Math.min(delta, 0.05),
+      jumpRequested.current || touchJumpStarted,
+    );
+    jumpRequested.current = false;
+    height.current = vertical.height;
+    verticalVelocity.current = vertical.velocity;
+    camera.position.set(position.current.x, CAMERA_HEIGHT + height.current, position.current.z);
     camera.rotation.set(look.current.pitch, look.current.yaw, 0, "YXZ");
     canvas.dataset.waitingPlaygroundPose = [
       position.current.x,
-      CAMERA_HEIGHT,
+      CAMERA_HEIGHT + height.current,
       position.current.z,
       look.current.yaw,
       look.current.pitch,
     ]
       .map((value) => value.toFixed(3))
       .join(",");
+    const moving =
+      Math.abs(forward) > 0.01 ||
+      Math.abs(right) > 0.01 ||
+      Math.abs(verticalVelocity.current) > 0.05;
+    const pose: WaitingPlaygroundPose = {
+      x: position.current.x,
+      y: height.current,
+      z: position.current.z,
+      yaw: look.current.yaw,
+      moving,
+    };
+    const previous = lastPose.current;
+    const changed =
+      !previous ||
+      Math.hypot(pose.x - previous.x, pose.y - previous.y, pose.z - previous.z) > 0.025 ||
+      Math.abs(Math.atan2(Math.sin(pose.yaw - previous.yaw), Math.cos(pose.yaw - previous.yaw))) >
+        0.02 ||
+      pose.moving !== previous.moving;
+    const now = performance.now();
+    if (now - lastPoseSentAt.current >= (changed || moving ? 50 : 750)) {
+      lastPose.current = pose;
+      lastPoseSentAt.current = now;
+      onPoseChangeRef.current(pose, true);
+    }
   });
   return null;
 }
@@ -142,32 +207,64 @@ function MemberAvatar({
   total,
   economical,
   reducedMotion,
+  pose,
 }: {
   member: WaitingPlaygroundMember;
   index: number;
   total: number;
   economical: boolean;
   reducedMotion: boolean;
+  pose?: WaitingPoseCue | undefined;
 }) {
-  const angle = (index / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
+  // Offset the ring by half a slot so nobody blocks the first-person spawn corridor.
+  const angle = ((index + 0.5) / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
   const radius = total <= 3 ? 4.6 : 5.8;
-  const x = Math.cos(angle) * radius;
-  const z = Math.sin(angle) * radius;
+  const staticX = Math.cos(angle) * radius;
+  const staticZ = Math.sin(angle) * radius;
+  const staticYaw = -angle - Math.PI / 2;
+  const avatarGroup = useRef<Group>(null);
+  const initialPosition = useRef<[number, number, number]>([staticX, 0.18, staticZ]);
+  const initialRotation = useRef<[number, number, number]>([0, staticYaw, 0]);
+  useFrame((_, delta) => {
+    const group = avatarGroup.current;
+    if (!group) return;
+    const factor = 1 - Math.exp(-Math.min(delta, 0.05) * 14);
+    group.position.x = MathUtils.lerp(group.position.x, pose?.x ?? staticX, factor);
+    group.position.y = MathUtils.lerp(group.position.y, pose?.y ?? 0.18, factor);
+    group.position.z = MathUtils.lerp(group.position.z, pose?.z ?? staticZ, factor);
+    const targetYaw = pose?.yaw ?? staticYaw;
+    const yawDelta = Math.atan2(
+      Math.sin(targetYaw - group.rotation.y),
+      Math.cos(targetYaw - group.rotation.y),
+    );
+    group.rotation.y += yawDelta * factor;
+  });
   return (
-    <group position={[x, 0.18, z]} rotation={[0, -angle - Math.PI / 2, 0]}>
-      <mesh position={[0, -0.11, 0]} receiveShadow>
-        <cylinderGeometry args={[0.78, 0.9, 0.2, economical ? 16 : 28]} />
-        <meshStandardMaterial color={member.spectator ? "#37658a" : "#79582b"} roughness={0.74} />
-      </mesh>
+    <group ref={avatarGroup} position={initialPosition.current} rotation={initialRotation.current}>
+      {!pose && (
+        <mesh position={[0, -0.11, 0]} receiveShadow>
+          <cylinderGeometry args={[0.78, 0.9, 0.2, economical ? 16 : 28]} />
+          <meshStandardMaterial color={member.spectator ? "#37658a" : "#79582b"} roughness={0.74} />
+        </mesh>
+      )}
       <group scale={0.72}>
         <Avatar3D
           profile={member.avatar}
           lowPower={economical}
-          active={!reducedMotion && !economical}
+          active={!reducedMotion && (pose?.moving ?? !economical)}
         />
       </group>
       <Html center position={[0, 2.65, 0]} distanceFactor={8} className="waiting-member-label">
-        <span>{member.name}</span>
+        <span
+          data-waiting-member-id={member.id}
+          data-waiting-member-pose={
+            pose
+              ? [pose.x, pose.y, pose.z, pose.yaw].map((value) => value.toFixed(3)).join(",")
+              : "stationary"
+          }
+        >
+          {member.name}
+        </span>
         {member.cpu && <small>CPU</small>}
         {member.spectator && <small>観戦</small>}
       </Html>
@@ -200,10 +297,14 @@ function PlaygroundWorld({
   members,
   economical,
   reducedMotion,
+  selfId,
+  remotePoses,
 }: {
   members: WaitingPlaygroundMember[];
   economical: boolean;
   reducedMotion: boolean;
+  selfId: string;
+  remotePoses: ReadonlyMap<string, WaitingPoseCue>;
 }) {
   return (
     <>
@@ -232,16 +333,19 @@ function PlaygroundWorld({
         <meshStandardMaterial color="#d0aa55" emissive="#5e4317" emissiveIntensity={0.35} />
       </mesh>
       <MovingPlaygroundDecor reducedMotion={reducedMotion} />
-      {members.map((member, index) => (
-        <MemberAvatar
-          key={member.id}
-          member={member}
-          index={index}
-          total={members.length}
-          economical={economical}
-          reducedMotion={reducedMotion}
-        />
-      ))}
+      {members.map((member, index) =>
+        member.id === selfId ? null : (
+          <MemberAvatar
+            key={member.id}
+            member={member}
+            index={index}
+            total={members.length}
+            economical={economical}
+            reducedMotion={reducedMotion}
+            pose={remotePoses.get(member.id)}
+          />
+        ),
+      )}
       {(
         [
           [-8, -7],
@@ -265,73 +369,23 @@ function PlaygroundWorld({
   );
 }
 
-function MobileMovementPad({ movement }: { movement: MutableRefObject<PlaygroundMovement> }) {
-  const pad = useRef<HTMLDivElement>(null);
-  const knob = useRef<HTMLSpanElement>(null);
-  const activePointer = useRef<number | undefined>(undefined);
-  const update = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!pad.current || activePointer.current !== event.pointerId) return;
-    const box = pad.current.getBoundingClientRect();
-    const radius = Math.max(1, box.width * 0.34);
-    const rawX = event.clientX - (box.left + box.width / 2);
-    const rawY = event.clientY - (box.top + box.height / 2);
-    const scale = Math.min(1, radius / Math.max(radius, Math.hypot(rawX, rawY)));
-    const x = rawX * scale;
-    const y = rawY * scale;
-    movement.current = { right: x / radius, forward: -y / radius };
-    if (knob.current) knob.current.style.transform = `translate(${x}px, ${y}px)`;
-  };
-  const reset = (event?: ReactPointerEvent<HTMLDivElement>) => {
-    if (event && activePointer.current !== event.pointerId) return;
-    activePointer.current = undefined;
-    movement.current = { right: 0, forward: 0 };
-    if (knob.current) knob.current.style.transform = "translate(0, 0)";
-  };
-  return (
-    <div
-      ref={pad}
-      className="waiting-movement-pad"
-      role="group"
-      aria-label="移動パッド"
-      onPointerDown={(event) => {
-        activePointer.current = event.pointerId;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        update(event);
-        event.stopPropagation();
-      }}
-      onPointerMove={update}
-      onPointerUp={reset}
-      onPointerCancel={reset}
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      <span className="waiting-pad-arrow up" aria-hidden="true">
-        ▲
-      </span>
-      <span className="waiting-pad-arrow right" aria-hidden="true">
-        ▶
-      </span>
-      <span className="waiting-pad-arrow down" aria-hidden="true">
-        ▼
-      </span>
-      <span className="waiting-pad-arrow left" aria-hidden="true">
-        ◀
-      </span>
-      <span ref={knob} className="waiting-pad-knob" aria-hidden="true" />
-    </div>
-  );
-}
-
 export function WaitingPlayground({
   members,
+  selfId,
+  remotePoses = emptyWaitingPoses,
+  onPoseChange = () => undefined,
   onClose,
 }: {
   members: WaitingPlaygroundMember[];
+  selfId: string;
+  remotePoses?: ReadonlyMap<string, WaitingPoseCue> | undefined;
+  onPoseChange?: ((pose: WaitingPlaygroundPose, inPlayground: boolean) => void) | undefined;
   onClose: () => void;
 }) {
   const lowPower = useUiStore((state) => state.lowPower);
   const reducedMotion = useUiStore((state) => state.reducedMotion);
   const forcedMobile = useUiStore((state) => state.mobileMode);
-  const mobileViewport = useMobileViewport();
+  const mobileViewport = useFirstPersonTouchDevice();
   const mobile = forcedMobile || mobileViewport;
   const profile = useMemo(
     () =>
@@ -350,6 +404,7 @@ export function WaitingPlayground({
   const viewport = useRef<HTMLDivElement>(null);
   const [pointerLocked, setPointerLocked] = useState(false);
   const [resetVersion, setResetVersion] = useState(0);
+  const [jumpVersion, setJumpVersion] = useState(0);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -431,17 +486,27 @@ export function WaitingPlayground({
           shadows={profile.shadows}
           camera={{ position: [0, CAMERA_HEIGHT, 8.4], fov: mobile ? 72 : 67, near: 0.08, far: 42 }}
           gl={{
-            antialias: !profile.economical,
-            powerPreference: profile.economical ? "low-power" : "high-performance",
+            antialias: true,
+            powerPreference: lowPower ? "low-power" : "high-performance",
           }}
         >
           <FramePump fps={profile.fps} />
-          <FirstPersonController movement={movement} look={look} resetVersion={resetVersion} />
+          <FirstPersonController
+            movement={movement}
+            look={look}
+            resetVersion={resetVersion}
+            jumpVersion={jumpVersion}
+            selfId={selfId}
+            remotePoses={remotePoses}
+            onPoseChange={onPoseChange}
+          />
           <Suspense fallback={null}>
             <PlaygroundWorld
               members={members}
               economical={profile.economical}
               reducedMotion={reducedMotion}
+              selfId={selfId}
+              remotePoses={remotePoses}
             />
           </Suspense>
         </Canvas>
@@ -468,11 +533,11 @@ export function WaitingPlayground({
 
       <div className="waiting-playground-guide" aria-live="polite">
         {mobile ? (
-          <p>左のパッドで移動 · それ以外の画面をドラッグして視点変更</p>
+          <p>左のパッドで移動 · 右のジャンプ · それ以外をドラッグして視点変更</p>
         ) : pointerLocked ? (
-          <p>WASDで移動 · マウスで視点変更 · Escでカーソルを戻す</p>
+          <p>WASDで移動 · Spaceでジャンプ · マウスで視点変更 · Escでカーソルを戻す</p>
         ) : (
-          <p>画面をクリックしてFPS操作 · WASDで移動 · Escでカーソルを戻す</p>
+          <p>画面をクリックしてFPS操作 · WASD／Spaceで移動・ジャンプ</p>
         )}
       </div>
 
@@ -484,7 +549,15 @@ export function WaitingPlayground({
           </span>
         ))}
       </div>
-      <MobileMovementPad movement={movement} />
+      {mobile && (
+        <FirstPersonTouchControls
+          label="3D待機室の移動操作"
+          onMove={(nextMovement) => {
+            movement.current = nextMovement;
+          }}
+          onJump={() => setJumpVersion((version) => version + 1)}
+        />
+      )}
     </section>
   );
 }

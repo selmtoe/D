@@ -25,6 +25,13 @@ export type PlaygroundPerformanceProfile = {
 const MAX_PITCH = Math.PI * 0.47;
 const PLAYGROUND_BOUNDARY = 10.8;
 
+export function containPlaygroundPosition(position: PlaygroundPosition): PlaygroundPosition {
+  return {
+    x: MathUtils.clamp(position.x, -PLAYGROUND_BOUNDARY, PLAYGROUND_BOUNDARY),
+    z: MathUtils.clamp(position.z, -PLAYGROUND_BOUNDARY, PLAYGROUND_BOUNDARY),
+  };
+}
+
 export function applyPlaygroundLook(
   look: PlaygroundLook,
   movementX: number,
@@ -50,10 +57,7 @@ export function stepPlaygroundPosition(
   const right = movement.right / Math.max(1, magnitude);
   const x = position.x + (-Math.sin(look.yaw) * forward + Math.cos(look.yaw) * right) * distance;
   const z = position.z + (-Math.cos(look.yaw) * forward - Math.sin(look.yaw) * right) * distance;
-  return {
-    x: MathUtils.clamp(x, -PLAYGROUND_BOUNDARY, PLAYGROUND_BOUNDARY),
-    z: MathUtils.clamp(z, -PLAYGROUND_BOUNDARY, PLAYGROUND_BOUNDARY),
-  };
+  return containPlaygroundPosition({ x, z });
 }
 
 export function playgroundPerformanceProfile({
@@ -72,11 +76,13 @@ export function playgroundPerformanceProfile({
   const limitedDevice =
     (hardwareConcurrency !== undefined && hardwareConcurrency <= 4) ||
     (deviceMemory !== undefined && deviceMemory <= 4);
-  const economical = lowPower || mobile || reducedMotion || limitedDevice;
+  const performanceLimited = lowPower || limitedDevice;
   return {
-    dpr: economical ? (mobile ? 0.72 : 0.85) : [1, 1.45],
-    fps: reducedMotion ? 24 : economical ? 30 : 60,
-    shadows: !economical,
-    economical,
+    // Low-power mode preserves native sharpness and antialiasing. It saves work
+    // through frame rate, shadows, and effects instead of reducing image quality.
+    dpr: [1, mobile ? 1.35 : 1.45],
+    fps: reducedMotion ? 30 : performanceLimited ? 30 : mobile ? 45 : 60,
+    shadows: !performanceLimited && !mobile,
+    economical: false,
   };
 }

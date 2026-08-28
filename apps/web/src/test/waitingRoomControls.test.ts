@@ -10,6 +10,12 @@ import {
   WaitingRoomScreen,
 } from "../screens/WaitingRoomScreen";
 
+const cueTransport = vi.hoisted(() => ({ sendDirect: vi.fn() }));
+
+vi.mock("../network/usePeerCues", () => ({
+  usePeerCues: () => ({ waitingPoses: new Map(), sendDirect: cueTransport.sendDirect }),
+}));
+
 vi.mock("../avatar-3d/AvatarPortrait", () => ({
   AvatarPortrait: () => null,
 }));
@@ -17,21 +23,37 @@ vi.mock("../avatar-3d/AvatarPortrait", () => ({
 vi.mock("../waiting-3d/WaitingPlayground", () => ({
   default: ({
     members,
+    selfId,
+    onPoseChange,
     onClose,
   }: {
     members: Array<{ id: string; name: string }>;
+    selfId: string;
+    onPoseChange: (
+      pose: { x: number; y: number; z: number; yaw: number; moving: boolean },
+      active: boolean,
+    ) => void;
     onClose: () => void;
   }) =>
     createElement(
       "section",
-      { role: "dialog", "aria-label": "3D待機室テスト" },
+      { role: "dialog", "aria-label": "3D待機室テスト", "data-self-id": selfId },
       ...members.map((member) => createElement("span", { key: member.id }, member.name)),
+      createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => onPoseChange({ x: 1, y: 0.05, z: 2, yaw: 0.4, moving: true }, true),
+        },
+        "位置を送る",
+      ),
       createElement("button", { type: "button", onClick: onClose }, "待機画面へ戻る"),
     ),
 }));
 
 afterEach(() => {
   cleanup();
+  cueTransport.sendDirect.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -197,6 +219,12 @@ describe("waiting room controls", () => {
     const playground = await screen.findByRole("dialog", { name: "3D待機室テスト" });
     expect(playground).toHaveTextContent("ホスト");
     expect(playground).toHaveTextContent("参加者");
+    expect(playground).toHaveAttribute("data-self-id", "host");
+
+    fireEvent.click(screen.getByRole("button", { name: "位置を送る" }));
+    expect(cueTransport.sendDirect).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "waitingPose", inPlayground: true, x: 1, z: 2 }),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "待機画面へ戻る" }));
     expect(screen.queryByRole("dialog", { name: "3D待機室テスト" })).toBeNull();

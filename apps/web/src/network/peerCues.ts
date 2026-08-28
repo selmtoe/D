@@ -11,6 +11,19 @@ export type SpectatorPoseCue = {
   atMs: number;
 };
 
+export type WaitingPoseCue = {
+  version: 1;
+  type: "waitingPose";
+  eventId: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  moving: boolean;
+  inPlayground: boolean;
+  atMs: number;
+};
+
 export type CueEvent =
   | {
       version: 1;
@@ -41,7 +54,8 @@ export type CueEvent =
       selectedSlots?: number[];
       atMs: number;
     }
-  | SpectatorPoseCue;
+  | SpectatorPoseCue
+  | WaitingPoseCue;
 
 const SPECTATOR_HORIZONTAL_LIMIT = 16;
 const SPECTATOR_Y_MIN = 0;
@@ -78,6 +92,18 @@ const exactKeys: Record<CueEvent["type"], string[]> = {
     "freeSpectating",
     "atMs",
   ],
+  waitingPose: [
+    "version",
+    "type",
+    "eventId",
+    "x",
+    "y",
+    "z",
+    "yaw",
+    "moving",
+    "inPlayground",
+    "atMs",
+  ],
 };
 
 function isFiniteInRange(value: unknown, min: number, max: number): value is number {
@@ -89,7 +115,7 @@ export function parseCue(value: unknown): CueEvent | null {
   const item = value as Record<string, unknown>;
   if (
     item.version !== 1 ||
-    !["emote", "focus", "animation", "spectatorPose"].includes(String(item.type)) ||
+    !["emote", "focus", "animation", "spectatorPose", "waitingPose"].includes(String(item.type)) ||
     typeof item.eventId !== "string" ||
     item.eventId.length > 128 ||
     typeof item.atMs !== "number"
@@ -114,6 +140,23 @@ export function parseCue(value: unknown): CueEvent | null {
     Number(item.atMs) <= Date.now() + SPECTATOR_FUTURE_CLOCK_SKEW_MS
   ) {
     return item as SpectatorPoseCue;
+  }
+  if (
+    type === "waitingPose" &&
+    Object.keys(item).length === exactKeys.waitingPose.length &&
+    item.eventId.length > 0 &&
+    isFiniteInRange(item.x, -SPECTATOR_HORIZONTAL_LIMIT, SPECTATOR_HORIZONTAL_LIMIT) &&
+    isFiniteInRange(item.y, SPECTATOR_Y_MIN, 5) &&
+    isFiniteInRange(item.z, -SPECTATOR_HORIZONTAL_LIMIT, SPECTATOR_HORIZONTAL_LIMIT) &&
+    isFiniteInRange(item.yaw, -SPECTATOR_YAW_LIMIT, SPECTATOR_YAW_LIMIT) &&
+    typeof item.moving === "boolean" &&
+    typeof item.inPlayground === "boolean" &&
+    (item.inPlayground || !item.moving) &&
+    Number.isSafeInteger(item.atMs) &&
+    Number(item.atMs) >= 0 &&
+    Number(item.atMs) <= Date.now() + SPECTATOR_FUTURE_CLOCK_SKEW_MS
+  ) {
+    return item as WaitingPoseCue;
   }
   if (type === "emote" && ["applause", "surprise", "thinking"].includes(String(item.emote))) {
     return item as CueEvent;
@@ -207,6 +250,21 @@ export function spectatorPoseCue(
     atMs,
   };
   if (!parseCue(cue)) throw new RangeError("Invalid spectator pose cue");
+  return cue;
+}
+
+export function waitingPoseCue(
+  pose: Pick<WaitingPoseCue, "x" | "y" | "z" | "yaw" | "moving" | "inPlayground">,
+  atMs = Date.now(),
+): WaitingPoseCue {
+  const cue: WaitingPoseCue = {
+    version: 1,
+    type: "waitingPose",
+    eventId: crypto.randomUUID(),
+    ...pose,
+    atMs,
+  };
+  if (!parseCue(cue)) throw new RangeError("Invalid waiting playground pose cue");
   return cue;
 }
 

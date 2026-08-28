@@ -1,8 +1,11 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { RoomView } from "../app/model";
 import { AvatarPortrait } from "../avatar-3d/AvatarPortrait";
 import { ConnectionBadge } from "../components/ConnectionBadge";
+import { waitingPoseCue } from "../network/peerCues";
+import { usePeerCues } from "../network/usePeerCues";
+import type { WaitingPlaygroundPose } from "../waiting-3d/WaitingPlayground";
 
 const WaitingPlayground = lazy(() => import("../waiting-3d/WaitingPlayground"));
 
@@ -68,6 +71,22 @@ export function WaitingRoomScreen({
       })),
     ],
     [room.players, room.spectators],
+  );
+  const waitingPeerIds = useMemo(
+    () => [
+      ...room.players.filter((player) => !player.cpu).map((player) => player.id),
+      ...room.spectators.map((spectator) => spectator.id),
+    ],
+    [room.players, room.spectators],
+  );
+  const peerCues = usePeerCues(room.roomId, room.viewerId, waitingPeerIds);
+  const publishWaitingPose = useCallback(
+    (pose: WaitingPlaygroundPose, inPlayground: boolean) => {
+      // Waiting-room movement is deliberately direct-only. If WebRTC is not
+      // ready, the pose is dropped instead of consuming a Firebase mailbox write.
+      void peerCues.sendDirect(waitingPoseCue({ ...pose, inPlayground }));
+    },
+    [peerCues.sendDirect],
   );
   const copyText = async (text: string) => {
     try {
@@ -351,7 +370,13 @@ export function WaitingRoomScreen({
             </div>
           }
         >
-          <WaitingPlayground members={playgroundMembers} onClose={() => setPlaygroundOpen(false)} />
+          <WaitingPlayground
+            members={playgroundMembers}
+            selfId={room.viewerId}
+            remotePoses={peerCues.waitingPoses}
+            onPoseChange={publishWaitingPose}
+            onClose={() => setPlaygroundOpen(false)}
+          />
         </Suspense>
       )}
     </main>

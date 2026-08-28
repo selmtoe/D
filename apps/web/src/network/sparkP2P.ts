@@ -68,7 +68,7 @@ export type WireMessage =
   | { type: "response"; requestId: string; ok: true; result: Record<string, unknown> }
   | { type: "response"; requestId: string; ok: false; error: string }
   | { type: "view"; view: RoomView }
-  | { type: "cue"; cue: CueEvent; senderUid?: string }
+  | { type: "cue"; cue: CueEvent; senderUid?: string; directOnly?: true }
   | { type: "evicted"; reason: "kick" };
 
 interface PeerState {
@@ -376,11 +376,17 @@ export function parseSparkWire(payload: string): WireMessage | null {
       const senderUid = value.senderUid;
       if (
         !cue ||
+        (value.directOnly !== undefined && value.directOnly !== true) ||
         (senderUid !== undefined &&
           (typeof senderUid !== "string" || senderUid.length === 0 || senderUid.length > 128))
       )
         return null;
-      return { type: "cue", cue, ...(senderUid ? { senderUid } : {}) };
+      return {
+        type: "cue",
+        cue,
+        ...(senderUid ? { senderUid } : {}),
+        ...(value.directOnly === true ? { directOnly: true as const } : {}),
+      };
     }
     if (
       value.type === "hello" &&
@@ -1275,7 +1281,11 @@ export class SparkP2PSession {
     if (wire.type === "cue") {
       const cueSenderUid = this.authority ? senderUid : (wire.senderUid ?? senderUid);
       this.cueListeners.forEach((listener) => listener(wire.cue, cueSenderUid));
-      if (this.authority) void this.broadcastCue(wire.cue, senderUid).catch(() => undefined);
+      if (this.authority) {
+        void this.broadcastCue(wire.cue, senderUid, wire.directOnly === true).catch(
+          () => undefined,
+        );
+      }
       return;
     }
     if (wire.type === "evicted") {
@@ -1362,17 +1372,23 @@ export class SparkP2PSession {
     this.viewListeners.forEach((listener) => listener(plain(view)));
   }
 
-  private async broadcastCue(cue: CueEvent, senderUid: string): Promise<void> {
+  private async broadcastCue(cue: CueEvent, senderUid: string, directOnly = false): Promise<void> {
     if (!this.authority) return;
     const snapshot = this.authority.exportSnapshot();
     await Promise.all(
       Object.values(snapshot.members)
         .filter((member) => !member.cpu && member.uid !== senderUid && member.online)
-        .map((member) =>
-          this.sendWire(member.uid, member.peerId, { type: "cue", cue, senderUid }).catch(
-            () => undefined,
-          ),
-        ),
+        .map((member) => {
+          const wire: WireMessage = {
+            type: "cue",
+            cue,
+            senderUid,
+            ...(directOnly ? { directOnly: true } : {}),
+          };
+          return directOnly
+            ? Promise.resolve(this.sendWireDirect(member.uid, member.peerId, wire))
+            : this.sendWire(member.uid, member.peerId, wire).catch(() => undefined);
+        }),
     );
   }
 
@@ -1381,6 +1397,21 @@ export class SparkP2PSession {
     this.cueListeners.forEach((listener) => listener(cue, this.uid));
     if (this.authority) await this.broadcastCue(cue, this.uid);
     else await this.sendWire(this.coordinatorUid, this.coordinatorPeerId, { type: "cue", cue });
+  }
+
+  /** Sends transient movement over an already-open data channel and never writes a mailbox. */
+  async sendCueDirect(cue: CueEvent): Promise<boolean> {
+    if (this.stopped) return false;
+    this.cueListeners.forEach((listener) => listener(cue, this.uid));
+    if (this.authority) {
+      await this.broadcastCue(cue, this.uid, true);
+      return true;
+    }
+    return this.sendWireDirect(this.coordinatorUid, this.coordinatorPeerId, {
+      type: "cue",
+      cue,
+      directOnly: true,
+    });
   }
 
   async sendCommand(
@@ -1489,6 +1520,16 @@ export class SparkP2PSession {
     }
     this.setMode(navigator.onLine ? "firebase" : "offline");
     await this.sendRelay("sparkMailboxes", targetUid, targetPeerId, "wire", wire);
+  }
+
+  private sendWireDirect(targetUid: string, targetPeerId: string, wire: WireMessage): boolean {
+    const serialized = safeJson(wire);
+    if (wireByteSize(serialized) > MAX_WIRE_BYTES) return false;
+    const peer = this.peers.get(targetPeerId);
+    if (peer?.uid !== targetUid || peer.channel?.readyState !== "open") return false;
+    peer.channel.send(serialized);
+    this.setMode("webrtc");
+    return true;
   }
 
   private async sendRelay(

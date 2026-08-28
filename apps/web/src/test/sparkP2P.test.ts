@@ -1,10 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   nextSparkActivityMetadata,
   parseSparkIceCandidate,
   parseSparkWire,
+  SparkP2PSession,
   sparkDirectoryHeartbeatMs,
 } from "../network/sparkP2P";
+import { emoteCue } from "../network/peerCues";
 
 describe("Spark directory activity metadata", () => {
   test("lease-only heartbeats do not advance last activity", () => {
@@ -82,6 +84,12 @@ describe("Spark wire decoding", () => {
       parseSparkWire(JSON.stringify({ type: "cue", cue: validCue, senderUid: "actor" })),
     ).toEqual({ type: "cue", cue: validCue, senderUid: "actor" });
     expect(
+      parseSparkWire(JSON.stringify({ type: "cue", cue: validCue, directOnly: true })),
+    ).toEqual({ type: "cue", cue: validCue, directOnly: true });
+    expect(
+      parseSparkWire(JSON.stringify({ type: "cue", cue: validCue, directOnly: false })),
+    ).toBeNull();
+    expect(
       parseSparkWire(JSON.stringify({ type: "cue", cue: { ...validCue, turnPlayerId: "forged" } })),
     ).toBeNull();
   });
@@ -149,5 +157,30 @@ describe("Spark wire decoding", () => {
     expect(
       parseSparkWire(JSON.stringify({ type: "view", view: { padding: "x".repeat(256 * 1_024) } })),
     ).toBeNull();
+  });
+});
+
+describe("Spark direct-only cues", () => {
+  test("drops movement when no data channel is open without writing a Firebase relay", async () => {
+    const sendRelay = vi.fn();
+    const session = Object.create(SparkP2PSession.prototype) as {
+      sendCueDirect: (cue: ReturnType<typeof emoteCue>) => Promise<boolean>;
+      [key: string]: unknown;
+    };
+    Object.assign(session, {
+      stopped: false,
+      uid: "viewer",
+      authority: undefined,
+      coordinatorUid: "host",
+      coordinatorPeerId: "host_peer",
+      peers: new Map(),
+      cueListeners: new Set(),
+      mode: "firebase",
+      modeListeners: new Set(),
+      sendRelay,
+    });
+
+    await expect(session.sendCueDirect(emoteCue("thinking"))).resolves.toBe(false);
+    expect(sendRelay).not.toHaveBeenCalled();
   });
 });

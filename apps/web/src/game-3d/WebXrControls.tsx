@@ -81,11 +81,9 @@ export function xrActionFromObject(object: Object3D | null): (() => void) | unde
 
 export function WebXrSessionButton({
   renderer,
-  lowPower,
   onPresentingChange,
 }: {
   renderer: WebGLRenderer | undefined;
-  lowPower: boolean;
   onPresentingChange: (presenting: boolean) => void;
 }) {
   const [support, setSupport] = useState<ImmersiveVrSupport>("checking");
@@ -130,7 +128,7 @@ export function WebXrSessionButton({
       if (document.pointerLockElement) document.exitPointerLock?.();
       renderer.xr.enabled = true;
       renderer.xr.setReferenceSpaceType("local-floor");
-      renderer.xr.setFramebufferScaleFactor(lowPower ? 0.72 : 0.9);
+      renderer.xr.setFramebufferScaleFactor(0.9);
       const next = await xr.requestSession("immersive-vr", {
         optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking"],
       });
@@ -143,7 +141,7 @@ export function WebXrSessionButton({
       };
       next.addEventListener("end", ended, { once: true });
       await renderer.xr.setSession(next);
-      renderer.xr.setFoveation(lowPower ? 0.75 : 0.45);
+      renderer.xr.setFoveation(0.45);
       sessionRef.current = next;
       setSession(next);
       onPresentingChange(true);

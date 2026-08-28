@@ -29,7 +29,7 @@ describe("waiting playground controls", () => {
     expect(edge.z).toBeLessThanOrEqual(10.8);
   });
 
-  it("uses a restrained renderer profile on mobile, low-power, and reduced-motion devices", () => {
+  it("preserves rendering sharpness while reducing only expensive work", () => {
     const full = playgroundPerformanceProfile({
       lowPower: false,
       mobile: false,
@@ -47,9 +47,20 @@ describe("waiting playground controls", () => {
       mobile: false,
       reducedMotion: true,
     });
+    const lowPower = playgroundPerformanceProfile({
+      lowPower: true,
+      mobile: false,
+      reducedMotion: false,
+    });
 
-    expect(full).toMatchObject({ fps: 60, shadows: true, economical: false });
-    expect(mobile).toMatchObject({ fps: 30, shadows: false, economical: true });
-    expect(reduced).toMatchObject({ fps: 24, shadows: false, economical: true });
+    expect(full).toMatchObject({ dpr: [1, 1.45], fps: 60, shadows: true, economical: false });
+    expect(mobile).toMatchObject({ dpr: [1, 1.35], fps: 45, shadows: false, economical: false });
+    expect(reduced).toMatchObject({ dpr: [1, 1.45], fps: 30, shadows: true, economical: false });
+    expect(lowPower).toMatchObject({
+      dpr: [1, 1.45],
+      fps: 30,
+      shadows: false,
+      economical: false,
+    });
   });
 });

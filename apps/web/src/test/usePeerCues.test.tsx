@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emoteCue, spectatorPoseCue } from "../network/peerCues";
+import { emoteCue, spectatorPoseCue, waitingPoseCue } from "../network/peerCues";
 
 const peer = vi.hoisted(() => {
   const state: { cueListener: ((cue: unknown, sender: string) => void) | undefined } = {
@@ -9,6 +9,7 @@ const peer = vi.hoisted(() => {
   return {
     state,
     sendCue: vi.fn(),
+    sendCueDirect: vi.fn(),
     onCue: vi.fn((listener: (cue: unknown, sender: string) => void) => {
       state.cueListener = listener;
       return vi.fn();
@@ -22,6 +23,7 @@ vi.mock("../network/firebaseClient", () => ({
     roomId: "ABCDE",
     uid: "viewer",
     sendCue: peer.sendCue,
+    sendCueDirect: peer.sendCueDirect,
     onCue: peer.onCue,
     onMode: peer.onMode,
   }),
@@ -40,6 +42,7 @@ describe("peer cue hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     peer.state.cueListener = undefined;
+    peer.sendCueDirect.mockReset();
   });
 
   it("turns a rejected cue send into an offline result", async () => {
@@ -116,5 +119,29 @@ describe("peer cue hook", () => {
 
     expect(result.current.spectatorPoses.has("spectator-a")).toBe(false);
     expect(result.current.lastCue).toEqual({ cue: exited, sender: "spectator-a" });
+  });
+
+  it("tracks waiting-room walkers and sends their poses through direct transport only", async () => {
+    peer.sendCueDirect.mockResolvedValueOnce(true);
+    const { result } = renderHook(() => usePeerCues("ABCDE", "viewer", ["viewer", "host"]));
+    const active = waitingPoseCue(
+      { x: 1, y: 0.05, z: 3, yaw: 0.3, moving: true, inPlayground: true },
+      100,
+    );
+    const exited = waitingPoseCue(
+      { x: 1, y: 0.05, z: 3, yaw: 0.3, moving: false, inPlayground: false },
+      200,
+    );
+
+    await act(async () => {
+      expect(await result.current.sendDirect(active)).toBe(true);
+      peer.state.cueListener?.(active, "host");
+    });
+    expect(peer.sendCueDirect).toHaveBeenCalledWith(active);
+    expect(peer.sendCue).not.toHaveBeenCalled();
+    expect(result.current.waitingPoses.get("host")).toEqual(active);
+
+    act(() => peer.state.cueListener?.(exited, "host"));
+    expect(result.current.waitingPoses.has("host")).toBe(false);
   });
 });

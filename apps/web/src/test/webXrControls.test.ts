@@ -89,7 +89,6 @@ describe("WebXR controls", () => {
     render(
       createElement(WebXrSessionButton, {
         renderer: { xr } as unknown as WebGLRenderer,
-        lowPower: false,
         onPresentingChange,
       }),
     );

@@ -1,6 +1,7 @@
 import { defaultAvatar } from "@daifugo/avatar-schema";
 import { expect, test, type Page } from "@playwright/test";
 import { AuthoritativeE2EServer } from "./support/authoritativeServer";
+import { waitingPoseCue } from "../src/network/peerCues";
 
 const profile = (name: string) => ({ name, avatar: defaultAvatar });
 
@@ -25,9 +26,15 @@ async function seedWaitingRoom(authority: AuthoritativeE2EServer): Promise<void>
   });
 }
 
-function poseOf(raw: string | null): { x: number; z: number; yaw: number; pitch: number } {
-  const [x = 0, , z = 0, yaw = 0, pitch = 0] = String(raw).split(",").map(Number);
-  return { x, z, yaw, pitch };
+function poseOf(raw: string | null): {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+} {
+  const [x = 0, y = 0, z = 0, yaw = 0, pitch = 0] = String(raw).split(",").map(Number);
+  return { x, y, z, yaw, pitch };
 }
 
 async function waitForPose(page: Page): Promise<string> {
@@ -46,7 +53,7 @@ test.describe("3D waiting playground", () => {
     test.setTimeout(120_000);
     const authority = new AuthoritativeE2EServer();
     await seedWaitingRoom(authority);
-    await authority.install(context, "uid-host", { renderCanvas: true });
+    await authority.install(context, "uid-host", { renderCanvas: true, cueBridge: true });
     await context.addInitScript(
       ({ roomId, token }) => {
         sessionStorage.setItem(`daifugo-reconnect-${roomId}`, token);
@@ -58,9 +65,30 @@ test.describe("3D waiting playground", () => {
 
     const dialog = page.getByRole("dialog", { name: "3D待機室" });
     await expect(dialog).toBeVisible();
-    await expect(page.locator(".waiting-member-label")).toHaveCount(2);
+    await expect(page.locator(".waiting-member-label")).toHaveCount(1);
     await expect(page.locator(".waiting-playground-roster")).toContainText("ホスト");
     await expect(page.locator(".waiting-playground-roster")).toContainText("参加者");
+    const remoteMember = page.locator('[data-waiting-member-id="uid-guest"]');
+    await expect(remoteMember).toHaveAttribute("data-waiting-member-pose", "stationary");
+    await authority.handle("uid-guest", {
+      op: "cueSend",
+      roomId: authority.roomId,
+      payload: {
+        cue: waitingPoseCue({
+          x: 1.5,
+          y: 0.05,
+          z: -2.25,
+          yaw: 0.4,
+          moving: true,
+          inPlayground: true,
+        }),
+      },
+    });
+    await expect(remoteMember).toHaveAttribute(
+      "data-waiting-member-pose",
+      "1.500,0.050,-2.250,0.400",
+      { timeout: 15_000 },
+    );
     const initial = poseOf(await waitForPose(page));
 
     const layout = await page.evaluate(() => {
@@ -115,6 +143,10 @@ test.describe("3D waiting playground", () => {
       }
       const afterPad = poseOf(await waitForPose(page));
       expect(Math.hypot(afterPad.x - initial.x, afterPad.z - initial.z)).toBeGreaterThan(0.05);
+      await page.getByRole("button", { name: "ジャンプ" }).click();
+      await expect
+        .poll(async () => poseOf(await waitForPose(page)).y, { timeout: 5_000 })
+        .toBeGreaterThan(initial.y + 0.08);
     } else {
       await expect(page.getByRole("group", { name: "移動パッド" })).toBeHidden();
       await canvas.click();
@@ -153,6 +185,10 @@ test.describe("3D waiting playground", () => {
         "data-pointer-locked",
         "false",
       );
+      await page.keyboard.press("Space");
+      await expect
+        .poll(async () => poseOf(await waitForPose(page)).y, { timeout: 5_000 })
+        .toBeGreaterThan(initial.y + 0.08);
     }
 
     await page.screenshot({ path: testInfo.outputPath("waiting-playground.png") });
