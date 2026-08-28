@@ -100,7 +100,12 @@ export class AuthoritativeE2EServer {
   private readonly pausedViewers = new Set<string>();
   private readonly cachedViews = new Map<string, RoomView>();
   private readonly processedActions = new Map<string, { name: string; result: unknown }>();
-  private readonly latestCues = new Map<string, { cue: CueEvent; sender: string }>();
+  private readonly cueStreams = new Map<
+    string,
+    Array<{ sequence: number; cue: CueEvent; sender: string }>
+  >();
+  private readonly cueCursors = new Map<string, number>();
+  private nextCueSequence = 1;
 
   constructor(private readonly options: AuthorityOptions = {}) {}
 
@@ -915,11 +920,25 @@ export class AuthoritativeE2EServer {
     if (request.op === "cueSend") {
       const cue = request.payload?.cue as CueEvent | undefined;
       if (!cue) throw new Error("invalid-argument: cue");
-      this.latestCues.set(String(request.roomId), { cue: structuredClone(cue), sender: uid });
+      const roomId = String(request.roomId);
+      const stream = this.cueStreams.get(roomId) ?? [];
+      stream.push({
+        sequence: this.nextCueSequence++,
+        cue: structuredClone(cue),
+        sender: uid,
+      });
+      if (stream.length > 512) stream.splice(0, stream.length - 512);
+      this.cueStreams.set(roomId, stream);
       return {};
     }
     if (request.op === "cueLast") {
-      return structuredClone(this.latestCues.get(String(request.roomId)) ?? null);
+      const roomId = String(request.roomId);
+      const cursorKey = `${roomId}\0${uid}`;
+      const cursor = this.cueCursors.get(cursorKey) ?? 0;
+      const next = this.cueStreams.get(roomId)?.find((entry) => entry.sequence > cursor);
+      if (!next) return null;
+      this.cueCursors.set(cursorKey, next.sequence);
+      return structuredClone({ cue: next.cue, sender: next.sender });
     }
     if (request.op === "roomBase") {
       const room = this.room(String(request.roomId));
