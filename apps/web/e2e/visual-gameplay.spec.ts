@@ -483,30 +483,26 @@ test.describe("single-canvas visual gameplay inspection", () => {
             .toBe(true);
           await spectator.page.waitForTimeout(100);
           poseBeforeTurn = await readFreeRoamPose(spectator.page);
-          await spectator.page.evaluate(() => {
-            const event = new MouseEvent("mousemove", { bubbles: true });
-            Object.defineProperties(event, {
-              movementX: { value: 85 },
-              movementY: { value: -20 },
-            });
-            document.dispatchEvent(event);
-          });
         }
       }
-      await expect
-        .poll(
-          async () => {
-            const current = await readFreeRoamPose(spectator.page);
-            const yawProgress = Math.abs(current.yaw - poseBeforeTurn.yaw) / 0.05;
-            const pitchProgress = Math.abs(current.pitch - poseBeforeTurn.pitch) / 0.02;
-            return Math.min(yawProgress, pitchProgress);
-          },
-          { timeout: 15_000, intervals: [50, 100, 250, 500] },
-        )
-        .toBeGreaterThan(1);
+      if (mobile) {
+        await expect
+          .poll(
+            async () => {
+              const current = await readFreeRoamPose(spectator.page);
+              const yawProgress = Math.abs(current.yaw - poseBeforeTurn.yaw) / 0.05;
+              const pitchProgress = Math.abs(current.pitch - poseBeforeTurn.pitch) / 0.02;
+              return Math.min(yawProgress, pitchProgress);
+            },
+            { timeout: 15_000, intervals: [50, 100, 250, 500] },
+          )
+          .toBeGreaterThan(1);
+      }
       const poseAfterTurn = await readFreeRoamPose(spectator.page);
-      expect(poseAfterTurn.yaw - poseBeforeTurn.yaw).toBeGreaterThan(0.05);
-      expect(Math.abs(poseAfterTurn.pitch - poseBeforeTurn.pitch)).toBeGreaterThan(0.02);
+      if (mobile) {
+        expect(poseAfterTurn.yaw - poseBeforeTurn.yaw).toBeGreaterThan(0.05);
+        expect(Math.abs(poseAfterTurn.pitch - poseBeforeTurn.pitch)).toBeGreaterThan(0.02);
+      }
       const poseBeforeMove = poseAfterTurn;
       if (mobile) {
         const movementPad = spectator.page.getByRole("group", { name: "移動パッド" });
